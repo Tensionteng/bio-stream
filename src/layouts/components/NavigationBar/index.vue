@@ -23,7 +23,7 @@ const { showNotify, showThemeSwitch, showScreenfull, showSearchMenu } = storeToR
 function toggleSidebar() {
   appStore.toggleSidebar(false)
 }
-
+console.log(userStore)
 /** 登出 */
 function logout() {
   userStore.logout()

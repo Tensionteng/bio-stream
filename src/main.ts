@@ -1,7 +1,7 @@
 /* eslint-disable perfectionist/sort-imports */
 
 // core
-import { pinia } from "@/pinia"
+import { createPinia } from "pinia"
 import { router } from "@/router"
 import { installPlugins } from "@/plugins"
 import App from "@/App.vue"
@@ -15,7 +15,7 @@ import "virtual:uno.css"
 
 // 创建应用实例
 const app = createApp(App)
-
+const pinia = createPinia()
 // 安装插件（全局组件、自定义指令等）
 installPlugins(app)
 

@@ -2,117 +2,130 @@
 import type { FormInstance, FormRules } from "element-plus"
 import { Lock, User } from "@element-plus/icons-vue"
 // import { useSettingsStore } from "@/pinia/stores/settings"
-import { useUserStore } from "@/pinia/stores/user"
-import { loginApi } from "./apis"
-
-// --- Code Simplification ---
-// The Owl component and its related focus logic have been removed
-// to create a more professional and streamlined appearance suitable for a bioinformatics platform.
+import { RegisterApi } from "./apis"
 
 const router = useRouter()
-const userStore = useUserStore()
-// const settingsStore = useSettingsStore()
 
-/** 登录表单元素的引用 */
-const loginFormRef = ref<FormInstance | null>(null)
+/** 注册表单元素的引用 */
+const registerFormRef = ref<FormInstance | null>(null)
 
-/** 登录按钮 Loading */
+/** 注册按钮 Loading */
 const loading = ref(false)
 
-/** 登录表单数据  */
-const loginFormData = reactive({
-  username: "admin",
-  password: "12345678"
+/** 注册表单数据 */
+const registerFormData = reactive({
+  username: "",
+  password: "",
+  confirmPassword: "" // 新增确认密码字段
 })
 
-/** 登录表单校验规则 */
-const loginFormRules: FormRules = {
-  username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
-  password: [{ required: true, message: "请输入密码", trigger: "blur" }, { min: 8, max: 16, message: "长度在 8 到 16 个字符", trigger: "blur" }]
+// 自定义校验规则：确认密码
+function validateConfirmPassword(rule: any, value: any, callback: any) {
+  if (value === "") {
+    callback(new Error("请再次输入密码"))
+  } else if (value !== registerFormData.password) {
+    callback(new Error("两次输入的密码不一致!"))
+  } else {
+    callback()
+  }
 }
 
-/** 登录 */
-function handleLogin() {
-  loginFormRef.value?.validate((valid) => {
+/** 注册表单校验规则 */
+const registerFormRules: FormRules = {
+  username: [
+    { required: true, message: "请输入用户名", trigger: "blur" }
+  ],
+  password: [
+    { required: true, message: "请输入密码", trigger: "blur" },
+    { min: 8, max: 16, message: "长度在 8 到 16 个字符", trigger: "blur" }
+  ],
+  confirmPassword: [
+    { required: true, validator: validateConfirmPassword, trigger: "blur" }
+  ]
+}
+
+/** 注册 */
+function handleRegister() {
+  registerFormRef.value?.validate((valid) => {
     if (!valid) {
+      ElMessage.error("请检查输入项是否正确")
       return
     }
     loading.value = true
-    loginApi(loginFormData)
-      .then(({ data }) => {
-        // 登录成功
-        if (data.access) {
-          userStore.setToken(data.token)
-          userStore.setUsername(data.username)
-          console.log(userStore.username)
-          router.push("/")
-        } else {
-          // 1. 弹出错误提示
-          ElMessage.error("用户名或密码错误，请重试")
-
-          // 2. 清空密码输入框，让用户可以重新输入
-          loginFormData.password = ""
-        }
+    // 准备发送到后端的数据
+    const apiData = {
+      username: registerFormData.username,
+      password: registerFormData.password
+    }
+    RegisterApi(apiData)
+      .then(() => {
+        ElMessage.success("注册成功！即将跳转到登录页面...")
+        // 延迟跳转，给用户看提示的时间
+        setTimeout(() => {
+          router.push("/auth/login")
+        }, 1000)
       })
-      .catch((error) => {
-        // .catch 块现在主要处理网络请求本身的失败 (比如 404, 500, 网络中断)
-        console.error("登录请求失败:", error)
-        loginFormData.password = ""
+      .catch(() => {
+        console.error("注册失败:用户名已存在")
       })
       .finally(() => {
-        // 无论成功或失败，最后都将 loading 状态置为 false
         loading.value = false
       })
   })
 }
-// 注册
-function goToRegister() {
-  router.push("/auth/register") // 跳转到路径为 /register 的页面
+
+/** 返回登录页 */
+function goToLogin() {
+  router.push("/auth/login")
 }
 </script>
 
 <template>
-  <!-- The main container is redesigned for a modern, clean aesthetic. -->
   <div class="login-page-wrapper">
     <div class="login-card">
       <div class="title">
-        <!-- The logo is kept for branding. -->
         <img src="@@/assets/images/layouts/logo-text-2.png" alt="Logo">
-        <!-- A clear header and sub-header are added for better context. -->
         <h1 class="main-title">
-          生物数据分析平台
+          创建您的账户
         </h1>
       </div>
       <div class="content">
-        <el-form ref="loginFormRef" :model="loginFormData" :rules="loginFormRules" @keyup.enter="handleLogin">
+        <el-form ref="registerFormRef" :model="registerFormData" :rules="registerFormRules" @keyup.enter="handleRegister">
           <el-form-item prop="username">
             <el-input
-              v-model.trim="loginFormData.username"
-              placeholder="用户名"
+              v-model.trim="registerFormData.username"
+              placeholder="设置用户名"
               type="text"
-              tabindex="1"
               :prefix-icon="User"
               size="large"
             />
           </el-form-item>
           <el-form-item prop="password">
             <el-input
-              v-model.trim="loginFormData.password"
-              placeholder="密码"
+              v-model.trim="registerFormData.password"
+              placeholder="设置密码 (8-16位)"
               type="password"
-              tabindex="2"
               :prefix-icon="Lock"
               size="large"
               show-password
             />
           </el-form-item>
-          <el-button :loading="loading" type="primary" size="large" @click="handleLogin">
-            登 录
+          <!-- 确认密码输入框 -->
+          <el-form-item prop="confirmPassword">
+            <el-input
+              v-model.trim="registerFormData.confirmPassword"
+              placeholder="确认密码"
+              type="password"
+              :prefix-icon="Lock"
+              size="large"
+              show-password
+            />
+          </el-form-item>
+          <el-button :loading="loading" type="primary" size="large" @click="handleRegister">
+            注 册
           </el-button>
-        </el-form>
-        <el-form>
-          <el-button type="primary" size="large" @click="goToRegister">
-            注册
+          <el-button link type="primary" @click="goToLogin">
+            已有账户？返回登录
           </el-button>
         </el-form>
       </div>
@@ -162,14 +175,6 @@ function goToRegister() {
   }
 }
 
-.theme-switch {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  cursor: pointer;
-  z-index: 10;
-}
-
 // The login card uses "glassmorphism" for a sleek, modern, frosted-glass effect.
 .login-card {
   width: 420px;
@@ -199,12 +204,6 @@ function goToRegister() {
       color: #333; // Darker text for readability
       letter-spacing: 1px;
     }
-
-    .subtitle {
-      font-size: 14px;
-      color: #757575;
-      margin-top: 8px;
-    }
   }
 
   .content {
@@ -222,48 +221,52 @@ function goToRegister() {
     }
 
     // --- 按钮样式 ---
-    .el-button {
+
+    // [修改点 1]：只针对主按钮应用渐变样式
+    // 使用 :not(.is-link) 来排除链接按钮
+    .el-button--primary:not(.is-link) {
       width: 100%;
       margin-top: 20px;
       border-radius: 8px;
       font-weight: 600;
       letter-spacing: 2px;
-
-      //设置文字颜色为白色
       border: none;
       color: white;
-
-      // 创建一个渐变背景
-      background: linear-gradient(135deg, #26a69a 0%, #42a5f5 100%); // Teal to Blue gradient
-
-      // 添加初始阴影，使其具有立体感
+      background: linear-gradient(135deg, #26a69a 0%, #42a5f5 100%);
       box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-
-      // 添加平滑的过渡动画，应用于所有变化的属性
       transition: all 0.3s ease;
 
-      // 定义悬停（Hover）状态下的样式
       &:hover:not(.is-disabled) {
-        //向上移动，创建“浮起”效果
         transform: translateY(-3px);
-        // 增强阴影，使浮起效果更明显
         box-shadow: 0 7px 20px rgba(66, 165, 245, 0.4);
       }
 
-      // 定义激活（Active/Click）状态下的样式
       &:active:not(.is-disabled) {
-        // 轻微下沉，模拟“按下”效果
         transform: translateY(-1px);
-        // 减弱阴影
         box-shadow: 0 4px 10px rgba(66, 165, 245, 0.3);
       }
 
-      // 当按钮处于加载状态时，利用它
       &.is-loading {
-        // 在加载时，使用原始的渐变色，但不应用任何交互效果
         background: linear-gradient(135deg, #26a69a 0%, #42a5f5 100%);
-        // 降低透明度以示禁用
         opacity: 0.7;
+      }
+    }
+
+    // [修改点 2]：为链接按钮设置特定样式
+    .el-button.is-link {
+      width: 100%; // 仍然占满宽度以使其居中
+      margin-top: 15px; // 调整与上方按钮的间距
+      background: none; // 移除背景
+      box-shadow: none; // 移除阴影
+      border: none; // 移除边框
+      font-weight: 400; // 正常字重
+
+      // 移除浮动效果，添加下划线效果
+      &:hover,
+      &:active {
+        transform: none;
+        box-shadow: none;
+        text-decoration: underline;
       }
     }
   }

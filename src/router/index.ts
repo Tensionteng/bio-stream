@@ -40,8 +40,15 @@ export const constantRoutes: RouteRecordRaw[] = [
     alias: "/:pathMatch(.*)*"
   },
   {
-    path: "/login",
+    path: "/auth/login",
     component: () => import("@/pages/login/index.vue"),
+    meta: {
+      hidden: true
+    }
+  },
+  {
+    path: "/auth/register",
+    component: () => import("@/pages/register/index.vue"),
     meta: {
       hidden: true
     }
@@ -73,6 +80,14 @@ export const constantRoutes: RouteRecordRaw[] = [
       elIcon: "DataBoard"
     },
     children: [
+      // {
+      //   path: "Upload",
+      //   component: () => import("@/pages/Upload.vue"),
+      //   name: "Upload",
+      //   meta: {
+      //     title: "上传文件"
+      //   }
+      // },
       {
         path: "unocss",
         component: () => import("@/pages/demo/unocss/index.vue"),
@@ -197,8 +212,6 @@ export const dynamicRoutes: RouteRecordRaw[] = [
     meta: {
       title: "权限演示",
       elIcon: "Lock",
-      // 可以在根路由中设置角色
-      roles: ["admin", "editor"],
       alwaysShow: true
     },
     children: [
@@ -207,9 +220,7 @@ export const dynamicRoutes: RouteRecordRaw[] = [
         component: () => import("@/pages/demo/permission/page-level.vue"),
         name: "PermissionPageLevel",
         meta: {
-          title: "页面级",
-          // 或者在子路由中设置角色
-          roles: ["admin"]
+          title: "页面级"
         }
       },
       {
