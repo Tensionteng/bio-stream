@@ -1,58 +1,31 @@
 import type { RouteRecordRaw } from "vue-router"
+import { defineStore } from "pinia"
+import { ref } from "vue"
 import { pinia } from "@/pinia"
-import { constantRoutes, dynamicRoutes } from "@/router"
-import { routerConfig } from "@/router/config"
-import { flatMultiLevelRoutes } from "@/router/helper"
-
-function hasPermission(roles: string[], route: RouteRecordRaw) {
-  const routeRoles = route.meta?.roles
-  return routeRoles ? roles.some(role => routeRoles.includes(role)) : true
-}
-
-function filterDynamicRoutes(routes: RouteRecordRaw[], roles: string[]) {
-  const res: RouteRecordRaw[] = []
-  routes.forEach((route) => {
-    const tempRoute = { ...route }
-    if (hasPermission(roles, tempRoute)) {
-      if (tempRoute.children) {
-        tempRoute.children = filterDynamicRoutes(tempRoute.children, roles)
-      }
-      res.push(tempRoute)
-    }
-  })
-  return res
-}
+// 我们只需要从 router 导入完整的路由列表
+import { constantRoutes } from "@/router"
 
 export const usePermissionStore = defineStore("permission", () => {
-  // 可访问的路由
+  // 唯一需要管理的状态：用于生成侧边栏菜单的路由列表
   const routes = ref<RouteRecordRaw[]>([])
 
-  // 有访问权限的动态路由
-  const addRoutes = ref<RouteRecordRaw[]>([])
-
-  // 根据角色生成可访问的 Routes（可访问的路由 = 常驻路由 + 有访问权限的动态路由）
-  const setRoutes = (roles: string[]) => {
-    const accessedRoutes = filterDynamicRoutes(dynamicRoutes, roles)
-    set(accessedRoutes)
+  /**
+   * action: 设置路由列表
+   * 它的作用仅仅是把完整的路由列表赋值给 state，供菜单组件使用。
+   */
+  const setRoutes = () => {
+    routes.value = constantRoutes
   }
 
-  // 所有路由 = 所有常驻路由 + 所有动态路由
-  const setAllRoutes = () => {
-    set(dynamicRoutes)
+  // 返回 state 和 action
+  return {
+    routes,
+    setRoutes
   }
-
-  // 统一设置
-  const set = (accessedRoutes: RouteRecordRaw[]) => {
-    routes.value = constantRoutes.concat(accessedRoutes)
-    addRoutes.value = routerConfig.thirdLevelRouteCache ? flatMultiLevelRoutes(accessedRoutes) : accessedRoutes
-  }
-
-  return { routes, addRoutes, setRoutes, setAllRoutes }
 })
 
 /**
- * @description 在 SPA 应用中可用于在 pinia 实例被激活前使用 store
- * @description 在 SSR 应用中可用于在 setup 外使用 store
+ * 在 setup 外使用 store
  */
 export function usePermissionStoreOutside() {
   return usePermissionStore(pinia)
