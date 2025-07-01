@@ -43,6 +43,20 @@ export default defineConfig(({ mode }) => {
           ws: false,
           // 是否允许跨域
           changeOrigin: true
+        },
+        "/auth/refresh": {
+          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
+          // 是否为 WebSocket
+          ws: false,
+          // 是否允许跨域
+          changeOrigin: true
+        },
+        "/auth/register": {
+          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
+          // 是否为 WebSocket
+          ws: false,
+          // 是否允许跨域
+          changeOrigin: true
         }
       },
       // 是否允许跨域

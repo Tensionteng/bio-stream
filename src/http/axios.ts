@@ -2,14 +2,17 @@ import type { AxiosInstance, AxiosRequestConfig } from "axios"
 import { getToken } from "@@/utils/cache/cookies"
 import axios from "axios"
 import { get, merge } from "lodash-es"
+import { refreshTokenApi } from "@/pages/login/apis/index"
 import { useUserStore } from "@/pinia/stores/user"
-
 /** 退出登录并强制刷新页面（会重定向到登录页） */
 function logout() {
   useUserStore().logout()
   location.reload()
 }
-
+// 标记是否正在刷新 token
+let isRefreshing = false
+// 存储因 token 过期而挂起的请求
+let requestsToRetry: any[] = []
 /** 创建请求实例 */
 function createInstance() {
   // 创建一个 axios 实例命名为 instance
@@ -21,80 +24,91 @@ function createInstance() {
     // 发送失败
     error => Promise.reject(error)
   )
-  // 响应拦截器（可根据具体业务作出相应的调整）
+  // 响应拦截器
   instance.interceptors.response.use(
     (response) => {
-      // apiData 是 api 返回的数据
+      // 成功响应的逻辑保持不变
       const apiData = response.data
-      // 二进制数据则直接返回
       const responseType = response.request?.responseType
       if (responseType === "blob" || responseType === "arraybuffer") return apiData
       const status = response.status
       if (status === 200) return apiData
-      // 这个 code 是和后端约定的业务 code
-      // console.log(apiData)
-      // const code = apiData.code
-      // // 如果没有 code, 代表这不是项目后端开发的 api
-      // if (code === undefined) {
-      //   ElMessage.error("非本系统的接口")
-      //   return Promise.reject(new Error("非本系统的接口"))
-      // }
-      // switch (code) {
-      //   case 0:
-      //     // 本系统采用 code === 0 来表示没有业务错误
-      //     return apiData
-      //   case 401:
-      //     // Token 过期时
-      //     return logout()
-      //   default:
-      //     // 不是正确的 code
-      //     ElMessage.error(apiData.message || "Error")
-      //     return Promise.reject(new Error("Error"))
-      // }
     },
-    (error) => {
-      // status 是 HTTP 状态码
-      const status = get(error, "response.status")
-      const message = get(error, "response.data.message")
-      switch (status) {
-        case 400:
-          error.message = "请求错误"
-          break
-        case 401:
-          // Token 过期时
-          error.message = message || "未授权"
-          logout()
-          break
-        case 403:
-          error.message = message || "拒绝访问"
-          break
-        case 404:
-          error.message = "请求地址出错"
-          break
-        case 408:
-          error.message = "请求超时"
-          break
-        case 500:
-          error.message = "服务器内部错误"
-          break
-        case 501:
-          error.message = "服务未实现"
-          break
-        case 502:
-          error.message = "网关错误"
-          break
-        case 503:
-          error.message = "服务不可用"
-          break
-        case 504:
-          error.message = "网关超时"
-          break
-        case 505:
-          error.message = "HTTP 版本不受支持"
-          break
+    async (error) => {
+      const userStore = useUserStore()
+      // 如果没有 error.response，说明是网络错误等，直接抛出
+      if (!error.response) {
+        ElMessage.error("网络连接异常，请检查您的网络设置")
+        return Promise.reject(error)
       }
-      ElMessage.error(error.message)
-      return Promise.reject(error)
+
+      const { config } = error
+      const status = error.response.status
+
+      // 如果不是 401 错误，则按原来的逻辑处理其他HTTP错误
+      if (status !== 401) {
+        // ... (你原来的 switch-case 错误处理逻辑可以放在这里)
+        const message = get(error, "response.data.message")
+        switch (status) {
+          case 400: error.message = "请求错误"
+            break
+          case 403: error.message = message || "拒绝访问"
+            break
+          case 404: error.message = "请求地址出错"
+            break
+            // ... 其他 case
+          default: error.message = message || "请求失败"
+            break
+        }
+        ElMessage.error(error.message)
+        return Promise.reject(error)
+      }
+
+      // --- 以下是 401 错误（Token过期）的处理逻辑 ---
+
+      // 如果正在刷新 token，将当前失败的请求放入队列等待
+      if (isRefreshing) {
+        return new Promise((resolve) => {
+          requestsToRetry.push((token: string) => {
+            // 当刷新成功后，会用新的 token 更新此请求的请求头
+            config.headers.Authorization = `Bearer ${token}`
+            // 然后重新发起请求
+            resolve(instance(config))
+          })
+        })
+      }
+
+      // 这是第一个遇到 401 的请求，开始执行 token 刷新流程
+      isRefreshing = true
+
+      try {
+        // 调用续签 API
+        const responseData = await refreshTokenApi({ refresh: userStore.refreshToken })
+        // 直接从 responseData 中获取 newAccessToken
+        const newAccessToken = responseData.access
+
+        //  更新 Pinia store 中的 access_token
+        userStore.setToken(newAccessToken)
+
+        // 重试原始失败的请求（config 是原始请求的配置）
+        config.headers.Authorization = `Bearer ${newAccessToken}`
+
+        // 重新执行所有在队列中等待的请求
+        requestsToRetry.forEach(callback => callback(newAccessToken))
+        requestsToRetry = [] // 清空队列
+
+        // 返回重试成功的原始请求的 Promise
+        return instance(config)
+      } catch (refreshError) {
+        // 如果 refresh_token 也过期了，或续签接口本身失败
+        console.error("无法刷新令牌:", refreshError)
+        logout() // 调用登出函数，清空所有信息并刷新页面
+        ElMessage.error("您的会话已过期，请重新登录。")
+        return Promise.reject(refreshError)
+      } finally {
+        // 无论成功与否，都要重置刷新状态
+        isRefreshing = false
+      }
     }
   )
   return instance

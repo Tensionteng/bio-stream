@@ -158,14 +158,6 @@ export const constantRoutes: RouteRecordRaw[] = [
             meta: {
               title: "useFullscreenLoading"
             }
-          },
-          {
-            path: "use-watermark",
-            component: () => import("@/pages/demo/composable-demo/use-watermark.vue"),
-            name: "UseWatermark",
-            meta: {
-              title: "useWatermark"
-            }
           }
         ]
       }

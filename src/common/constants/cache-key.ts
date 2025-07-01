@@ -1,8 +1,9 @@
-const SYSTEM_NAME = "v3-admin-vite"
+const SYSTEM_NAME = "Bioscience"
 
 /** 缓存数据时用到的 Key */
 export class CacheKey {
   static readonly TOKEN = `${SYSTEM_NAME}-token-key`
+  static readonly REFRESH_TOKEN = `${SYSTEM_NAME}-refresh_token`// 新增 Refresh Token 的 Key
   static readonly CONFIG_LAYOUT = `${SYSTEM_NAME}-config-layout-key`
   static readonly SIDEBAR_STATUS = `${SYSTEM_NAME}-sidebar-status-key`
   static readonly ACTIVE_THEME_NAME = `${SYSTEM_NAME}-active-theme-name-key`

@@ -18,13 +18,15 @@ const loginFormRef = ref<FormInstance | null>(null)
 
 /** 登录按钮 Loading */
 const loading = ref(false)
-
 /** 登录表单数据  */
 const loginFormData = reactive({
-  username: "admin",
-  password: "12345678"
+  username: "dawda",
+  password: "fefwesfes"
 })
-
+console.log(userStore.username)
+if (userStore.username) {
+  loginFormData.username = userStore.username
+}
 /** 登录表单校验规则 */
 const loginFormRules: FormRules = {
   username: [{ required: true, message: "请输入用户名", trigger: "blur" }],
@@ -41,22 +43,11 @@ function handleLogin() {
     loginApi(loginFormData)
       .then(({ data }) => {
         // 登录成功
-        if (data.access) {
-          userStore.setToken(data.token)
-          userStore.setUsername(data.username)
-          console.log(userStore.username)
-          router.push("/")
-        } else {
-          // 1. 弹出错误提示
-          ElMessage.error("用户名或密码错误，请重试")
-
-          // 2. 清空密码输入框，让用户可以重新输入
-          loginFormData.password = ""
-        }
+        userStore.setLoginInfo(data)
+        router.push("/")
       })
       .catch((error) => {
-        // .catch 块现在主要处理网络请求本身的失败 (比如 404, 500, 网络中断)
-        console.error("登录请求失败:", error)
+        console.error("用户名或密码错误", error)
         loginFormData.password = ""
       })
       .finally(() => {

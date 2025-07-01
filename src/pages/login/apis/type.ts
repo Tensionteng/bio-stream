@@ -6,13 +6,19 @@ export interface LoginRequestData {
 }
 
 export type CaptchaResponseData = ApiResponseData<string>
+export interface RefreshRequestData {
+  refresh: string
+}
 
+export interface RefreshResponseData {
+  access: string
+}
 // export type LoginResponseData = ApiResponseData<{ token: string }>
 export interface LoginSuccessData {
-  access: boolean
   userid: number
   username: string
-  token: string
+  access: string
+  refresh: string
 }
 
 // 使用新的接口来定义 LoginResponseData

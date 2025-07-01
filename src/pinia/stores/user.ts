@@ -1,4 +1,4 @@
-import { setToken as _setToken, getToken, removeToken } from "@@/utils/cache/cookies"
+import { setRefreshToken as _setRefreshToken, setToken as _setToken, getRefreshToken, getToken, removeRefreshToken, removeToken } from "@@/utils/cache/cookies"
 import { pinia } from "@/pinia"
 import { resetRouter } from "@/router"
 import { useSettingsStore } from "./settings"
@@ -6,37 +6,53 @@ import { useTagsViewStore } from "./tags-view"
 
 export const useUserStore = defineStore("user", () => {
   const token = ref<string>(getToken() || "")
-  const roles = ref<string[]>([])
+  const refreshToken = ref<string>(getRefreshToken() || "")
   const username = ref<string>("")
 
   const tagsViewStore = useTagsViewStore()
   const settingsStore = useSettingsStore()
 
-  // 设置 Token
-  const setToken = (value: string) => {
-    _setToken(value)
-    token.value = value
+  // 这个 Action 现在用于登录成功后，一次性设置所有信息
+  const setLoginInfo = (data: { access: string, refresh: string, username: string }) => {
+    // 保存 access_token
+    _setToken(data.access)
+    token.value = data.access
+
+    // 保存 refresh_token
+    _setRefreshToken(data.refresh)
+    refreshToken.value = data.refresh
+
+    // 保存 username
+    username.value = data.username
+  }
+
+  // 单独设置 access_token (续签成功后调用)
+  const setToken = (newToken: string) => {
+    _setToken(newToken)
+    token.value = newToken
   }
   const setUsername = (value: string) => {
     username.value = value
   }
 
-  // 登出
+  // 需要清空两个 token
   const logout = () => {
     removeToken()
+    removeRefreshToken()
     token.value = ""
-    roles.value = []
+    refreshToken.value = ""
+    username.value = "" // 清空用户名
     resetRouter()
     resetTagsView()
   }
 
-  // 重置 Token
   const resetToken = () => {
     removeToken()
+    removeRefreshToken()
     token.value = ""
+    refreshToken.value = ""
   }
 
-  // 重置 Visited Views 和 Cached Views
   const resetTagsView = () => {
     if (!settingsStore.cacheTagsView) {
       tagsViewStore.delAllVisitedViews()
@@ -44,13 +60,20 @@ export const useUserStore = defineStore("user", () => {
     }
   }
 
-  return { token, username, setToken, logout, resetToken, setUsername }
+  // 5. 导出新的 state 和 actions
+  return {
+    token,
+    refreshToken,
+    username,
+    setLoginInfo,
+    setToken,
+    setUsername,
+    logout,
+    resetToken
+  }
 })
 
-/**
- * @description 在 SPA 应用中可用于在 pinia 实例被激活前使用 store
- * @description 在 SSR 应用中可用于在 setup 外使用 store
- */
+/** 在 setup 外使用 store */
 export function useUserStoreOutside() {
   return useUserStore(pinia)
 }

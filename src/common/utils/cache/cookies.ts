@@ -14,3 +14,16 @@ export function setToken(token: string) {
 export function removeToken() {
   Cookies.remove(CacheKey.TOKEN)
 }
+// --- Refresh Token ---
+export function getRefreshToken() {
+  return Cookies.get(CacheKey.REFRESH_TOKEN)
+}
+
+export function setRefreshToken(token: string) {
+  // refresh_token 的有效期为 7 天
+  Cookies.set(CacheKey.REFRESH_TOKEN, token, { expires: 7 })
+}
+
+export function removeRefreshToken() {
+  Cookies.remove(CacheKey.REFRESH_TOKEN)
+}
