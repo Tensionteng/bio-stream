@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { FormInstance, FormRules } from "element-plus"
+import type { RegisterSuccessResponseData } from "@/pages/register/apis/type"
 import { Lock, User } from "@element-plus/icons-vue"
 // import { useSettingsStore } from "@/pinia/stores/settings"
 import { RegisterApi } from "./apis"
@@ -58,7 +59,8 @@ function handleRegister() {
       password: registerFormData.password
     }
     RegisterApi(apiData)
-      .then(() => {
+      .then((data: RegisterSuccessResponseData) => {
+        console.log(data)
         ElMessage.success("注册成功！即将跳转到登录页面...")
         // 延迟跳转，给用户看提示的时间
         setTimeout(() => {
@@ -66,7 +68,10 @@ function handleRegister() {
         }, 1000)
       })
       .catch(() => {
-        console.error("注册失败:用户名已存在")
+        ElMessage({
+          type: "error",
+          message: "注册失败:用户名已存在"
+        })
       })
       .finally(() => {
         loading.value = false

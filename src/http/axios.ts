@@ -47,7 +47,6 @@ function createInstance() {
 
       // 如果不是 401 错误，则按原来的逻辑处理其他HTTP错误
       if (status !== 401) {
-        // ... (你原来的 switch-case 错误处理逻辑可以放在这里)
         const message = get(error, "response.data.message")
         switch (status) {
           case 400: error.message = "请求错误"
@@ -56,7 +55,6 @@ function createInstance() {
             break
           case 404: error.message = "请求地址出错"
             break
-            // ... 其他 case
           default: error.message = message || "请求失败"
             break
         }

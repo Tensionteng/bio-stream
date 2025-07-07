@@ -23,7 +23,6 @@ const loginFormData = reactive({
   username: "admin",
   password: "12345678"
 })
-console.log(userStore.username)
 if (userStore.username) {
   loginFormData.username = userStore.username
 }
@@ -47,6 +46,10 @@ function handleLogin() {
         router.push("/")
       })
       .catch((error) => {
+        ElMessage({
+          type: "error",
+          message: "用户名或密码错误"
+        })
         console.error("用户名或密码错误", error)
         loginFormData.password = ""
       })
