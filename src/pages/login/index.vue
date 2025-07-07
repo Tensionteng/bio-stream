@@ -20,8 +20,8 @@ const loginFormRef = ref<FormInstance | null>(null)
 const loading = ref(false)
 /** 登录表单数据  */
 const loginFormData = reactive({
-  username: "dawda",
-  password: "fefwesfes"
+  username: "admin",
+  password: "12345678"
 })
 console.log(userStore.username)
 if (userStore.username) {
