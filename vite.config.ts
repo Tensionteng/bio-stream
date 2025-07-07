@@ -57,6 +57,10 @@ export default defineConfig(({ mode }) => {
           ws: false,
           // 是否允许跨域
           changeOrigin: true
+        },
+        "/files": {
+          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
+          changeOrigin: true
         }
       },
       // 是否允许跨域

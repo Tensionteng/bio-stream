@@ -80,14 +80,6 @@ export const constantRoutes: RouteRecordRaw[] = [
       elIcon: "DataBoard"
     },
     children: [
-      // {
-      //   path: "Upload",
-      //   component: () => import("@/pages/Upload.vue"),
-      //   name: "Upload",
-      //   meta: {
-      //     title: "上传文件"
-      //   }
-      // },
       {
         path: "unocss",
         component: () => import("@/pages/demo/unocss/index.vue"),
@@ -160,6 +152,33 @@ export const constantRoutes: RouteRecordRaw[] = [
             }
           }
         ]
+      }
+    ]
+  },
+  {
+    path: "/upload",
+    component: Layouts,
+    name: "Upload",
+    meta: {
+      title: "数据上传",
+      elIcon: "UploadFilled"
+    },
+    children: [
+      {
+        path: "DNA",
+        component: () => import("@/pages/upload/UploadDNA.vue"),
+        name: "UploadDNA",
+        meta: {
+          title: "DNA文件上传"
+        }
+      },
+      {
+        path: "RNA",
+        component: () => import("@/pages/upload/UploadRNA.vue"),
+        name: "UploadRNA",
+        meta: {
+          title: "RNA文件上传"
+        }
       }
     ]
   },
