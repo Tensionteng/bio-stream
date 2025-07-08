@@ -8,12 +8,12 @@ import type {
   UploadRawFile,
   UploadUserFile
 } from "element-plus"
+import type { InitiateUploadResponse, UploadUrlInfo } from "@/pages/upload/type"
 import { UploadFilled } from "@element-plus/icons-vue"
 // 同时导入原始的 axios，用于直接上传到 S3
 import axios from "axios"
 import { ElLoading, ElMessage } from "element-plus"
 import { reactive, ref } from "vue"
-// 假设这是你封装的请求模块
 import { request } from "@/http/axios"
 
 const formData = reactive({
@@ -110,25 +110,25 @@ async function submitForm() {
       }))
     }
 
-    const initiateResponse = await request<any>({
-      url: "/files/upload/initiate",
+    const initiateResponse = await request<InitiateUploadResponse>({
+      url: "api/files/upload/initiate",
       method: "POST",
       data: initiateRequestPayload
     })
     console.log(initiateRequestPayload)
+    console.log(initiateResponse)
     if (initiateResponse.status !== "success") {
-      throw new Error(`初始化上传失败: ${initiateResponse.message || "未知错误"}`)
+      throw new Error(`初始化上传失败`)
     }
     const uploadUrls = initiateResponse.upload_urls
 
     // 步骤 2: 使用 Axios 并行上传文件到 S3
     loadingInstance.setText("正在上传文件，请稍候...")
-    const uploadPromises = uploadUrls.map((urlInfo: any) => {
+    const uploadPromises = uploadUrls.map((urlInfo: UploadUrlInfo) => {
       const fileToUpload = filesToUpload.find(f => f.field_name === urlInfo.field_name)?.file
       if (!fileToUpload) {
         throw new Error(`找不到与 field_name "${urlInfo.field_name}" 匹配的文件`)
       }
-
       return axios.put(urlInfo.upload_url, fileToUpload, {
         headers: {
           "Content-Type": fileToUpload.type || "application/octet-stream"
@@ -398,7 +398,6 @@ async function submitForm() {
   transition:
     border-color 0.3s,
     background-color 0.3s;
-  /* ✨ 新增：Flex 布局实现内部元素完美居中 */
   display: flex;
   flex-direction: column;
   justify-content: center;

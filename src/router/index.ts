@@ -160,7 +160,7 @@ export const constantRoutes: RouteRecordRaw[] = [
     component: Layouts,
     name: "Upload",
     meta: {
-      title: "数据上传",
+      title: "文件上传",
       elIcon: "UploadFilled"
     },
     children: [
@@ -183,30 +183,26 @@ export const constantRoutes: RouteRecordRaw[] = [
     ]
   },
   {
-    path: "/link",
+    path: "/filesInfo",
+    component: Layouts,
+    redirect: "/filesInfo/index", // 当点击菜单时，重定向到实际的页面路由
     meta: {
-      title: "文档链接",
-      elIcon: "Link"
+      title: "文件查询", // 菜单标题
+      elIcon: "Folder" // 菜单图标
     },
     children: [
       {
-        path: "https://juejin.cn/post/7445151895121543209",
-        component: () => {},
-        name: "Link1",
+        path: "index",
+        name: "FilesInfo",
+        component: () => import("@/pages/filesInfo/index.vue"),
         meta: {
-          title: "中文文档"
-        }
-      },
-      {
-        path: "https://juejin.cn/column/7207659644487139387",
-        component: () => {},
-        name: "Link2",
-        meta: {
-          title: "新手教程"
+          title: "文件查询", // 标题通常和父级保持一致
+          elIcon: "Folder" // 图标也保持一致
         }
       }
     ]
   }
+
 ]
 
 /**

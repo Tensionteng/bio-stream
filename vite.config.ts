@@ -37,30 +37,12 @@ export default defineConfig(({ mode }) => {
       open: true,
       // 反向代理
       proxy: {
-        "/auth/login": {
-          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
-          // 是否为 WebSocket
-          ws: false,
-          // 是否允许跨域
-          changeOrigin: true
-        },
-        "/auth/refresh": {
-          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
-          // 是否为 WebSocket
-          ws: false,
-          // 是否允许跨域
-          changeOrigin: true
-        },
-        "/auth/register": {
-          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
-          // 是否为 WebSocket
-          ws: false,
-          // 是否允许跨域
-          changeOrigin: true
-        },
-        "/files": {
-          target: "https://m1.apifoxmock.com/m1/6657953-6366098-default",
-          changeOrigin: true
+        "/api": {
+        // 目标服务器地址，也就是你的 Mock 服务器地址
+        // 注意：不要包含最后的 /files/list
+          target: "http://127.0.0.1:4523/m1/6657953-6366098-default",
+          // changeOrigin: true, // 必须设置为 true，表示改变请求源头
+          rewrite: path => path.replace(/^\/api/, "") // 重写路径，去掉开头的 /api
         }
       },
       // 是否允许跨域

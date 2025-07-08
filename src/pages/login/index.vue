@@ -5,10 +5,6 @@ import { Lock, User } from "@element-plus/icons-vue"
 import { useUserStore } from "@/pinia/stores/user"
 import { loginApi } from "./apis"
 
-// --- Code Simplification ---
-// The Owl component and its related focus logic have been removed
-// to create a more professional and streamlined appearance suitable for a bioinformatics platform.
-
 const router = useRouter()
 const userStore = useUserStore()
 // const settingsStore = useSettingsStore()

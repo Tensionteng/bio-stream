@@ -4,7 +4,7 @@ import { request } from "@/http/axios"
 /** 登录并返回 Token */
 function loginApi(data: Auth.LoginRequestData) {
   return request<Auth.LoginResponseData>({
-    url: "auth/login",
+    url: "api/auth/login",
     method: "post",
     data
   })
@@ -13,7 +13,7 @@ function loginApi(data: Auth.LoginRequestData) {
 /** 令牌续签 API */
 function refreshTokenApi(data: Auth.RefreshRequestData) {
   return request<Auth.RefreshResponseData>({
-    url: "auth/refresh",
+    url: "api/auth/refresh",
     method: "post",
     data
   })
