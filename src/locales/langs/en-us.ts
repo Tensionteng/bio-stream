@@ -178,7 +178,6 @@ const local: App.I18n.Schema = {
     function: 'System Function',
     alova: 'Alova Example',
     alova_request: 'Alova Request',
-    alova_user: 'User List',
     alova_scenes: 'Scenario Request',
     function_tab: 'Tab',
     'function_multi-tab': 'Multi Tab',

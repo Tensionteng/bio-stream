@@ -178,7 +178,6 @@ const local: App.I18n.Schema = {
     function: '系统功能',
     alova: 'alova示例',
     alova_request: 'alova请求',
-    alova_user: '用户列表',
     alova_scenes: '场景化请求',
     function_tab: '标签页',
     'function_multi-tab': '多标签页',
