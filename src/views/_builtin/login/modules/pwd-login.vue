@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { $t } from '@/locales';
 import { loginModuleRecord } from '@/constants/app';
+import { useAuthStore } from '@/store/modules/auth';
 import { useRouterPush } from '@/hooks/common/router';
 import { useForm, useFormRules } from '@/hooks/common/form';
-import { useAuthStore } from '@/store/modules/auth';
+import { $t } from '@/locales';
 
 defineOptions({ name: 'PwdLogin' });
 
@@ -18,8 +18,8 @@ interface FormModel {
 }
 
 const model = ref<FormModel>({
-  userName: 'Soybean',
-  password: '123456'
+  userName: 'admin',
+  password: '12345678'
 });
 
 const rules = computed<Record<keyof FormModel, App.Global.FormRule[]>>(() => {

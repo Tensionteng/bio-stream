@@ -87,6 +87,9 @@ declare module "@elegant-router/types" {
     "plugin_tables_vtable": "/plugin/tables/vtable";
     "plugin_typeit": "/plugin/typeit";
     "plugin_video": "/plugin/video";
+    "task": "/task";
+    "task_create": "/task/create";
+    "task_list": "/task/list";
     "user-center": "/user-center";
   };
 
@@ -145,6 +148,7 @@ declare module "@elegant-router/types" {
     | "manage"
     | "multi-menu"
     | "plugin"
+    | "task"
     | "user-center"
   >;
 
@@ -207,6 +211,8 @@ declare module "@elegant-router/types" {
     | "plugin_tables_vtable"
     | "plugin_typeit"
     | "plugin_video"
+    | "task_create"
+    | "task_list"
     | "user-center"
   >;
 

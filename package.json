@@ -71,6 +71,7 @@
     "dhtmlx-gantt": "9.0.5",
     "dompurify": "3.2.4",
     "echarts": "5.6.0",
+    "elegant-router": "1.0.4-beta.1",
     "element-plus": "^2.9.5",
     "jsbarcode": "3.11.6",
     "json5": "2.2.3",

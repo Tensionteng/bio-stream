@@ -227,7 +227,10 @@ const local: App.I18n.Schema = {
     plugin_gantt_vtable: 'VTableGantt',
     plugin_typeit: 'Typeit',
     plugin_tables: 'Tables',
-    plugin_tables_vtable: 'VTable'
+    plugin_tables_vtable: 'VTable',
+    task: 'Task',
+    task_create: 'Create Task',
+    task_list: 'Task List'
   },
   page: {
     login: {
