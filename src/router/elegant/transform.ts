@@ -232,7 +232,8 @@ const routeMap: RouteMap = {
   "plugin_tables_vtable": "/plugin/tables/vtable",
   "plugin_typeit": "/plugin/typeit",
   "plugin_video": "/plugin/video",
-  "user-center": "/user-center"
+  "user-center": "/user-center",
+  "visualization": "/visualization"
 };
 
 /**

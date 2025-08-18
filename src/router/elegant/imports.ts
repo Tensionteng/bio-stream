@@ -58,4 +58,5 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   plugin_typeit: () => import("@/views/plugin/typeit/index.vue"),
   plugin_video: () => import("@/views/plugin/video/index.vue"),
   "user-center": () => import("@/views/user-center/index.vue"),
+  visualization: () => import("@/views/visualization/index.vue"),
 };

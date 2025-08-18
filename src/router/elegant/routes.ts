@@ -621,5 +621,15 @@ export const generatedRoutes: GeneratedRoute[] = [
       i18nKey: 'route.user-center',
       hideInMenu: true
     }
+  },
+  {
+    name: 'visualization',
+    path: '/visualization',
+    component: 'layout.base$view.visualization',
+    meta: {
+      title: 'visualization',
+      i18nKey: 'route.visualization',
+      icon: 'mdi:chart-areaspline'
+    }
   }
 ];
