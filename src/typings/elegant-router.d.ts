@@ -87,7 +87,11 @@ declare module "@elegant-router/types" {
     "plugin_typeit": "/plugin/typeit";
     "plugin_video": "/plugin/video";
     "transfer": "/transfer";
+    "task": "/task";
+    "task_create": "/task/create";
+    "task_list": "/task/list";
     "user-center": "/user-center";
+    "visualization": "/visualization";
   };
 
   /**
@@ -146,7 +150,9 @@ declare module "@elegant-router/types" {
     | "multi-menu"
     | "plugin"
     | "transfer"
+    | "task"
     | "user-center"
+    | "visualization"
   >;
 
   /**
@@ -208,7 +214,10 @@ declare module "@elegant-router/types" {
     | "plugin_typeit"
     | "plugin_video"
     | "transfer"
+    | "task_create"
+    | "task_list"
     | "user-center"
+    | "visualization"
   >;
 
   /**
@@ -292,7 +301,7 @@ declare module "@elegant-router/types" {
         component: `view.${K}`;
       }
     : never;
-  
+
   /**
    * the center level route
    */
@@ -315,7 +324,7 @@ declare module "@elegant-router/types" {
         children: (CenterLevelRoute<GetChildRouteKey<K>> | LastLevelRoute<GetChildRouteKey<K>>)[];
       }
     : never;
-  
+
   /**
    * the custom first level route
    */

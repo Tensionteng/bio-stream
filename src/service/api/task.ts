@@ -1,0 +1,186 @@
+import { request } from '../request';
+
+/** 任务状态类型 */
+export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
+
+/** 单个任务单元详情 */
+export interface TaskUnit {
+  unit_name: string;
+  start_time: string;
+  end_time: string;
+  duration: string;
+  status: TaskStatus;
+  error_message: string;
+}
+
+/** 任务列表项 */
+export interface TaskListItem {
+  id: number;
+  process_name: string;
+  file_id: number;
+  file_name: string;
+  start_time: string;
+  end_time: string | null;
+  status: TaskStatus;
+  error_summary: string | null;
+}
+/** 中断任务API的响应数据类型 */
+interface StopTaskResponse {
+  /** 任务被中断后的新状态，例如 'CANCELLED' */
+  status: string;
+
+  /** 操作结果的提示信息，例如 '任务已成功中断' */
+  message: string;
+}
+/** 重启任务API的响应数据类型 */
+interface RestartTaskResponse {
+  /** 新创建的任务的ID */
+  new_task_id: number;
+
+  /** 新任务的初始状态，例如 'PENDING' */
+  status: string;
+
+  /** 操作结果的提示信息，例如 '任务已成功重新提交' */
+  message: string;
+}
+/** 任务完整详情 */
+export interface TaskDetail extends TaskListItem {
+  result_json: TaskUnit[];
+}
+
+/** 自定义任务列表查询参数 */
+export interface TaskListParams {
+  page?: number;
+  page_size?: number;
+  status?: TaskStatus;
+}
+
+/**
+ * 获取任务列表
+ *
+ * @param params - 查询参数
+ */
+export function fetchTaskList(params?: TaskListParams) {
+  // 使用您提供的 d.ts 文件中定义的正确分页返回类型
+  return request<Api.Common.PaginatingQueryRecord<TaskListItem>>({
+    url: '/analysis/processes/tasks',
+    method: 'get',
+    params
+  });
+}
+
+/**
+ * 获取单个任务的详细信息
+ *
+ * @param taskId - 任务ID
+ */
+export function fetchTaskDetail(taskId: number) {
+  return request<TaskDetail>({
+    url: `/analysis/processes/tasks/${taskId}/`,
+    method: 'get'
+  });
+}
+
+/**
+ * 中断一个正在运行的任务
+ *
+ * @param taskId - 任务ID
+ */
+export function stopTask(taskId: number) {
+  return request<StopTaskResponse>({
+    url: `/analysis/processes/tasks/${taskId}/stop/`,
+    method: 'post'
+  });
+}
+
+/**
+ * 重启一个任务
+ *
+ * @param taskId - 任务ID
+ */
+export function restartTask(taskId: number) {
+  return request<RestartTaskResponse>({
+    url: `/analysis/processes/tasks/${taskId}/restart/`,
+    method: 'post'
+  });
+}
+/** 单个分析流程的信息 */
+export interface ProcessListItem {
+  /** 流程的唯一ID */
+  process_id: number;
+
+  /** 流程的名称 */
+  name: string;
+}
+
+/** 流程的参数结构（Schema） */
+export interface ProcessSchema {
+  /** 流程的唯一ID */
+  process_id: number;
+
+  /** - 参数的JSON Schema定义。 这是一个动态对象，键是参数名，值可以是其默认值或更复杂的结构。 例如：{ "star_threads": 10, "referenceFiles": [{ "file_id": 0 }] } */
+  parameter_schema: Record<string, any>;
+
+  /** 输入文件类型 */
+  input_file_type: number;
+}
+
+/** 创建新任务时需要提交的数据负载 */
+export interface NewTaskPayload {
+  /** 要执行的流程ID */
+  process_id: number;
+
+  /** 主输入文件的ID */
+  file_id: number;
+
+  /** 根据 parameter_schema 填充的参数JSON对象 */
+  parameter_json: Record<string, any>;
+}
+
+/** 创建新任务API的响应数据类型 */
+export interface NewTaskResponse {
+  /** 新创建的任务的ID */
+  new_task_id: number;
+
+  /** 新任务的初始状态，例如 'PENDING' */
+  status: string;
+
+  /** 操作结果的提示信息，例如 '任务已成功提交' */
+  message: string;
+}
+/**
+ * 获取所有可用的分析流程列表
+ *
+ * 用于填充“新建任务”页面的流程选择下拉框。
+ */
+export function fetchProcessList() {
+  return request<ProcessListItem[]>({
+    url: '/analysis/processes',
+    method: 'get'
+  });
+}
+
+/**
+ * 根据流程ID获取其参数的动态表单Schema
+ *
+ * @param processId - 流程的ID
+ */
+export function fetchProcessSchema(processId: number) {
+  return request<ProcessSchema>({
+    url: `/analysis/processes/${processId}`,
+    method: 'get'
+  });
+}
+
+/**
+ * 提交并创建一个新的分析任务
+ *
+ * @param payload - 创建新任务所需的数据
+ */
+export function createNewTask(payload: NewTaskPayload) {
+  return request<NewTaskResponse>({
+    url: '/analysis/processes/start',
+    method: 'post',
+    data: payload
+  });
+}

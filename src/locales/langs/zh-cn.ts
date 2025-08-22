@@ -163,6 +163,9 @@ const local: App.I18n.Schema = {
     500: '服务器错误',
     'iframe-page': '外链页面',
     home: '首页',
+    task: '任务',
+    task_list: '任务列表',
+    task_create: '任务创建',
     document: '文档',
     document_project: '项目文档',
     'document_project-link': '项目文档(外链)',
@@ -227,7 +230,8 @@ const local: App.I18n.Schema = {
     plugin_typeit: '打字机',
     plugin_tables: '表格',
     plugin_tables_vtable: 'VTable',
-    transfer: '文件上传与下载'
+    transfer: '文件上传与下载',
+    visualization: '可视化'
   },
   page: {
     login: {

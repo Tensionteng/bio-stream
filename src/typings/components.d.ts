@@ -47,11 +47,13 @@ declare module 'vue' {
     ElPopconfirm: typeof import('element-plus/es')['ElPopconfirm']
     ElPopover: typeof import('element-plus/es')['ElPopover']
     ElRadio: typeof import('element-plus/es')['ElRadio']
+    ElRadioButton: typeof import('element-plus/es')['ElRadioButton']
     ElRadioGroup: typeof import('element-plus/es')['ElRadioGroup']
     ElRow: typeof import('element-plus/es')['ElRow']
     ElScrollbar: typeof import('element-plus/es')['ElScrollbar']
     ElSegmented: typeof import('element-plus/es')['ElSegmented']
     ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElSkeleton: typeof import('element-plus/es')['ElSkeleton']
     ElSpace: typeof import('element-plus/es')['ElSpace']
     ElStatistic: typeof import('element-plus/es')['ElStatistic']
     ElSubMenu: typeof import('element-plus/es')['ElSubMenu']
@@ -67,6 +69,7 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     ElWatermark: typeof import('element-plus/es')['ElWatermark']
+    EmptyData: typeof import('./../components/common/EmptyData.vue')['default']
     ExceptionBase: typeof import('./../components/common/exception-base.vue')['default']
     FullScreen: typeof import('./../components/common/full-screen.vue')['default']
     GithubLink: typeof import('./../components/custom/github-link.vue')['default']
@@ -94,6 +97,7 @@ declare module 'vue' {
     IconLocalActivity: typeof import('~icons/local/activity')['default']
     IconLocalBanner: typeof import('~icons/local/banner')['default']
     IconLocalCast: typeof import('~icons/local/cast')['default']
+    IconLocalEmptyData: typeof import('~icons/local/empty-data')['default']
     IconLocalLogo: typeof import('~icons/local/logo')['default']
     'IconMaterialSymbolsLight:rotate90DegreesCcwOutlineRounded': typeof import('~icons/material-symbols-light/rotate90-degrees-ccw-outline-rounded')['default']
     'IconMdi:printer': typeof import('~icons/mdi/printer')['default']
@@ -123,6 +127,7 @@ declare module 'vue' {
     WebSiteLink: typeof import('./../components/custom/web-site-link.vue')['default']
   }
   export interface ComponentCustomProperties {
+    vInfiniteScroll: typeof import('element-plus/es')['ElInfiniteScroll']
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

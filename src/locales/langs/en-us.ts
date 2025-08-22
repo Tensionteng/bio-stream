@@ -227,7 +227,11 @@ const local: App.I18n.Schema = {
     plugin_typeit: 'Typeit',
     plugin_tables: 'Tables',
     plugin_tables_vtable: 'VTable',
-    transfer: 'File Upload & Download'
+    transfer: 'File Upload & Download',
+    task: 'Task',
+    task_create: 'Create Task',
+    task_list: 'Task List',
+    visualization: 'Visualization'
   },
   page: {
     login: {

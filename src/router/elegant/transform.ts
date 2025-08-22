@@ -233,7 +233,11 @@ const routeMap: RouteMap = {
   "plugin_typeit": "/plugin/typeit",
   "plugin_video": "/plugin/video",
   "transfer": "/transfer",
-  "user-center": "/user-center"
+  "task": "/task",
+  "task_create": "/task/create",
+  "task_list": "/task/list",
+  "user-center": "/user-center",
+  "visualization": "/visualization"
 };
 
 /**

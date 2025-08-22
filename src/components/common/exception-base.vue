@@ -5,7 +5,7 @@ import { $t } from '@/locales';
 
 defineOptions({ name: 'ExceptionBase' });
 
-type ExceptionType = '403' | '404' | '500';
+type ExceptionType = '111' | '403' | '404' | '500';
 
 interface Props {
   /**
@@ -23,6 +23,7 @@ const props = defineProps<Props>();
 const { routerPushByKey } = useRouterPush();
 
 const iconMap: Record<ExceptionType, string> = {
+  '111': 'empty-data',
   '403': 'no-permission',
   '404': 'not-found',
   '500': 'service-error'
@@ -36,6 +37,7 @@ const icon = computed(() => iconMap[props.type]);
     <div class="flex text-400px text-primary">
       <SvgIcon :local-icon="icon" />
     </div>
+    <div v-if="props.type == '111'">当前用户没有创建任务，请先创建任务</div>
     <ElButton type="primary" @click="routerPushByKey('root')">{{ $t('common.backToHome') }}</ElButton>
   </div>
 </template>
