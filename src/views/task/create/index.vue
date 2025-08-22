@@ -1,8 +1,7 @@
-<!-- 父组件 -->
 <script setup lang="ts">
+// MODIFIED: 增加 InstanceType 用于获取组件实例类型
 import { computed, onMounted, ref, watch } from 'vue';
 import { ElButton, ElCard, ElEmpty, ElForm, ElFormItem, ElMessage, ElOption, ElSelect } from 'element-plus';
-// 引入 Promotion 图标用于提交按钮
 import { CircleCheck, CollectionTag, Promotion } from '@element-plus/icons-vue';
 import {
   type NewTaskPayload,
@@ -12,6 +11,7 @@ import {
   fetchProcessList,
   fetchProcessSchema
 } from '@/service/api/task';
+// 导入子组件
 import DynamicForm from './components/DynamicForm.vue';
 
 const loadingProcesses = ref(false);
@@ -22,12 +22,17 @@ const selectedProcessId = ref<number | undefined>(undefined);
 const processSchema = ref<ProcessSchema | null>(null);
 const formData = ref<Record<string, any>>({});
 const mainFileId = ref<number>(7);
+
+// 新增: 创建一个 ref 来引用 DynamicForm 组件实例
+const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
+
 const processOptions = computed(() => {
   return processList.value.map(p => ({
     label: p.name,
     value: p.process_id
   }));
 });
+
 watch(selectedProcessId, async newId => {
   processSchema.value = null;
   formData.value = {};
@@ -44,6 +49,7 @@ watch(selectedProcessId, async newId => {
     }
   }
 });
+
 async function getProcessList() {
   loadingProcesses.value = true;
   try {
@@ -56,21 +62,36 @@ async function getProcessList() {
     loadingProcesses.value = false;
   }
 }
+
+// MODIFIED: 重构 handleSubmit 函数
 async function handleSubmit() {
   if (!selectedProcessId.value) {
     ElMessage.warning('请选择一个分析流程');
     return;
   }
+
+  // 1. 调用子组件的 validate 方法
+  const isFormValid = await dynamicFormRef.value?.validate();
+
+  // 2. 检查验证结果
+  if (!isFormValid) {
+    ElMessage.error('请检查并填写所有必填参数');
+    return; // 如果验证失败，则中断提交
+  }
+
+  // 3. 验证通过后，执行后续的提交逻辑
   const payload: NewTaskPayload = {
     process_id: selectedProcessId.value,
     file_id: mainFileId.value,
     parameter_json: formData.value
   };
+
   console.log('Submitting payload:', payload);
   submitting.value = true;
   try {
     await createNewTask(payload);
     ElMessage.success('任务创建成功！');
+    // 可以在这里重置表单或跳转页面
   } catch (error) {
     console.error('Failed to create task:', error);
     ElMessage.error('任务创建失败');
@@ -78,6 +99,7 @@ async function handleSubmit() {
     submitting.value = false;
   }
 }
+
 onMounted(() => {
   getProcessList();
 });
@@ -119,7 +141,7 @@ onMounted(() => {
             </div>
           </template>
 
-          <DynamicForm v-model="formData" :schema="processSchema.parameter_schema" />
+          <DynamicForm ref="dynamicFormRef" v-model="formData" :schema="processSchema.parameter_schema" />
 
           <div class="card-footer">
             <ElButton
