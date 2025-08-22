@@ -86,6 +86,7 @@ declare module "@elegant-router/types" {
     "plugin_tables_vtable": "/plugin/tables/vtable";
     "plugin_typeit": "/plugin/typeit";
     "plugin_video": "/plugin/video";
+    "transfer": "/transfer";
     "user-center": "/user-center";
   };
 
@@ -144,6 +145,7 @@ declare module "@elegant-router/types" {
     | "manage"
     | "multi-menu"
     | "plugin"
+    | "transfer"
     | "user-center"
   >;
 
@@ -205,6 +207,7 @@ declare module "@elegant-router/types" {
     | "plugin_tables_vtable"
     | "plugin_typeit"
     | "plugin_video"
+    | "transfer"
     | "user-center"
   >;
 

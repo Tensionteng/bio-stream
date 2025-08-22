@@ -613,6 +613,16 @@ export const generatedRoutes: GeneratedRoute[] = [
     ]
   },
   {
+    name: 'transfer',
+    path: '/transfer',
+    component: 'layout.base$view.transfer',
+    meta: {
+      title: '文件上传与下载',
+      i18nKey: 'route.transfer',
+      icon: 'ep:upload-filled'
+    }
+  },
+  {
     name: 'user-center',
     path: '/user-center',
     component: 'layout.base$view.user-center',
