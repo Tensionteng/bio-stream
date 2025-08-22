@@ -128,7 +128,8 @@ const formRules = computed<FormRules>(() => {
         trigger = 'change';
         message = `请选择文件`;
         // 数组类型需要自定义验证器来检查是否为空
-        validator = (value: any, callback: any) => {
+        validator = (rule: any, value: any, callback: any) => {
+          console.log(rule);
           if (!value || value.length === 0) {
             callback(new Error(message));
           } else {
