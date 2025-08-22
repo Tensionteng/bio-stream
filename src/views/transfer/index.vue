@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import axios from 'axios';
 import { ArrowDown, Download, Plus, Search, Upload, UploadFilled, View } from '@element-plus/icons-vue';
 
@@ -413,40 +413,6 @@ const schemas_list = [
       required: ['sample_id', 'file_locations', 'source_type'],
       additionalProperties: false
     }
-  },
-  {
-    id: 11,
-    name: 'TEST_fa_schema',
-    schema_json: {
-      $schema: 'http://json-schema.org/draft-07/schema#',
-      type: 'object',
-      properties: {
-        fa_file: {
-          type: 'string',
-          pattern: '\\.fa$',
-          description: 'ref的fa文件路径'
-        }
-      },
-      required: ['fa_file'],
-      additionalProperties: false
-    }
-  },
-  {
-    id: 12,
-    name: 'TEST_vcf_schema',
-    schema_json: {
-      $schema: 'http://json-schema.org/draft-07/schema#',
-      type: 'object',
-      properties: {
-        vcf_file: {
-          type: 'string',
-          pattern: '\\.vcf$',
-          description: 'ref的vcf文件路径'
-        }
-      },
-      required: ['vcf_file'],
-      additionalProperties: false
-    }
   }
 ];
 
@@ -687,18 +653,37 @@ const mockFileList = Array.from({ length: 1000 }).map((_, i) => {
 // 1. 获取 schema 列表
 async function fetchSchemas() {
   try {
-    const res = await axios.get('/api/file/schema');
+    // 直接请求 Apifox Mock 地址
+    const res = await axios.get('http://127.0.0.1:4523/m1/6657953-6366098-default/files/schema', {
+      headers: {
+        apifoxToken: '-Wm6qz08ctUI_4bM6lLxG',
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000 // 10秒超时
+    });
+
+    // 从 Apifox 响应中提取 schema 数据
+    let schemaData = res.data;
+
+    // 处理 Apifox 返回的数据结构：{ code, message, data: { schemas: [...] } }
+    if (res.data && res.data.data && res.data.data.schemas && Array.isArray(res.data.data.schemas)) {
+      schemaData = res.data.data.schemas;
+    }
+
     // 如果接口无数据，则用 schemas_list 展示
-    if (Array.isArray(res.data) && res.data.length > 0) {
-      schemas.value = res.data;
+    if (Array.isArray(schemaData) && schemaData.length > 0) {
+      schemas.value = schemaData;
+      ElMessage.success(`成功获取到 ${schemaData.length} 个 Schema 数据`);
     } else {
       schemas.value = [...schemas_list];
-      ElMessage.info('接口无数据，已展示测试数据');
+      ElMessage.info('接口无数据，已展示默认数据');
     }
     updateFilteredSchemas();
-  } catch {
+  } catch (error) {
+    console.error('获取 Schema 失败:', error); // 调试日志
+    // 初始化默认数据
     schemas.value = [...schemas_list];
-    ElMessage.warning('接口获取失败，已展示测试数据');
+    ElMessage.warning('接口获取失败，已展示默认数据');
     updateFilteredSchemas();
   }
 }
@@ -721,6 +706,20 @@ function nextStep() {
   if (currentStep.value === 1) {
     if (!customSchemaName.value.trim()) {
       ElMessage.warning('请输入Schema名称');
+      return;
+    }
+  }
+
+  if (currentStep.value === 2) {
+    if (customSchemaFields.value.length === 0) {
+      ElMessage.warning('请至少添加一个字段');
+      return;
+    }
+
+    // 检查所有字段是否都有名称
+    const hasEmptyFieldNames = customSchemaFields.value.some(field => !field.name.trim());
+    if (hasEmptyFieldNames) {
+      ElMessage.warning('请为所有字段填写名称');
       return;
     }
   }
@@ -946,49 +945,6 @@ function previewSchema() {
   ElMessage.info('Schema预览功能开发中...');
 }
 
-// 删除schema
-async function deleteSchema(schemaId: string | number) {
-  try {
-    const schema = schemas.value.find(s => s.id === schemaId);
-    if (!schema) {
-      ElMessage.error('未找到要删除的数据类型');
-      return;
-    }
-
-    // 检查是否为内置schema（来自schemas_list）
-    const isBuiltIn = schemas_list.some(s => s.id === schemaId);
-    if (isBuiltIn) {
-      ElMessage.warning('内置数据类型不能删除');
-      return;
-    }
-
-    await ElMessageBox.confirm('确定要删除这个自定义数据类型吗？删除后无法恢复。', '确认删除', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    });
-
-    // 如果是当前选中的schema，清空选择
-    if (selectedSchemaId.value === schemaId) {
-      selectedSchemaId.value = '';
-      selectedSchema.value = null;
-    }
-
-    // 从schemas中删除
-    const index = schemas.value.findIndex(s => s.id === schemaId);
-    if (index > -1) {
-      schemas.value.splice(index, 1);
-      updateFilteredSchemas();
-      ElMessage.success('自定义数据类型删除成功');
-    }
-  } catch (error) {
-    // 用户取消删除
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败，请重试');
-    }
-  }
-}
-
 // 2. 获取文件统计信息
 async function fetchFileStats() {
   try {
@@ -1003,7 +959,7 @@ async function fetchFileStats() {
 }
 
 // 3. 监听 schema 变化，生成表单
-watch(selectedSchemaId, () => {
+watch(selectedSchemaId, async () => {
   const schema = schemas.value.find((s: any) => s.id === selectedSchemaId.value);
   selectedSchema.value = schema;
   if (!schema) return;
@@ -1016,6 +972,8 @@ watch(selectedSchemaId, () => {
   }
   textFields.value = [];
   fileFields.value = [];
+
+  // 仅生成表单结构，不在此处请求上传链接（改为点击上传时请求）
 
   // 根据 JSON Schema 结构生成表单字段
   if (schema.schema_json && schema.schema_json.properties) {
@@ -1184,52 +1142,107 @@ async function handleSubmit() {
       return;
     }
   }
+
   uploadLoading.value = true;
   try {
-    // 4.1 请求预签名
+    // 1) 点击上传时再获取上传链接（initiate）
     const uploads = fileFields.value.map(f => ({
       field_name: f.name,
       filename: fileInputs[f.name]?.name,
       content_type: fileInputs[f.name]?.type || 'application/octet-stream'
     }));
-    const res = await axios.post('/api/file/upload/initiate', {
-      file_type_id: selectedSchema.value.id,
-      uploads
-    });
-    const uploadUrls = res.data.upload_urls;
 
-    // 5. 上传文件到 S3
+    const initiateRes = await axios.post(
+      'http://127.0.0.1:4523/m1/6657953-6366098-default/files/upload/initiate',
+      {
+        file_type_id: selectedSchema.value.id,
+        uploads
+      },
+      {
+        headers: {
+          apifoxToken: '-Wm6qz08ctUI_4bM6lLxG',
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    const currentUploadUrls = initiateRes.data && initiateRes.data.upload_urls ? initiateRes.data.upload_urls : [];
+
+    // 校验返回的上传链接
+    const selectedFileNames = Object.keys(fileInputs)
+      .filter(k => fileInputs[k])
+      .map(k => k);
+    if (!Array.isArray(currentUploadUrls) || currentUploadUrls.length === 0) {
+      ElMessage.error('未获取到上传链接，请稍后重试或检查接口返回');
+      return;
+    }
+    const urlsFieldNames = currentUploadUrls.map((u: any) => u.field_name);
+    const missingUrls = selectedFileNames.filter(name => !urlsFieldNames.includes(name));
+    if (missingUrls.length > 0) {
+      ElMessage.error(`缺少以下字段的上传链接: ${missingUrls.join(', ')}`);
+      return;
+    }
+
+    // 5. 上传文件到指定链接
     const uploadedFiles: any[] = [];
-    const uploadPromises = uploadUrls
+    const uploadErrors: string[] = [];
+    const uploadPromises = currentUploadUrls
       .filter((u: any) => fileInputs[u.field_name])
       .map(async (u: any) => {
         const file = fileInputs[u.field_name];
         if (!file) return null;
 
-        await axios.put(u.upload_url, file, {
-          headers: { 'Content-Type': file.type || 'application/octet-stream' }
-        });
+        // 使用获取到的上传链接上传文件
+        try {
+          // 优先使用服务端返回的headers，否则不强制指定Content-Type（避免与预签名要求不符）
+          const putHeaders: Record<string, any> = u.headers && typeof u.headers === 'object' ? { ...u.headers } : {};
+          if (!putHeaders['Content-Type'] && file.type) {
+            // 仅在未提供且浏览器推断有类型时设置
+            putHeaders['Content-Type'] = file.type;
+          }
+          await axios.put(u.upload_url, file, { headers: putHeaders });
 
-        const fileExtension = file.name.split('.').pop() || '';
-        return {
-          field_name: u.field_name,
-          origin_filename: file.name,
-          s3_key: u.s3_key,
-          file_type: `.${fileExtension}`,
-          file_size: file.size
-        };
+          const fileExtension = file.name.split('.').pop() || '';
+          return {
+            field_name: u.field_name,
+            origin_filename: file.name,
+            s3_key: u.s3_key,
+            file_type: `.${fileExtension}`,
+            file_size: file.size
+          };
+        } catch (err: any) {
+          const msg = err?.message || '上传失败';
+          uploadErrors.push(`${u.field_name}: ${msg}`);
+          return null;
+        }
       });
 
     const results = await Promise.all(uploadPromises);
     uploadedFiles.push(...results.filter(Boolean));
 
-    // 6. 通知后端上传完成
-    await axios.post('/api/file/upload/complete', {
-      file_type_id: selectedSchema.value.id,
-      file_name: dynamicForm.file_name || '', // 假设有 file_name 字段
-      description_json: { ...dynamicForm },
-      uploaded_files: uploadedFiles
-    });
+    if (uploadErrors.length > 0) {
+      ElMessage.error(`部分文件上传失败：${uploadErrors.join('；')}`);
+      return;
+    }
+
+    // 6. 通知后端上传完成（files_upload_complete_create）
+    await axios.post(
+      'http://127.0.0.1:4523/m1/6657953-6366098-default/files/upload/complete',
+      {
+        file_type_id: selectedSchema.value.id,
+        file_name: dynamicForm.file_name || '',
+        description_json: { ...dynamicForm },
+        uploaded_files: uploadedFiles
+      },
+      {
+        headers: {
+          apifoxToken: '-Wm6qz08ctUI_4bM6lLxG',
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
 
     ElMessage.success('上传成功');
     // 清空表单
@@ -1382,7 +1395,6 @@ function handlePageSizeChange(newSize: number) {
   fetchFileList();
 }
 
-schemas.value = [...schemas_list];
 onMounted(() => {
   fetchSchemas();
   fetchFileStats();
@@ -1414,22 +1426,13 @@ onMounted(() => {
                 <ElOption v-for="item in filteredSchemas" :key="item.id" :label="`${item.name}`" :value="item.id">
                   <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
                     <span>{{ item.name }}</span>
-                    <ElButton
-                      v-if="!schemas_list.some(s => s.id === item.id)"
-                      type="danger"
-                      size="small"
-                      style="margin-left: 10px; padding: 2px 6px"
-                      @click.stop="deleteSchema(item.id)"
-                    >
-                      删除
-                    </ElButton>
                   </div>
                 </ElOption>
                 <template #empty>
                   <span style="color: #aaa">暂无可选数据类型</span>
                 </template>
               </ElSelect>
-              <ElButton type="primary" size="small" @click="customSchemaDialog = true">新建Schema</ElButton>
+              <!-- <ElButton type="primary" size="small" @click="customSchemaDialog = true">新建Schema</ElButton> -->
             </div>
           </ElFormItem>
         </ElForm>
@@ -1739,7 +1742,14 @@ onMounted(() => {
       <span class="dialog-footer">
         <ElButton @click="customSchemaDialog = false">取消</ElButton>
         <ElButton v-if="currentStep > 1" @click="prevStep">上一步</ElButton>
-        <ElButton v-if="currentStep < 3" type="primary" @click="nextStep">下一步</ElButton>
+        <ElButton
+          v-if="currentStep < 3"
+          type="primary"
+          :disabled="currentStep === 2 && customSchemaFields.length === 0"
+          @click="nextStep"
+        >
+          下一步
+        </ElButton>
         <ElButton v-if="currentStep === 3" type="primary" @click="createSchema">创建Schema</ElButton>
       </span>
     </template>
@@ -1969,25 +1979,6 @@ onMounted(() => {
   }
 }
 
-/* 下拉框删除按钮样式 */
-.el-select-dropdown .el-option {
-  padding: 0.5rem 0.75rem;
-}
-
-.el-select-dropdown .el-option .el-button {
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-
-.el-select-dropdown .el-option:hover .el-button {
-  opacity: 1;
-}
-
-.el-select-dropdown .el-option .el-button:hover {
-  opacity: 1;
-  transform: scale(1.05);
-}
-
 /* 响应式设计 */
 @media (max-width: 768px) {
   .upload-row {
@@ -2009,7 +2000,7 @@ onMounted(() => {
 
 /* 输入与选择器宽度（随视口自适应） */
 .schema-select {
-  width: min(22rem, 60%);
+  width: min(32rem, 100%);
 }
 .search-input {
   width: min(26rem, 70%);

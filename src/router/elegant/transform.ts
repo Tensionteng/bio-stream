@@ -232,10 +232,10 @@ const routeMap: RouteMap = {
   "plugin_tables_vtable": "/plugin/tables/vtable",
   "plugin_typeit": "/plugin/typeit",
   "plugin_video": "/plugin/video",
-  "transfer": "/transfer",
   "task": "/task",
   "task_create": "/task/create",
   "task_list": "/task/list",
+  "transfer": "/transfer",
   "user-center": "/user-center",
   "visualization": "/visualization"
 };
