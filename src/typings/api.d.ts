@@ -67,6 +67,48 @@ declare namespace Api {
     }
   }
 
+  namespace Visualization {
+    /** 任务信息 */
+    interface TaskInfo {
+      task_id: number;
+      file_type: FileType[];
+    }
+
+    /** 可视化配置信息 */
+    interface ConfigInfo {
+      supported_formats: FileType[];
+      default_format: FileType;
+    }
+
+    type FileType = 'txt' | 'pdf' | 'vcf' | 'csv';
+
+    /** VCF文件数据结构 */
+    interface VcfData {
+      '#CHROM': string;
+      POS: string;
+      ID: string;
+      REF: string;
+      ALT: string;
+      QUAL: string;
+      FILTER: string;
+      INFO: string;
+      FORMAT: string;
+      [key: string]: string; // 动态样本列
+    }
+
+    /** CSV文件数据结构 */
+    interface CsvData {
+      gene_id: string;
+      [key: string]: number | string; // 动态列数据
+    }
+
+    /** 可视化结果，只能是四种文件类型中的一种 */
+    type Result =
+      | { type: 'vcf'; data: VcfData[] }
+      | { type: 'csv'; data: CsvData[] }
+      | { type: 'txt'; data: string }
+      | { type: 'pdf'; data: string }; // PDF data is a URL string
+  }
   /**
    * namespace Route
    *

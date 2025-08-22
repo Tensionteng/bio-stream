@@ -184,7 +184,6 @@ const routeMap: RouteMap = {
   "alova": "/alova",
   "alova_request": "/alova/request",
   "alova_scenes": "/alova/scenes",
-  "alova_user": "/alova/user",
   "function": "/function",
   "function_hide-child": "/function/hide-child",
   "function_hide-child_one": "/function/hide-child/one",
@@ -236,7 +235,8 @@ const routeMap: RouteMap = {
   "task": "/task",
   "task_create": "/task/create",
   "task_list": "/task/list",
-  "user-center": "/user-center"
+  "user-center": "/user-center",
+  "visualization": "/visualization"
 };
 
 /**
