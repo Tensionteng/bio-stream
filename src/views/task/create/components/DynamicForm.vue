@@ -47,9 +47,9 @@ interface PaginatedFilesResponse {
 }
 
 function fetchFileList(page: number, pageSize: number, fileType?: string) {
-  const params: { Page: number; Page_size: number; File_type?: string } = {
-    Page: page,
-    Page_size: pageSize
+  const params: { page: number; page_size: number; File_type?: string } = {
+    page,
+    page_size: pageSize
   };
   if (fileType) {
     params.File_type = fileType;
