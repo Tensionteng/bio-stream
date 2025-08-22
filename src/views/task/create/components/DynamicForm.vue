@@ -46,19 +46,16 @@ interface PaginatedFilesResponse {
   results: FileInfo[];
 }
 
-// UPDATE: 更新API函数，增加 fileType 参数并修改URL
 function fetchFileList(page: number, pageSize: number, fileType?: string) {
-  // 构造请求参数
   const params: { Page: number; Page_size: number; File_type?: string } = {
     Page: page,
     Page_size: pageSize
   };
-  // 如果 fileType 有值，则添加到参数中
   if (fileType) {
     params.File_type = fileType;
   }
   return request<PaginatedFilesResponse>({
-    url: '/files/list', // UPDATE: 使用新的API地址
+    url: '/files/list',
     method: 'get',
     params
   });
@@ -82,17 +79,8 @@ const availableFiles = ref<FileInfo[]>([]);
 const loadingFiles = ref(false);
 const currentFileSelectionKey = ref<string | null>(null);
 const tempSelection = ref<FileInfo[]>([]);
-
-// NEW: 新增文件类型筛选的状态
-const selectedFileType = ref<string>(''); // 用于存储当前选择的文件类型
-const fileTypeOptions = ref([
-  // 文件类型的选项，您可以根据后端实际情况修改或从API获取
-  'BAM输入文件',
-  'FASTQ输入文件',
-  'VCF结果文件',
-  '报告文件',
-  '其他类型'
-]);
+const selectedFileType = ref<string>('');
+const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']);
 
 // --- 分页状态 ---
 const pagination = ref({
@@ -140,6 +128,20 @@ const fileIdMap = computed(() => {
 });
 
 // --- 辅助函数 ---
+
+// 新增：用于判断数值类型的辅助函数，兼容 type 为数组或字符串的情况
+function isNumericType(property: Record<string, any>): boolean {
+  if (!property || !property.type) return false;
+
+  // 如果 type 是数组，检查是否包含 'number' 或 'integer'
+  if (Array.isArray(property.type)) {
+    return property.type.includes('number') || property.type.includes('integer');
+  }
+
+  // 如果 type 是字符串，直接比较
+  return property.type === 'number' || property.type === 'integer';
+}
+
 function formatLabel(key: string): string {
   const spacedKey = key.replace(/([A-Z])/g, ' $1');
   return spacedKey
@@ -162,7 +164,6 @@ function getFileName(fileId: number): string {
 
 // --- 文件选择与数据加载逻辑 ---
 
-// UPDATE: 修改加载函数，使其能传递文件类型
 async function loadFilesPage() {
   if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
@@ -184,17 +185,14 @@ async function loadFilesPage() {
   }
 }
 
-// NEW: 新增处理文件类型变更的函数
 const handleFileTypeChange = () => {
-  // 重置文件列表和分页信息
   availableFiles.value = [];
   pagination.value = {
     page: 1,
     pageSize: 20,
     total: 0,
-    hasNextPage: true // 假设新筛选下有第一页
+    hasNextPage: true
   };
-  // 使用新的筛选条件加载第一页数据
   loadFilesPage();
 };
 
@@ -204,11 +202,9 @@ const closeFileDialog = () => {
   tempSelection.value = [];
 };
 
-// UPDATE: 打开对话框时，重置筛选和分页
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
-  // 重置所有状态
-  selectedFileType.value = ''; // 重置文件类型选择
+  selectedFileType.value = '';
   availableFiles.value = [];
   pagination.value = {
     page: 1,
@@ -216,7 +212,7 @@ const openFileDialog = (key: string) => {
     total: 0,
     hasNextPage: true
   };
-  loadFilesPage(); // 加载第一页
+  loadFilesPage();
   fileDialogVisible.value = true;
 };
 
@@ -272,7 +268,7 @@ watch(fileDialogVisible, isVisible => {
               </template>
 
               <ElInputNumber
-                v-if="property.type === 'integer' || property.type === 'number'"
+                v-if="isNumericType(property)"
                 v-model="localModel[key]"
                 :min="property.minimum"
                 :max="property.maximum"
@@ -337,7 +333,6 @@ watch(fileDialogVisible, isVisible => {
       append-to-body
       class="file-dialog"
     >
-      <!-- NEW: 文件类型筛选选择器 -->
       <ElSelect
         v-model="selectedFileType"
         placeholder="按文件类型筛选"
@@ -348,7 +343,6 @@ watch(fileDialogVisible, isVisible => {
         <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
       </ElSelect>
 
-      <!-- UPDATE: 更新无限滚动和加载状态的逻辑 -->
       <ElTable
         ref="dialogTableRef"
         v-loading="loadingFiles && availableFiles.length === 0"

@@ -1,24 +1,17 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import {
-  type TaskDetail,
-  type TaskStatus,
-  type TaskUnit,
-  fetchTaskDetail,
-  restartTask,
-  stopTask
-} from '@/service/api/task';
+import { type TaskDetail, fetchTaskDetail, restartTask, stopTask } from '@/service/api/task';
 
 // -- Props and Emits --
 const props = defineProps<{
-  modelValue: boolean; // 用于 v-model 控制对话框显示/隐藏
-  taskId: number | null; // 接收要显示详情的任务ID
+  modelValue: boolean;
+  taskId: number | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
-  (e: 'task-restarted'): void; // 当任务重启成功时，通知父组件刷新列表
+  (e: 'task-restarted'): void;
 }>();
 
 const loading = ref(false);
@@ -29,6 +22,7 @@ const isDialogVisible = computed({
   set: val => emit('update:modelValue', val)
 });
 
+// --- 监听器部分保持不变 ---
 watch(
   () => props.taskId,
   newId => {
@@ -42,10 +36,30 @@ watch(isDialogVisible, isVisible => {
   if (isVisible && props.taskId) {
     getTaskDetails(props.taskId);
   } else {
-    // 清理数据当对话框关闭时
     taskDetails.value = null;
   }
 });
+
+// --- 核心逻辑：将 execution_units 对象转换为表格所需的数组 ---
+const taskUnitsArray = computed(() => {
+  if (!taskDetails.value?.result_json?.execution_units) {
+    return [];
+  }
+
+  const units = taskDetails.value.result_json.execution_units;
+  return Object.values(units).map(unit => ({
+    unit_name: unit.name,
+    start_time: unit.start_time,
+    end_time: unit.end_time,
+    duration: calculateDuration(unit.start_time, unit.end_time),
+    status: unit.status.toUpperCase(), // 统一状态为大写以便处理
+    error_message: unit.status.toLowerCase() === 'failed' ? unit.message : '',
+    description: unit.description,
+    type: unit.type
+  }));
+});
+
+// --- 辅助函数 ---
 
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
@@ -64,10 +78,33 @@ function formatDateTime(isoString: string | null | undefined): string {
     .replace(/\//g, '-');
 }
 
-const getStatusTagType = (
-  status: TaskStatus | TaskUnit['status']
-): 'success' | 'primary' | 'danger' | 'warning' | 'info' => {
-  switch (status) {
+function calculateDuration(start: string | null, end: string | null): string {
+  if (!start) return '-';
+  const startTime = new Date(start).getTime();
+  const endTime = end ? new Date(end).getTime() : Date.now();
+  if (Number.isNaN(startTime) || Number.isNaN(endTime)) return '-';
+
+  let diff = Math.abs(endTime - startTime) / 1000;
+  const days = Math.floor(diff / 86400);
+  diff -= days * 86400;
+  const hours = Math.floor(diff / 3600) % 24;
+  diff -= hours * 3600;
+  const minutes = Math.floor(diff / 60) % 60;
+  const seconds = Math.floor(diff % 60);
+
+  let result = '';
+  if (days > 0) result += `${days}d `;
+  if (hours > 0) result += `${hours}h `;
+  if (minutes > 0) result += `${minutes}m `;
+  result += `${seconds}s`;
+
+  return result.trim();
+}
+
+// 统一将状态转为大写处理
+const getStatusTagType = (status: string): 'success' | 'primary' | 'danger' | 'warning' | 'info' => {
+  if (!status) return 'info';
+  switch (status.toUpperCase()) {
     case 'SUCCESS':
       return 'success';
     case 'RUNNING':
@@ -83,19 +120,28 @@ const getStatusTagType = (
   }
 };
 
-const canBeStopped = computed(() => taskDetails.value?.status === 'RUNNING' || taskDetails.value?.status === 'PENDING');
-const canBeRestarted = computed(() => ['SUCCESS', 'FAILED', 'CANCELLED'].includes(taskDetails.value?.status || ''));
+const canBeStopped = computed(() => {
+  const status = taskDetails.value?.status?.toUpperCase();
+  return status === 'RUNNING' || status === 'PENDING';
+});
+
+const canBeRestarted = computed(() => {
+  const status = taskDetails.value?.status?.toUpperCase() || '';
+  return ['SUCCESS', 'FAILED', 'CANCELLED'].includes(status);
+});
+
+// --- API 调用逻辑保持不变 ---
 
 async function getTaskDetails(id: number) {
   loading.value = true;
-  taskDetails.value = null; // 先清空旧数据
+  taskDetails.value = null;
   try {
     const { data } = await fetchTaskDetail(id);
-    taskDetails.value = data;
+    taskDetails.value = data as TaskDetail;
   } catch (error) {
     ElMessage.error('获取任务详情失败');
     console.error(error);
-    isDialogVisible.value = false; // 获取失败时自动关闭对话框
+    isDialogVisible.value = false;
   } finally {
     loading.value = false;
   }
@@ -107,14 +153,11 @@ async function handleStopTask() {
     await ElMessageBox.confirm('您确定要中断此任务吗？此操作不可逆。', '警告', { type: 'warning' });
     loading.value = true;
     const res = await stopTask(props.taskId);
-    ElMessage.success(res.data?.message);
-    await getTaskDetails(props.taskId); // 重新加载数据以更新状态
+    ElMessage.success(res.data?.message || '操作成功');
+    await getTaskDetails(props.taskId);
     isDialogVisible.value = false;
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('中断任务失败');
-      console.error(error);
-    }
+    if (error !== 'cancel') ElMessage.error('中断任务失败');
   } finally {
     loading.value = false;
   }
@@ -126,16 +169,11 @@ async function handleRestartTask() {
     await ElMessageBox.confirm('您确定要重新启动此任务吗？', '确认', { type: 'info' });
     loading.value = true;
     const res = await restartTask(props.taskId);
-    ElMessage.success(res.data?.message);
-    // 通知父组件任务已重启，父组件应刷新列表
+    ElMessage.success(res.data?.message || '操作成功');
     emit('task-restarted');
-    // 关闭当前对话框
     isDialogVisible.value = false;
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('重启任务失败');
-      console.error(error);
-    }
+    if (error !== 'cancel') ElMessage.error('重启任务失败');
   } finally {
     loading.value = false;
   }
@@ -152,8 +190,7 @@ async function handleRestartTask() {
   >
     <div v-loading="loading" style="min-height: 200px">
       <div v-if="taskDetails">
-        <!-- 任务基本信息 -->
-        <ElDescriptions :column="2" border>
+        <ElDescriptions :column="3" border>
           <template #title>
             <span class="text-lg font-semibold">基本信息</span>
           </template>
@@ -165,20 +202,36 @@ async function handleRestartTask() {
           </template>
           <ElDescriptionsItem label="任务流名称">{{ taskDetails.process_name }}</ElDescriptionsItem>
           <ElDescriptionsItem label="文件名">{{ taskDetails.file_name }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="启动时间">{{ formatDateTime(taskDetails.start_time) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="结束时间">{{ formatDateTime(taskDetails.end_time) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="运行状态" :span="2">
+          <ElDescriptionsItem label="运行状态">
             <ElTag :type="getStatusTagType(taskDetails.status)">{{ taskDetails.status }}</ElTag>
           </ElDescriptionsItem>
-          <ElDescriptionsItem label="错误摘要" :span="2">
+          <ElDescriptionsItem label="启动时间">{{ formatDateTime(taskDetails.start_time) }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="结束时间">{{ formatDateTime(taskDetails.end_time) }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="taskDetails.total_units !== undefined" label="任务单元">
+            {{ taskDetails.success_units }} / {{ taskDetails.total_units }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="错误摘要" :span="3">
             {{ taskDetails.error_summary || '-' }}
           </ElDescriptionsItem>
         </ElDescriptions>
 
-        <!-- 任务执行单元详情 -->
         <div class="mt-6">
           <h3 class="mb-3 text-lg font-semibold">执行细节</h3>
-          <ElTable :data="taskDetails.result_json" stripe border max-height="40vh">
+          <ElTable :data="taskUnitsArray" stripe border max-height="40vh">
+            <ElTableColumn type="expand">
+              <template #default="{ row }">
+                <div class="p-4">
+                  <p>
+                    <strong>描述:</strong>
+                    {{ row.description }}
+                  </p>
+                  <p v-if="row.type">
+                    <strong>类型:</strong>
+                    {{ row.type }}
+                  </p>
+                </div>
+              </template>
+            </ElTableColumn>
             <ElTableColumn prop="unit_name" label="任务单元" min-width="200" />
             <ElTableColumn label="开始时间" min-width="180">
               <template #default="{ row }">{{ formatDateTime(row.start_time) }}</template>
