@@ -4,15 +4,56 @@ import { request } from '../request';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
 
 /** 单个任务单元详情 */
-export interface TaskUnit {
-  unit_name: string;
-  start_time: string;
-  end_time: string;
-  duration: string;
-  status: TaskStatus;
-  error_message: string;
+export interface ExecutionUnit {
+  /** 单元名称 */
+  name: string;
+
+  /** 详细描述 */
+  description: string;
+
+  /** 单元类型, 例如 'python' */
+  type: string;
+
+  /** 开始时间 (ISO 格式字符串)，可能为 null */
+  start_time: string | null;
+
+  /** 结束时间 (ISO 格式字符串)，任务运行时为 null */
+  end_time: string | null;
+
+  /** 运行状态 (例如: "success", "running", "failed") */
+  status: 'success' | 'running' | 'failed' | string; // 使用联合类型来增强类型安全
+
+  /** 附带信息，成功或失败都可能有内容 */
+  message: string;
+
+  /** 结果代码，例如 "0000" 代表成功 */
+  result: string | null;
 }
 
+// 任务详情的完整类型
+export interface TaskDetail {
+  id: number;
+  process_name: string;
+  file_name: string;
+  start_time: string;
+  end_time: string | null;
+  status: string; // "running", "success", "failed"
+  total_units?: number;
+  success_units?: number;
+  error_summary: string | null;
+  result_json: {
+    process_name: string;
+    total_units: number;
+    success_units: number;
+    execution_units: Record<string, ExecutionUnit>; // 使用 Record<string, T> 表示一个对象/字典
+  };
+}
+export interface PaginatingQueryRecord<T> {
+  count: number;
+  page: number;
+  page_size: number;
+  results: T[];
+}
 /** 任务列表项 */
 export interface TaskListItem {
   id: number;
@@ -43,10 +84,6 @@ interface RestartTaskResponse {
   /** 操作结果的提示信息，例如 '任务已成功重新提交' */
   message: string;
 }
-/** 任务完整详情 */
-export interface TaskDetail extends TaskListItem {
-  result_json: TaskUnit[];
-}
 
 /** 自定义任务列表查询参数 */
 export interface TaskListParams {
@@ -61,8 +98,7 @@ export interface TaskListParams {
  * @param params - 查询参数
  */
 export function fetchTaskList(params?: TaskListParams) {
-  // 使用您提供的 d.ts 文件中定义的正确分页返回类型
-  return request<Api.Common.PaginatingQueryRecord<TaskListItem>>({
+  return request<PaginatingQueryRecord<TaskListItem>>({
     url: '/analysis/processes/tasks',
     method: 'get',
     params

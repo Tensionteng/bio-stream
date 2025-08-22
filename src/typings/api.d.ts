@@ -102,10 +102,17 @@ declare namespace Api {
       [key: string]: number | string; // 动态列数据
     }
 
+    /** CSV文件数据结构 - 新的返回格式 */
+    interface CsvResult {
+      count_csv: CsvData[];
+      fpk_csv: CsvData[];
+      tpm_csv: CsvData[];
+    }
+
     /** 可视化结果，只能是四种文件类型中的一种 */
     type Result =
       | { type: 'vcf'; data: VcfData[] }
-      | { type: 'csv'; data: CsvData[] }
+      | { type: 'csv'; data: CsvResult }
       | { type: 'txt'; data: string }
       | { type: 'pdf'; data: string }; // PDF data is a URL string
   }

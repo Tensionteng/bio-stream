@@ -82,8 +82,10 @@ async function getTasks() {
     };
     const { data } = await fetchTaskList(params);
     if (data) {
-      tasks.value = data.records || [];
-      pagination.itemCount = data.total || 0;
+      console.log(data);
+      tasks.value = data.results || [];
+      pagination.itemCount = data.count || 0;
+      console.log(tasks.value);
     }
   } catch (error) {
     ElMessage.error('获取任务列表失败');

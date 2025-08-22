@@ -19,7 +19,7 @@ import {
   ElTableColumn,
   ElTag
 } from 'element-plus';
-import type { FormInstance } from 'element-plus';
+import type { FormInstance, FormRules } from 'element-plus';
 import { Document, FolderOpened } from '@element-plus/icons-vue';
 import { request } from '@/service/request';
 
@@ -41,24 +41,21 @@ interface FileInfo {
 
 interface PaginatedFilesResponse {
   count: number;
-  next: string | null;
-  previous: string | null;
+  page: number;
+  page_size: number;
   results: FileInfo[];
 }
 
-// UPDATE: 更新API函数，增加 fileType 参数并修改URL
 function fetchFileList(page: number, pageSize: number, fileType?: string) {
-  // 构造请求参数
-  const params: { Page: number; Page_size: number; File_type?: string } = {
-    Page: page,
-    Page_size: pageSize
+  const params: { page: number; page_size: number; File_type?: string } = {
+    page,
+    page_size: pageSize
   };
-  // 如果 fileType 有值，则添加到参数中
   if (fileType) {
     params.File_type = fileType;
   }
   return request<PaginatedFilesResponse>({
-    url: '/files/list', // UPDATE: 使用新的API地址
+    url: '/files/list',
     method: 'get',
     params
   });
@@ -82,17 +79,8 @@ const availableFiles = ref<FileInfo[]>([]);
 const loadingFiles = ref(false);
 const currentFileSelectionKey = ref<string | null>(null);
 const tempSelection = ref<FileInfo[]>([]);
-
-// NEW: 新增文件类型筛选的状态
-const selectedFileType = ref<string>(''); // 用于存储当前选择的文件类型
-const fileTypeOptions = ref([
-  // 文件类型的选项，您可以根据后端实际情况修改或从API获取
-  'BAM输入文件',
-  'FASTQ输入文件',
-  'VCF结果文件',
-  '报告文件',
-  '其他类型'
-]);
+const selectedFileType = ref<string>('');
+const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']);
 
 // --- 分页状态 ---
 const pagination = ref({
@@ -121,7 +109,44 @@ watch(
   { deep: true }
 );
 
-// --- 计算属性，用于快速查找文件名 ---
+// --- 核心功能: 动态验证规则 ---
+const formRules = computed<FormRules>(() => {
+  const rules: FormRules = {};
+  if (!props.schema || !props.schema.properties) {
+    return {};
+  }
+
+  for (const key in props.schema.properties) {
+    if (props.schema.required?.includes(key)) {
+      const property = props.schema.properties[key];
+      let trigger: 'blur' | 'change' = 'blur';
+      let message = `请输入 ${formatLabel(key)}`;
+      let validator;
+
+      // 对不同类型的字段设置不同的触发器和提示
+      if (property.type === 'array') {
+        trigger = 'change';
+        message = `请选择文件`;
+        // 数组类型需要自定义验证器来检查是否为空
+        validator = (value: any, callback: any) => {
+          if (!value || value.length === 0) {
+            callback(new Error(message));
+          } else {
+            callback();
+          }
+        };
+      } else if (property.type === 'string' && property.enum) {
+        trigger = 'change';
+        message = `请选择 ${formatLabel(key)}`;
+      }
+
+      rules[key] = [validator ? { validator, trigger } : { required: true, message, trigger }];
+    }
+  }
+  return rules;
+});
+
+// --- 计算属性 ---
 const fileIdMap = computed(() => {
   const map = new Map<number, FileInfo>();
   for (const file of availableFiles.value) {
@@ -140,6 +165,13 @@ const fileIdMap = computed(() => {
 });
 
 // --- 辅助函数 ---
+function isNumericType(property: Record<string, any>): boolean {
+  if (!property || !property.type) return false;
+  if (Array.isArray(property.type)) {
+    return property.type.includes('number') || property.type.includes('integer');
+  }
+  return property.type === 'number' || property.type === 'integer';
+}
 function formatLabel(key: string): string {
   const spacedKey = key.replace(/([A-Z])/g, ' $1');
   return spacedKey
@@ -147,7 +179,6 @@ function formatLabel(key: string): string {
     .replace(/\b\w/g, char => char.toUpperCase())
     .trim();
 }
-
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes === 0) return '0 Bytes';
   const k = 1024;
@@ -155,14 +186,11 @@ function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
 }
-
 function getFileName(fileId: number): string {
   return fileIdMap.value.get(fileId)?.file_name ?? `加载中...`;
 }
 
 // --- 文件选择与数据加载逻辑 ---
-
-// UPDATE: 修改加载函数，使其能传递文件类型
 async function loadFilesPage() {
   if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
@@ -171,7 +199,7 @@ async function loadFilesPage() {
     if (response && response.data && Array.isArray(response.data.results)) {
       availableFiles.value.push(...response.data.results);
       pagination.value.total = response.data.count;
-      pagination.value.hasNextPage = response.data.next !== null;
+      pagination.value.hasNextPage = availableFiles.value.length < response.data.count;
       if (pagination.value.hasNextPage) {
         pagination.value.page += 1;
       }
@@ -183,47 +211,27 @@ async function loadFilesPage() {
     loadingFiles.value = false;
   }
 }
-
-// NEW: 新增处理文件类型变更的函数
 const handleFileTypeChange = () => {
-  // 重置文件列表和分页信息
   availableFiles.value = [];
-  pagination.value = {
-    page: 1,
-    pageSize: 20,
-    total: 0,
-    hasNextPage: true // 假设新筛选下有第一页
-  };
-  // 使用新的筛选条件加载第一页数据
+  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
   loadFilesPage();
 };
-
 const closeFileDialog = () => {
   fileDialogVisible.value = false;
   currentFileSelectionKey.value = null;
   tempSelection.value = [];
 };
-
-// UPDATE: 打开对话框时，重置筛选和分页
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
-  // 重置所有状态
-  selectedFileType.value = ''; // 重置文件类型选择
+  selectedFileType.value = '';
   availableFiles.value = [];
-  pagination.value = {
-    page: 1,
-    pageSize: 20,
-    total: 0,
-    hasNextPage: true
-  };
-  loadFilesPage(); // 加载第一页
+  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+  loadFilesPage();
   fileDialogVisible.value = true;
 };
-
 const handleTableSelectionChange = (selection: FileInfo[]) => {
   tempSelection.value = selection;
 };
-
 const confirmFileSelection = () => {
   if (currentFileSelectionKey.value) {
     localModel.value[currentFileSelectionKey.value] = tempSelection.value.map(file => ({
@@ -232,7 +240,6 @@ const confirmFileSelection = () => {
   }
   closeFileDialog();
 };
-
 const removeFile = (key: string, fileIdToRemove: number) => {
   if (localModel.value[key]) {
     localModel.value[key] = localModel.value[key].filter(
@@ -240,7 +247,6 @@ const removeFile = (key: string, fileIdToRemove: number) => {
     );
   }
 };
-
 const dialogTableRef = ref();
 watch(fileDialogVisible, isVisible => {
   if (isVisible && dialogTableRef.value) {
@@ -258,21 +264,42 @@ watch(fileDialogVisible, isVisible => {
     }, 100);
   }
 });
+
+// --- 核心功能: 表单验证方法 ---
+const validate = async (): Promise<boolean> => {
+  if (!formRef.value) return false;
+  try {
+    // ElForm 的 validate 方法返回一个 Promise
+    await formRef.value.validate();
+    return true; // 如果 Promise resolve，说明验证通过
+  } catch (error) {
+    console.log('表单验证失败:', error);
+    return false; // 如果 Promise reject，说明验证失败
+  }
+};
+
+// --- 核心功能: 暴露方法给父组件 ---
+defineExpose({
+  validate
+});
 </script>
 
 <template>
   <div class="dynamic-form-container">
-    <ElForm ref="formRef" :model="localModel" label-position="left" label-width="150px">
-      <ElRow :gutter="24">
+    <ElForm
+      ref="formRef"
+      :model="localModel"
+      :rules="formRules"
+      label-position="left"
+      label-width="180px"
+      class="beautified-form"
+    >
+      <ElRow :gutter="32">
         <template v-for="(property, key) in schema.properties" :key="String(key)">
           <ElCol :span="property.type === 'array' ? 24 : 12">
-            <ElFormItem class="form-item-enhanced" :required="schema.required?.includes(String(key))">
-              <template #label>
-                <span class="form-item-label">{{ formatLabel(String(key)) }}</span>
-              </template>
-
+            <ElFormItem :prop="String(key)" :label="formatLabel(String(key))">
               <ElInputNumber
-                v-if="property.type === 'integer' || property.type === 'number'"
+                v-if="isNumericType(property)"
                 v-model="localModel[key]"
                 :min="property.minimum"
                 :max="property.maximum"
@@ -306,14 +333,14 @@ watch(fileDialogVisible, isVisible => {
                         @close.stop="removeFile(String(key), item.file_id)"
                       >
                         <ElIcon :size="16"><Document /></ElIcon>
-                        {{ getFileName(item.file_id) }}
+                        <span>{{ getFileName(item.file_id) }}</span>
                       </ElTag>
                     </div>
                   </ElScrollbar>
                 </template>
                 <div v-else class="file-placeholder">
                   <ElIcon :size="40"><FolderOpened /></ElIcon>
-                  <span class="placeholder-text">点击选择文件</span>
+                  <span class="placeholder-text">点击选择或拖拽文件到此处</span>
                 </div>
               </div>
 
@@ -337,7 +364,6 @@ watch(fileDialogVisible, isVisible => {
       append-to-body
       class="file-dialog"
     >
-      <!-- NEW: 文件类型筛选选择器 -->
       <ElSelect
         v-model="selectedFileType"
         placeholder="按文件类型筛选"
@@ -347,8 +373,6 @@ watch(fileDialogVisible, isVisible => {
       >
         <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
       </ElSelect>
-
-      <!-- UPDATE: 更新无限滚动和加载状态的逻辑 -->
       <ElTable
         ref="dialogTableRef"
         v-loading="loadingFiles && availableFiles.length === 0"
@@ -389,29 +413,29 @@ watch(fileDialogVisible, isVisible => {
 <style scoped>
 /* --- 容器与基础布局 --- */
 .dynamic-form-container {
-  padding: 24px;
-  background-color: #ffffff;
-  border-radius: 12px;
+  padding: 8px; /* 减少内边距以更好地融入卡片 */
 }
 
-.form-item-enhanced {
-  margin-bottom: 24px;
+.beautified-form {
+  --el-form-label-font-size: 14px;
 }
 
 /* --- 标签样式 --- */
-.form-item-label {
-  font-weight: 600;
+.beautified-form :deep(.el-form-item__label) {
+  font-weight: 500;
   color: #344054;
-  font-size: 14px;
+  height: 44px; /* 与输入框等高，实现垂直居中 */
+  line-height: 44px;
 }
 
-/* --- 输入框与选择器样式 --- */
+/* --- 输入框与选择器通用样式 --- */
 .form-input {
   width: 100%;
   height: 44px;
 }
 
-.form-input :deep(.el-input__wrapper) {
+.form-input :deep(.el-input__wrapper),
+.form-input :deep(.el-input-number) {
   width: 100%;
   height: 100%;
   padding: 0 16px;
@@ -422,11 +446,13 @@ watch(fileDialogVisible, isVisible => {
   transition: all 0.2s ease-in-out;
 }
 
-.form-input:not(.is-disabled):hover :deep(.el-input__wrapper) {
+.form-input:not(.is-disabled):hover :deep(.el-input__wrapper),
+.form-input:not(.is-disabled):hover :deep(.el-input-number) {
   border-color: var(--el-color-primary-light-5);
 }
 
-.form-input :deep(.el-input__wrapper.is-focus) {
+.form-input :deep(.el-input__wrapper.is-focus),
+.form-input.is-focus :deep(.el-input-number) {
   outline: none;
   border-color: var(--el-color-primary-light-3);
   box-shadow:
@@ -484,6 +510,7 @@ watch(fileDialogVisible, isVisible => {
 
 .placeholder-text {
   font-size: 14px;
+  font-weight: 500;
 }
 
 .file-scrollbar {
@@ -514,16 +541,8 @@ watch(fileDialogVisible, isVisible => {
   transition: all 0.2s ease-in-out;
 }
 
-.file-tag:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-}
-
 .file-tag .el-icon {
   margin-right: 8px;
-  transition: color 0.2s ease-in-out;
 }
 
 .file-tag :deep(.el-tag__close) {
@@ -532,28 +551,36 @@ watch(fileDialogVisible, isVisible => {
   border-radius: 50%;
   width: 18px;
   height: 18px;
+  transition: all 0.2s ease;
 }
 
 .file-tag :deep(.el-tag__close:hover) {
-  background-color: var(--el-color-primary);
-  color: white;
+  background-color: var(--el-color-danger-light-7);
+  color: var(--el-color-danger);
   transform: scale(1.1);
 }
 
 /* --- 对话框样式 --- */
-.file-dialog .el-dialog__body {
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-
-/* NEW: 对话框内筛选选择器的样式 */
 .dialog-filter-select {
   width: 240px;
   margin-bottom: 16px;
 }
 
-@media (max-width: 768px) {
+/* --- 响应式设计 --- */
+@media (max-width: 992px) {
+  .beautified-form {
+    /* 在中等屏幕及以下，切换为标签在上布局 */
+    --el-form-label-width: 0px;
+  }
+  .beautified-form :deep(.el-form-item__label) {
+    display: block;
+    text-align: left;
+    height: auto;
+    line-height: 22px; /* 恢复默认行高 */
+    margin-bottom: 8px;
+  }
   .el-col {
+    /* 在小屏幕上，所有列都占满整行 */
     width: 100% !important;
     flex: 0 0 100%;
     max-width: 100%;
