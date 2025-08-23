@@ -201,7 +201,9 @@ async function handleRestartTask() {
             </div>
           </template>
           <ElDescriptionsItem label="任务流名称">{{ taskDetails.process_name }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="文件名">{{ taskDetails.file_name }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="文件ID">
+            {{ Array.isArray(taskDetails.file_ids) ? taskDetails.file_ids.join(', ') : '-' }}
+          </ElDescriptionsItem>
           <ElDescriptionsItem label="运行状态">
             <ElTag :type="getStatusTagType(taskDetails.status)">{{ taskDetails.status }}</ElTag>
           </ElDescriptionsItem>
@@ -209,9 +211,6 @@ async function handleRestartTask() {
           <ElDescriptionsItem label="结束时间">{{ formatDateTime(taskDetails.end_time) }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="taskDetails.total_units !== undefined" label="任务单元">
             {{ taskDetails.success_units }} / {{ taskDetails.total_units }}
-          </ElDescriptionsItem>
-          <ElDescriptionsItem label="错误摘要" :span="3">
-            {{ taskDetails.error_summary || '-' }}
           </ElDescriptionsItem>
         </ElDescriptions>
 

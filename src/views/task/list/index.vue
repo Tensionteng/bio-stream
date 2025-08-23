@@ -155,7 +155,11 @@ onMounted(() => {
         <ElTable v-loading="loading" :data="tasks" stripe>
           <ElTableColumn prop="id" label="任务ID" width="100" />
           <ElTableColumn prop="process_name" label="任务流名称" min-width="180" />
-          <ElTableColumn prop="file_id" label="文件ID" width="100" />
+          <ElTableColumn prop="file_ids" label="文件ID" width="100">
+            <template #default="{ row }">
+              {{ Array.isArray(row.file_ids) ? row.file_ids.join(', ') : '-' }}
+            </template>
+          </ElTableColumn>
           <ElTableColumn prop="start_time" label="启动时间" min-width="180">
             <template #default="{ row }">
               {{ formatDateTime(row.start_time) }}

@@ -34,7 +34,7 @@ export interface ExecutionUnit {
 export interface TaskDetail {
   id: number;
   process_name: string;
-  file_name: string;
+  file_ids: number[];
   start_time: string;
   end_time: string | null;
   status: string; // "running", "success", "failed"
@@ -58,7 +58,7 @@ export interface PaginatingQueryRecord<T> {
 export interface TaskListItem {
   id: number;
   process_name: string;
-  file_id: number;
+  file_ids: number[];
   file_name: string;
   start_time: string;
   end_time: string | null;
@@ -165,9 +165,6 @@ export interface ProcessSchema {
 export interface NewTaskPayload {
   /** 要执行的流程ID */
   process_id: number;
-
-  /** 主输入文件的ID */
-  file_id: number;
 
   /** 根据 parameter_schema 填充的参数JSON对象 */
   parameter_json: Record<string, any>;

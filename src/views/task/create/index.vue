@@ -21,7 +21,6 @@ const processList = ref<ProcessListItem[]>([]);
 const selectedProcessId = ref<number | undefined>(undefined);
 const processSchema = ref<ProcessSchema | null>(null);
 const formData = ref<Record<string, any>>({});
-const mainFileId = ref<number>(7);
 
 // 新增: 创建一个 ref 来引用 DynamicForm 组件实例
 const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
@@ -82,7 +81,6 @@ async function handleSubmit() {
   // 3. 验证通过后，执行后续的提交逻辑
   const payload: NewTaskPayload = {
     process_id: selectedProcessId.value,
-    file_id: mainFileId.value,
     parameter_json: formData.value
   };
 
