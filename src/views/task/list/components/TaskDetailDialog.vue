@@ -53,7 +53,7 @@ const taskUnitsArray = computed(() => {
     end_time: unit.end_time,
     duration: calculateDuration(unit.start_time, unit.end_time),
     status: unit.status.toUpperCase(), // 统一状态为大写以便处理
-    error_message: unit.status.toLowerCase() === 'failed' ? unit.message : '',
+    message: unit.message,
     description: unit.description,
     type: unit.type
   }));
@@ -245,8 +245,8 @@ async function handleRestartTask() {
                 <ElTag :type="getStatusTagType(row.status)">{{ row.status }}</ElTag>
               </template>
             </ElTableColumn>
-            <ElTableColumn prop="error_message" label="错误信息" min-width="250">
-              <template #default="{ row }">{{ row.error_message || '-' }}</template>
+            <ElTableColumn prop="message" label="执行信息" min-width="250">
+              <template #default="{ row }">{{ row.message || '-' }}</template>
             </ElTableColumn>
           </ElTable>
         </div>
