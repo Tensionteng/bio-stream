@@ -230,7 +230,7 @@ const local: App.I18n.Schema = {
     plugin_typeit: '打字机',
     plugin_tables: '表格',
     plugin_tables_vtable: 'VTable',
-    transfer: '文件上传与下载',
+    file: '文件',
     visualization: '可视化'
   },
   page: {

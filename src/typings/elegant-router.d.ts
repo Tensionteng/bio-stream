@@ -38,6 +38,7 @@ declare module "@elegant-router/types" {
     "alova": "/alova";
     "alova_request": "/alova/request";
     "alova_scenes": "/alova/scenes";
+    "file": "/file";
     "function": "/function";
     "function_hide-child": "/function/hide-child";
     "function_hide-child_one": "/function/hide-child/one";
@@ -89,7 +90,6 @@ declare module "@elegant-router/types" {
     "task": "/task";
     "task_create": "/task/create";
     "task_list": "/task/list";
-    "transfer": "/transfer";
     "user-center": "/user-center";
     "visualization": "/visualization";
   };
@@ -142,6 +142,7 @@ declare module "@elegant-router/types" {
     | "500"
     | "about"
     | "alova"
+    | "file"
     | "function"
     | "home"
     | "iframe-page"
@@ -150,7 +151,6 @@ declare module "@elegant-router/types" {
     | "multi-menu"
     | "plugin"
     | "task"
-    | "transfer"
     | "user-center"
     | "visualization"
   >;
@@ -179,6 +179,7 @@ declare module "@elegant-router/types" {
     | "about"
     | "alova_request"
     | "alova_scenes"
+    | "file"
     | "function_hide-child_one"
     | "function_hide-child_three"
     | "function_hide-child_two"
@@ -215,7 +216,6 @@ declare module "@elegant-router/types" {
     | "plugin_video"
     | "task_create"
     | "task_list"
-    | "transfer"
     | "user-center"
     | "visualization"
   >;

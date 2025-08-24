@@ -67,6 +67,77 @@ declare namespace Api {
     }
   }
 
+  namespace Files {
+
+    interface Schema {
+      id: number;
+      name: string;
+      schema_json: object;
+    }
+    /** 文件 Schema 信息 */
+    interface FileSchemaInfo {
+      schemas: Schema[]
+    }
+
+    interface FileStatistics {
+      total_files: number;
+      total_size: number;
+      last_upload_time: string;
+    }
+
+    interface UserItem {
+      user_id: number;
+      user_name: string;
+    }
+
+    interface FileItem {
+      file_id: number;
+      file_name: string;
+      file_size: number;
+      created_time: string;
+      upload_user: UserItem;
+    }
+
+    interface FileList {
+      count: number;
+      page: number;
+      page_size: number;
+      results: FileItem[];
+    }
+
+    interface FileUpload {
+      field_name: string;
+      filename: string;
+      content_type: string;
+    }
+
+    interface FileUploadUrl {
+      field_name: string;
+      upload_url: string;
+      s3_key: string;
+    }
+
+    interface FileUploadInitResponse {
+      status: string;
+      upload_urls: FileUploadUrl[];
+    }
+
+    interface UploadedFile {
+      field_name: string;
+      origin_filename: string;
+      s3_key: string;
+      file_type: string;
+      file_size: number;
+      file_md5: string;
+    }
+
+    interface FileUploadCompleteResponse {
+      status: string;
+      file_id: number;
+    }
+
+  }
+
   namespace Visualization {
     /** 任务信息 */
     interface TaskInfo {

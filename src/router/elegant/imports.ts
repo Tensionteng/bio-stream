@@ -23,6 +23,7 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   about: () => import("@/views/about/index.vue"),
   alova_request: () => import("@/views/alova/request/index.vue"),
   alova_scenes: () => import("@/views/alova/scenes/index.vue"),
+  file: () => import("@/views/file/index.vue"),
   "function_hide-child_one": () => import("@/views/function/hide-child/one/index.vue"),
   "function_hide-child_three": () => import("@/views/function/hide-child/three/index.vue"),
   "function_hide-child_two": () => import("@/views/function/hide-child/two/index.vue"),
@@ -59,7 +60,6 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   plugin_video: () => import("@/views/plugin/video/index.vue"),
   task_create: () => import("@/views/task/create/index.vue"),
   task_list: () => import("@/views/task/list/index.vue"),
-  transfer: () => import("@/views/transfer/index.vue"),
   "user-center": () => import("@/views/user-center/index.vue"),
   visualization: () => import("@/views/visualization/index.vue"),
 };

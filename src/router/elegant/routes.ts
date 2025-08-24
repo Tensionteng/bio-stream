@@ -85,6 +85,16 @@ export const generatedRoutes: GeneratedRoute[] = [
     ]
   },
   {
+    name: 'file',
+    path: '/file',
+    component: 'layout.base$view.file',
+    meta: {
+      title: '文件',
+      i18nKey: 'route.file',
+      icon: 'ep:upload-filled'
+    }
+  },
+  {
     name: 'function',
     path: '/function',
     component: 'layout.base',
@@ -643,16 +653,6 @@ export const generatedRoutes: GeneratedRoute[] = [
         }
       }
     ]
-  },
-  {
-    name: 'transfer',
-    path: '/transfer',
-    component: 'layout.base$view.transfer',
-    meta: {
-      title: '文件上传与下载',
-      i18nKey: 'route.transfer',
-      icon: 'ep:upload-filled'
-    }
   },
   {
     name: 'user-center',
