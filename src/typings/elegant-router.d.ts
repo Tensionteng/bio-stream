@@ -90,6 +90,7 @@ declare module "@elegant-router/types" {
     "task": "/task";
     "task_create": "/task/create";
     "task_list": "/task/list";
+    "transfer": "/transfer";
     "user-center": "/user-center";
     "visualization": "/visualization";
   };
@@ -151,6 +152,7 @@ declare module "@elegant-router/types" {
     | "multi-menu"
     | "plugin"
     | "task"
+    | "transfer"
     | "user-center"
     | "visualization"
   >;
@@ -216,6 +218,7 @@ declare module "@elegant-router/types" {
     | "plugin_video"
     | "task_create"
     | "task_list"
+    | "transfer"
     | "user-center"
     | "visualization"
   >;
