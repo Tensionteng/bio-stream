@@ -68,7 +68,6 @@ declare namespace Api {
   }
 
   namespace Files {
-
     interface Schema {
       id: number;
       name: string;
@@ -76,7 +75,7 @@ declare namespace Api {
     }
     /** 文件 Schema 信息 */
     interface FileSchemaInfo {
-      schemas: Schema[]
+      schemas: Schema[];
     }
 
     interface FileStatistics {
@@ -135,7 +134,6 @@ declare namespace Api {
       status: string;
       file_id: number;
     }
-
   }
 
   namespace Visualization {
