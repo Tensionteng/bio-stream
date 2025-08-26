@@ -1,7 +1,9 @@
 <script lang="ts" setup>
 import { onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+import axios from 'axios';
 import { Search, Upload, UploadFilled } from '@element-plus/icons-vue';
+import { createSHA256 } from 'hash-wasm';
 import {
   FileUploadComplete,
   FileUploadInit,
@@ -9,21 +11,6 @@ import {
   fetchFileSchemaInfo,
   fetchFileStatistics
 } from '@/service/api/file';
-import axios from 'axios';
-import { createSHA256, createMD5 } from 'hash-wasm';
-
-async function hashFile(file: File) {
-  const md5 = await createMD5();
-  const chunkSize = 4 * 1024 * 1024; // 4MB 一块
-  let offset = 0;
-  while (offset < file.size) {
-    const chunk = file.slice(offset, offset + chunkSize);
-    const buffer = await chunk.arrayBuffer();
-    md5.update(new Uint8Array(buffer));
-    offset += chunkSize;
-  }
-  return md5.digest('hex');
-}
 
 const schemas = ref<any[]>([]); // 注意：这里初始化为空数组
 const selectedSchemaId = ref<string>('');
@@ -674,6 +661,24 @@ function getSuffixFromFileName(fileName: string): string {
   return parts.length > 1 ? parts[parts.length - 1] : '';
 }
 
+// 计算文件哈希编码
+async function hashFile(file: File) {
+  const sha256 = await createSHA256();
+  const chunkSize = 4 * 1024 * 1024; // 4MB 一块
+  let offset = 0;
+  const chunks: Blob[] = [];
+  while (offset < file.size) {
+    chunks.push(file.slice(offset, offset + chunkSize));
+    offset += chunkSize;
+  }
+  // 并发读取所有 chunk 的 arrayBuffer
+  const buffers = await Promise.all(chunks.map(chunk => chunk.arrayBuffer()));
+  for (const buffer of buffers) {
+    sha256.update(new Uint8Array(buffer));
+  }
+  return sha256.digest('hex');
+}
+
 // 根据 schema 获取文件名：如果有 sampleid 则使用，否则随机生成
 function getFileNameFromSchema(): string {
   // 检查 dynamicForm 中是否有 sampleid 字段
@@ -836,7 +841,7 @@ async function processFileUploads(): Promise<any[]> {
   //     });
   //   })
   // );
-  //上传文件到对应的url
+  // 上传文件到对应的url
   await Promise.all(
     currentUploadUrls.map(async (u: any) => {
       // 找到对应的file
@@ -845,24 +850,23 @@ async function processFileUploads(): Promise<any[]> {
         console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
         return;
       }
-        await axios.put(u.upload_url, entry.file, {
-          headers: {
-            'Content-Type': entry.file.type || 'application/octet-stream'
-          },
-          onUploadProgress: (progressEvent) => {
-            if (progressEvent.total) {
-              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              console.log(`正在上传 ${u.field_name}: ${percent}%`);
-            } else {
-              console.log(`正在上传 ${u.field_name}: 已上传 ${progressEvent.loaded} 字节`);
-            }
-          },
-          maxBodyLength: Infinity,  // 允许大文件
-          maxContentLength: Infinity
+      await axios.put(u.upload_url, entry.file, {
+        headers: {
+          'Content-Type': entry.file.type || 'application/octet-stream'
+        },
+        onUploadProgress: progressEvent => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`正在上传 ${u.field_name}: ${percent}%`);
+          } else {
+            console.log(`正在上传 ${u.field_name}: 已上传 ${progressEvent.loaded} 字节`);
+          }
+        },
+        maxBodyLength: Infinity, // 允许大文件
+        maxContentLength: Infinity
       });
     })
   );
-
 
   // 回填路径信息
   currentUploadUrls.forEach((u: any) => {
@@ -903,7 +907,6 @@ async function processFileUploads(): Promise<any[]> {
 
     try {
       const sha256 = await hashFile(foundFile);
-
       return {
         field_name: u.field_name,
         origin_filename: foundFile.name,
