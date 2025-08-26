@@ -796,10 +796,7 @@ async function processFileUploads(): Promise<any[]> {
   });
 
   const initiateRes: any = await FileUploadInit(selectedSchema.value.id, uploads);
-  const currentUploadUrls = (initiateRes?.upload_urls ||
-    initiateRes?.response?.upload_urls ||
-    initiateRes?.response?.data?.upload_urls ||
-    []) as any[];
+  const currentUploadUrls = (initiateRes.data?.upload_urls || []) as any[];
 
   console.log('Initiate Upload Response:', initiateRes); // 调试日志
   console.log('Current Upload URLs:', currentUploadUrls); // 调试日志
@@ -874,7 +871,7 @@ async function processFileUploads(): Promise<any[]> {
         s3_key: u.s3_key,
         file_type: foundFile.type || 'application/octet-stream',
         file_size: foundFile.size,
-        file_md5: sha256
+        file_hash: sha256
       };
     } catch {
       return null;
