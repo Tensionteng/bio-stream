@@ -153,22 +153,12 @@ declare namespace Api {
 
     /** VCF文件数据结构 */
     interface VcfData {
-      '#CHROM': string;
-      POS: string;
-      ID: string;
-      REF: string;
-      ALT: string;
-      QUAL: string;
-      FILTER: string;
-      INFO: string;
-      FORMAT: string;
-      [key: string]: string; // 动态样本列
+      [key: string]: string; // 所有列都是动态的
     }
 
     /** CSV文件数据结构 */
     interface CsvData {
-      gene_id: string;
-      [key: string]: number | string; // 动态列数据
+      [key: string]: number | string; // 所有列都是动态的
     }
 
     /** CSV文件数据结构 - 新的返回格式 */

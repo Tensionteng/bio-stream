@@ -145,8 +145,13 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
 const getTableColumns = (data: any[]) => {
   if (!data || data.length === 0) return [];
 
-  const firstRow = data[0];
-  return Object.keys(firstRow);
+  // 收集所有行中出现的键，确保所有列都被包含
+  const allKeys = new Set<string>();
+  data.forEach(row => {
+    Object.keys(row).forEach(key => allKeys.add(key));
+  });
+
+  return Array.from(allKeys);
 };
 
 // 处理PDF在新窗口打开 - 移除iframe，直接打开新窗口
