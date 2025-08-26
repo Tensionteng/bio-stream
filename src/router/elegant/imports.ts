@@ -60,7 +60,6 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   plugin_video: () => import("@/views/plugin/video/index.vue"),
   task_create: () => import("@/views/task/create/index.vue"),
   task_list: () => import("@/views/task/list/index.vue"),
-  transfer: () => import("@/views/transfer/index.vue"),
   "user-center": () => import("@/views/user-center/index.vue"),
   visualization: () => import("@/views/visualization/index.vue"),
 };

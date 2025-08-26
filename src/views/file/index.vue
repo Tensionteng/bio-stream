@@ -294,7 +294,14 @@ function handleFileField({
     pattern: prop.pattern || '',
     description: prop.description || `请上传${propName}文件`
   });
-  dynamicForm[fieldKey] = {};
+  // 修正：如果dynamicForm[fieldKey]已存在且有path/file_type/file，保留原有，否则初始化为空对象
+  if (
+    !dynamicForm[fieldKey] ||
+    typeof dynamicForm[fieldKey] !== 'object' ||
+    (!('path' in dynamicForm[fieldKey]) && !('file' in dynamicForm[fieldKey]))
+  ) {
+    dynamicForm[fieldKey] = {};
+  }
 }
 
 function handleEnumField({
@@ -451,9 +458,13 @@ watch(selectedSchemaId, async () => {
   }
 });
 
-// 文件选择处理
 // 处理文件变更
 function handleFileChange(field: string, file: File, key?: string | number) {
+  // 确保 dynamicForm[field] 已初始化为对象
+  if (!dynamicForm[field] || typeof dynamicForm[field] !== 'object') {
+    dynamicForm[field] = {};
+  }
+  console.log('dynamicform after selected:', dynamicForm);
   // 动态对象子项
   if (key !== undefined) {
     handleDynamicObjectFileChange(field, file, key);
@@ -611,11 +622,8 @@ function collectFileEntries(
   Object.entries(obj).forEach(([k, v]) => {
     const currentPath = [...basePath, k];
     if (v && typeof v === 'object' && 'file' in v && v.file && !(v as any).hidden) {
-      // 基于当前文件信息生成唯一的 field_name，使用序号确保唯一性
-      const fileName = (v.file as File).name;
-      const suffix = getSuffixFromFileName(fileName) || 'file';
-      const fieldName = `${suffix}_file_${k}`;
-
+      // 只用当前 key 作为 field_name，避免重复拼接
+      const fieldName = k; // 只用叶子节点 key
       results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
     } else if (v && typeof v === 'object' && !Array.isArray(v)) {
       results.push(...collectFileEntries(v as Record<string, any>, currentPath));
@@ -667,7 +675,7 @@ function getFileNameFromSchema(): string {
 // 处理动态对象文件变更
 function handleDynamicObjectFileChange(field: string, file: File, key: string | number) {
   if (!dynamicForm[field] || !dynamicForm[field][key]) return;
-
+  console.log('dynamicform in dynamic object change:', dynamicForm);
   // 直接更新文件信息，不删除动态计算的属性键，并确保组件可见
   dynamicForm[field][key] = {
     path: file.name,
@@ -724,13 +732,16 @@ function updateFileField(fileField: any, file: File) {
     file
   };
 
+  // 确保 dynamicForm 结构存在
   if (fileField.parentField) {
-    if (!dynamicForm[fileField.parentField]) dynamicForm[fileField.parentField] = {};
-    // 完全替换对象，确保清理旧属性
+    if (!dynamicForm[fileField.parentField] || typeof dynamicForm[fileField.parentField] !== 'object') {
+      dynamicForm[fileField.parentField] = {};
+    }
     dynamicForm[fileField.parentField][fileField.originalName] = { ...fileInfo };
   } else {
-    if (!dynamicForm[fileField.name]) dynamicForm[fileField.name] = {};
-    // 完全替换对象，确保清理旧属性
+    if (!dynamicForm[fileField.name] || typeof dynamicForm[fileField.name] !== 'object') {
+      dynamicForm[fileField.name] = {};
+    }
     dynamicForm[fileField.name] = { ...fileInfo };
   }
 }
@@ -775,6 +786,7 @@ function validateTextFields(): boolean {
 async function processFileUploads(): Promise<any[]> {
   const uploads: any[] = [];
   const fileEntries = collectFileEntries(dynamicForm);
+  console.log('before collect dynamicForm:', dynamicForm);
   fileEntries.forEach(({ field_name, file }) => {
     uploads.push({
       field_name,
@@ -788,6 +800,30 @@ async function processFileUploads(): Promise<any[]> {
     initiateRes?.response?.upload_urls ||
     initiateRes?.response?.data?.upload_urls ||
     []) as any[];
+
+  console.log('Initiate Upload Response:', initiateRes); // 调试日志
+  console.log('Current Upload URLs:', currentUploadUrls); // 调试日志
+  console.log('dynamicForm:', dynamicForm); // 调试日志
+  console.log('fileEntries:', fileEntries); // 调试日志
+
+  // 上传文件到对应的url
+  await Promise.all(
+    currentUploadUrls.map(async (u: any) => {
+      // 找到对应的file
+      const entry = fileEntries.find(e => e.field_name === u.field_name);
+      if (!entry) {
+        console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
+        return;
+      }
+      await fetch(u.upload_url, {
+        method: 'PUT',
+        body: entry.file,
+        headers: {
+          'Content-Type': entry.file.type || 'application/octet-stream'
+        }
+      });
+    })
+  );
 
   // 回填路径信息
   currentUploadUrls.forEach((u: any) => {
@@ -806,7 +842,7 @@ async function processFileUploads(): Promise<any[]> {
     }
   });
 
-  // 处理文件上传
+  // 处理文件上传信息（如hash等）
   const uploadedFiles: any[] = [];
   const uploadPromises = currentUploadUrls.map(async (u: any) => {
     let foundFile: File | null = null;

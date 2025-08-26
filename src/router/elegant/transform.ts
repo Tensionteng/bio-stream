@@ -236,7 +236,6 @@ const routeMap: RouteMap = {
   "task": "/task",
   "task_create": "/task/create",
   "task_list": "/task/list",
-  "transfer": "/transfer",
   "user-center": "/user-center",
   "visualization": "/visualization"
 };
