@@ -816,31 +816,13 @@ async function processFileUploads(): Promise<any[]> {
   });
 
   const initiateRes: any = await FileUploadInit(selectedSchema.value.id, uploads);
-  const currentUploadUrls = (initiateRes.data?.upload_urls || []) as any[];
+  const currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response.data?.upload_urls || []) as any[];
 
   console.log('Initiate Upload Response:', initiateRes); // 调试日志
   console.log('Current Upload URLs:', currentUploadUrls); // 调试日志
   console.log('dynamicForm:', dynamicForm); // 调试日志
   console.log('fileEntries:', fileEntries); // 调试日志
 
-  // 上传文件到对应的url
-  // await Promise.all(
-  //   currentUploadUrls.map(async (u: any) => {
-  //     // 找到对应的file
-  //     const entry = fileEntries.find(e => e.field_name === u.field_name);
-  //     if (!entry) {
-  //       console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
-  //       return;
-  //     }
-  //     await fetch(u.upload_url, {
-  //       method: 'PUT',
-  //       body: entry.file,
-  //       headers: {
-  //         'Content-Type': entry.file.type || 'application/octet-stream'
-  //       }
-  //     });
-  //   })
-  // );
   // 上传文件到对应的url
   await Promise.all(
     currentUploadUrls.map(async (u: any) => {
