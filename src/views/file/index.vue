@@ -9,6 +9,21 @@ import {
   fetchFileSchemaInfo,
   fetchFileStatistics
 } from '@/service/api/file';
+import axios from 'axios';
+import { createSHA256, createMD5 } from 'hash-wasm';
+
+async function hashFile(file: File) {
+  const md5 = await createMD5();
+  const chunkSize = 4 * 1024 * 1024; // 4MB 一块
+  let offset = 0;
+  while (offset < file.size) {
+    const chunk = file.slice(offset, offset + chunkSize);
+    const buffer = await chunk.arrayBuffer();
+    md5.update(new Uint8Array(buffer));
+    offset += chunkSize;
+  }
+  return md5.digest('hex');
+}
 
 const schemas = ref<any[]>([]); // 注意：这里初始化为空数组
 const selectedSchemaId = ref<string>('');
@@ -804,6 +819,24 @@ async function processFileUploads(): Promise<any[]> {
   console.log('fileEntries:', fileEntries); // 调试日志
 
   // 上传文件到对应的url
+  // await Promise.all(
+  //   currentUploadUrls.map(async (u: any) => {
+  //     // 找到对应的file
+  //     const entry = fileEntries.find(e => e.field_name === u.field_name);
+  //     if (!entry) {
+  //       console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
+  //       return;
+  //     }
+  //     await fetch(u.upload_url, {
+  //       method: 'PUT',
+  //       body: entry.file,
+  //       headers: {
+  //         'Content-Type': entry.file.type || 'application/octet-stream'
+  //       }
+  //     });
+  //   })
+  // );
+  //上传文件到对应的url
   await Promise.all(
     currentUploadUrls.map(async (u: any) => {
       // 找到对应的file
@@ -812,15 +845,24 @@ async function processFileUploads(): Promise<any[]> {
         console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
         return;
       }
-      await fetch(u.upload_url, {
-        method: 'PUT',
-        body: entry.file,
-        headers: {
-          'Content-Type': entry.file.type || 'application/octet-stream'
-        }
+        await axios.put(u.upload_url, entry.file, {
+          headers: {
+            'Content-Type': entry.file.type || 'application/octet-stream'
+          },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              console.log(`正在上传 ${u.field_name}: ${percent}%`);
+            } else {
+              console.log(`正在上传 ${u.field_name}: 已上传 ${progressEvent.loaded} 字节`);
+            }
+          },
+          maxBodyLength: Infinity,  // 允许大文件
+          maxContentLength: Infinity
       });
     })
   );
+
 
   // 回填路径信息
   currentUploadUrls.forEach((u: any) => {
@@ -860,10 +902,7 @@ async function processFileUploads(): Promise<any[]> {
     if (!foundFile) return null;
 
     try {
-      const arrayBuffer = await foundFile.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const sha256 = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      const sha256 = await hashFile(foundFile);
 
       return {
         field_name: u.field_name,
@@ -874,7 +913,15 @@ async function processFileUploads(): Promise<any[]> {
         file_hash: sha256
       };
     } catch {
-      return null;
+      console.log('计算文件哈希失败');
+      return {
+        field_name: u.field_name,
+        origin_filename: foundFile.name,
+        s3_key: u.s3_key,
+        file_type: foundFile.type || 'application/octet-stream',
+        file_size: foundFile.size,
+        file_hash: 'error'
+      };
     }
   });
 
@@ -932,6 +979,7 @@ async function handleSubmit() {
     const descriptionJson = buildDescriptionJson(uploadedFiles);
 
     // 完成上传
+    console.log('上传文件信息:', uploadedFiles);
     await FileUploadComplete({
       file_type_id: selectedSchema.value.id,
       file_name: getFileNameFromSchema(),
