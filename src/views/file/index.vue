@@ -7,6 +7,7 @@ import { createSHA256 } from 'hash-wasm';
 import {
   FileUploadComplete,
   FileUploadInit,
+  fetchFileDetail,
   fetchFileListInfo,
   fetchFileSchemaInfo,
   fetchFileStatistics
@@ -1080,7 +1081,7 @@ async function handleSubmit() {
     // 处理文件上传
     const uploadedFiles = await processFileUploads();
     if (uploadedFiles.length === 0) {
-      ElMessage.error('没有文件被上传');
+      ElMessage.error('文件上传失败');
       uploadLoading.value = false;
       return;
     }
@@ -1095,8 +1096,8 @@ async function handleSubmit() {
       description_json: descriptionJson,
       uploaded_files: uploadedFiles
     });
-
-    ElMessage.success('上传成功');
+    // 文件上传成功，提示并重置表单
+    ElMessage.success('文件上传成功');
     resetForm();
   } catch (e: any) {
     ElMessage.error(`上传失败: ${e.message || '未知错误'}`);
@@ -1128,13 +1129,6 @@ async function fetchFileList(page?: number, pageSize?: number) {
   } finally {
     fileListLoading.value = false;
   }
-}
-
-// 下载文件方法
-function handleDownloadFile(file: any) {
-  // 假设 file.s3_key 为后端返回的 S3 路径
-  // 实际下载接口可能需要鉴权，可根据实际情况调整
-  window.open(`/api/file/download?s3_key=${encodeURIComponent(file.s3_key)}`, '_blank');
 }
 
 // 获取短标签名称
@@ -1219,6 +1213,32 @@ function handlePageSizeChange(newSize: number) {
   fileListPageSize.value = newSize;
   fileListPage.value = 1;
   fetchFileList();
+}
+
+// 文件详情弹窗相关
+const fileDetailDialogVisible = ref(false);
+const fileDetailLoading = ref(false);
+const fileDetailData = ref<any>(null);
+
+// 获取文件详情接口
+async function ShowFileDetail(file_id: number) {
+  fileDetailLoading.value = true;
+  fileDetailData.value = null;
+  try {
+    const res = await fetchFileDetail(file_id);
+    console.log('file detail response:', res);
+    const file_detail = res.data || res.response.data;
+    if (file_detail) {
+      fileDetailData.value = file_detail;
+      fileDetailDialogVisible.value = true;
+    } else {
+      ElMessage.error('未获取到文件详情');
+    }
+  } catch (e: any) {
+    ElMessage.error(`获取文件详情失败: ${e.message || '未知错误'}`);
+  } finally {
+    fileDetailLoading.value = false;
+  }
 }
 
 onMounted(() => {
@@ -1410,9 +1430,9 @@ onMounted(() => {
 
     <div class="history-list-area">
       <ElCard shadow="hover" class="history-card">
-        <div style="font-weight: bold; color: #409eff; margin-bottom: 5px">文件列表</div>
+        <div style="font-weight: bold; font-size: large; color: #409eff; margin-bottom: 10px">文件列表</div>
         <!-- 搜索区域 -->
-        <div class="search-area" style="margin-bottom: 5px">
+        <div class="search-area" style="margin-bottom: 10px">
           <ElInput
             v-model="searchKeyword"
             placeholder="搜索文件名或样本名称"
@@ -1426,41 +1446,51 @@ onMounted(() => {
             </template>
           </ElInput>
         </div>
-
         <ElEmpty v-if="!fileList.length && !fileListLoading" description="暂无上传记录" :image-size="60" />
-        <div v-else class="history-table-wrapper">
+        <div class="history-table-scroll">
           <ElTable :data="fileList" style="width: 100%" size="small" border stripe>
             <ElTableColumn prop="file_id" label="ID" show-overflow-tooltip />
             <ElTableColumn prop="file_name" label="文件名" show-overflow-tooltip />
             <ElTableColumn prop="file_size" label="文件大小（字节）" show-overflow-tooltip />
             <ElTableColumn prop="created_time" label="上传时间" show-overflow-tooltip />
             <ElTableColumn prop="upload_user.user_id" label="上传用户" show-overflow-tooltip />
-            <ElTableColumn label="操作" width="100" align="center">
+            <ElTableColumn label="操作" width="120" align="center">
               <template #default="scope">
                 <ElButton
                   type="primary"
                   size="small"
-                  :disabled="!scope.row.s3_key"
-                  @click="handleDownloadFile(scope.row)"
+                  :disabled="!scope.row.file_id"
+                  style="margin-right: 6px"
+                  @click="ShowFileDetail(scope.row.file_id)"
                 >
                   详情
                 </ElButton>
+                <!--
+ <ElButton
+                  type="success"
+                  size="small"
+                  :disabled=true
+                  @click="DownloadFile(scope.row)"
+                >
+                  下载
+                </ElButton> 
+-->
               </template>
             </ElTableColumn>
           </ElTable>
-          <div class="history-pagination">
-            <ElPagination
-              v-if="fileListTotal > 0"
-              background
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="fileListTotal"
-              :page-size="fileListPageSize"
-              :current-page="fileListPage"
-              :page-sizes="[10, 20, 50, 100]"
-              @current-change="handleCurrentChange"
-              @size-change="handlePageSizeChange"
-            />
-          </div>
+        </div>
+        <div class="history-pagination" style="padding-top: 1%; padding-bottom: 1%">
+          <ElPagination
+            v-if="fileListTotal > 0"
+            background
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="fileListTotal"
+            :page-size="fileListPageSize"
+            :current-page="fileListPage"
+            :page-sizes="[10, 20, 50, 100]"
+            @current-change="handleCurrentChange"
+            @size-change="handlePageSizeChange"
+          />
         </div>
       </ElCard>
     </div>
@@ -1499,6 +1529,64 @@ onMounted(() => {
         </ElButton>
       </template>
     </ElDialog>
+
+    <!-- 文件详情弹窗 -->
+    <ElDialog
+      v-model="fileDetailDialogVisible"
+      title="文件详情"
+      width="750px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="true"
+      :show-close="true"
+      align-center
+      class="file-detail-dialog"
+    >
+      <div v-if="fileDetailLoading" class="file-detail-loading">
+        <ElIcon><i class="el-icon-loading"></i></ElIcon>
+        加载中...
+      </div>
+      <div v-else-if="fileDetailData">
+        <ElDescriptions :column="2" border class="file-detail-desc">
+          <ElDescriptionsItem label="文件ID">{{ fileDetailData.file_id }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="文件名">{{ fileDetailData.file_name }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="类型">{{ fileDetailData.file_type }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="大小">{{ fileDetailData.file_size }} 字节</ElDescriptionsItem>
+          <ElDescriptionsItem label="上传时间">{{ fileDetailData.created_time }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="上传用户">
+            <span v-if="fileDetailData.upload_user">
+              {{ fileDetailData.upload_user.username }} (ID: {{ fileDetailData.upload_user.user_id }})
+            </span>
+          </ElDescriptionsItem>
+        </ElDescriptions>
+        <ElDivider content-position="left">描述信息</ElDivider>
+        <div class="desc-json-area">
+          <ElCollapse>
+            <div class="desc-json-scroll">
+              <pre class="desc-json-pre">{{ JSON.stringify(fileDetailData.description_json, null, 2) }}</pre>
+            </div>
+          </ElCollapse>
+        </div>
+        <ElDivider content-position="left">子文件列表</ElDivider>
+        <ElTable
+          v-if="fileDetailData.uploaded_subfiles && fileDetailData.uploaded_subfiles.length"
+          :data="fileDetailData.uploaded_subfiles"
+          size="small"
+          border
+          class="file-detail-subfile-table"
+        >
+          <ElTableColumn prop="origin_filename" label="原始文件名" show-overflow-tooltip />
+          <ElTableColumn prop="field_name" label="字段名" show-overflow-tooltip />
+          <ElTableColumn prop="file_type" label="类型" show-overflow-tooltip />
+          <ElTableColumn prop="file_size" label="大小" show-overflow-tooltip />
+          <ElTableColumn prop="upload_time" label="上传时间" show-overflow-tooltip />
+        </ElTable>
+        <div v-else style="color: #aaa; text-align: center">无子文件</div>
+      </div>
+      <div v-else style="color: #aaa; text-align: center">无详情数据</div>
+      <template #footer>
+        <ElButton type="primary" @click="fileDetailDialogVisible = false">关闭</ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
@@ -1508,9 +1596,10 @@ onMounted(() => {
   display: flex;
   gap: 1%;
   align-items: stretch;
-  min-height: 600px;
-  height: 100%;
+  /* 新增：让两栏自适应宽度 */
+  flex-wrap: wrap;
 }
+
 .title-bar {
   display: flex;
   align-items: center;
@@ -1537,20 +1626,28 @@ onMounted(() => {
   margin-left: clamp(12px, 2.2vw, 24px);
 }
 .main-card {
-  flex: 1 1 0;
+  flex: 1 1 380px;
+  min-width: 320px;
+  max-width: 100%;
+  /* 新增：让主卡片高度自适应父容器 */
   height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: stretch;
+  box-sizing: border-box;
 }
 
 .history-list-area {
-  flex: 1 1 0;
+  flex: 1 1 380px;
+  min-width: 320px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   height: 100%;
   margin-left: 0;
+  box-sizing: border-box;
 }
+
 .history-card {
   flex: 1 1 0;
   min-height: 0;
@@ -1560,29 +1657,15 @@ onMounted(() => {
   overflow: visible;
   height: 100%;
 }
-.history-table-wrapper {
-  display: flex;
-  flex-direction: column;
-  height: 95%;
-}
-.history-pagination {
-  margin-top: clamp(8px, 1.6vh, 16px);
-  text-align: center;
-  width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-.history-table-wrapper .el-table {
-  flex: 1;
-  min-height: 0;
-  max-height: 90%;
+
+.history-table-scroll {
+  flex: 1 1 0;
+  min-height: 0%;
+  max-height: 83%;
   overflow-y: auto;
+  overflow-x: auto;
 }
-.el-pagination {
-  margin-top: 0 !important;
-  margin-bottom: 0 !important;
-  background: transparent;
-}
+
 /* 主卡片美化 */
 .transfer-card {
   border-radius: 20px;

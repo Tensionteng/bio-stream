@@ -48,3 +48,13 @@ export function FileUploadComplete(params: {
     data: params
   });
 }
+
+export function fetchFileDetail(file_id: number) {
+  return request<Api.Files.FileDetail>({
+    url: `/files/detail/${file_id}`,
+    method: 'get',
+    data: {
+      file_id
+    }
+  });
+}
