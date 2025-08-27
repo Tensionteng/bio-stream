@@ -34,6 +34,32 @@ const fileListPage = ref(1);
 const fileListPageSize = ref(20); // 每页展示20个数据
 const fileListTotal = ref(0);
 
+// 进度条相关
+const progressDialogVisible = ref(false);
+const uploadProgressPercent = ref(0);
+const uploadingFileName = ref('');
+const uploadError = ref('');
+let uploadCancelTokenSource: ReturnType<typeof axios.CancelToken.source> | null = null;
+
+// 封装上传进度弹窗控制函数
+function showUploadProgressDialog({
+  percent = 0,
+  fileName = '',
+  error = '',
+  cancelTokenSource = null
+}: {
+  percent?: number;
+  fileName?: string;
+  error?: string;
+  cancelTokenSource?: ReturnType<typeof axios.CancelToken.source> | null;
+} = {}) {
+  uploadProgressPercent.value = percent;
+  uploadingFileName.value = fileName;
+  uploadError.value = error;
+  progressDialogVisible.value = true;
+  uploadCancelTokenSource = cancelTokenSource || null;
+}
+
 // 1. 获取 schema 列表
 async function fetchSchemas() {
   try {
@@ -372,6 +398,7 @@ function handleBooleanField({
       required: isRequired,
       description: prop.description || `请选择${propName}`
     });
+    // 修正：初始化为 null，提交时允许 false
     dynamicForm[fieldKey] = null;
   } else {
     textFields.value.push({
@@ -786,7 +813,6 @@ function validateTextFields(): boolean {
   for (const field of textFields.value) {
     if (field.type === 'dynamic-object') {
       const container = dynamicForm[field.name] || {};
-      // 只计算没有隐藏标记的组件
       const visibleKeys = Object.keys(container).filter(key => !(container[key] as any).hidden);
       const hasAny = visibleKeys.length > 0;
       if (field.required && !hasAny) {
@@ -794,8 +820,23 @@ function validateTextFields(): boolean {
         return false;
       }
     }
-    if (field.required && !dynamicForm[field.name]) {
+    // 修正：允许 boolean/select 字段为 false
+    if (
+      field.required &&
+      (dynamicForm[field.name] === '' ||
+        dynamicForm[field.name] === undefined ||
+        (dynamicForm[field.name] === null && field.type !== 'boolean' && field.type !== 'select'))
+    ) {
       ElMessage.warning(`请填写${field.label}`);
+      return false;
+    }
+    // 针对 select 类型的链方向，允许 false
+    if (
+      field.required &&
+      field.type === 'select' &&
+      (dynamicForm[field.name] === null || dynamicForm[field.name] === undefined || dynamicForm[field.name] === '')
+    ) {
+      ElMessage.warning(`请选择${field.label}`);
       return false;
     }
   }
@@ -818,37 +859,99 @@ async function processFileUploads(): Promise<any[]> {
   const initiateRes: any = await FileUploadInit(selectedSchema.value.id, uploads);
   const currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response.data?.upload_urls || []) as any[];
 
-  console.log('Initiate Upload Response:', initiateRes); // 调试日志
-  console.log('Current Upload URLs:', currentUploadUrls); // 调试日志
-  console.log('dynamicForm:', dynamicForm); // 调试日志
-  console.log('fileEntries:', fileEntries); // 调试日志
-
   // 上传文件到对应的url
-  await Promise.all(
-    currentUploadUrls.map(async (u: any) => {
-      // 找到对应的file
-      const entry = fileEntries.find(e => e.field_name === u.field_name);
-      if (!entry) {
-        console.warn(`上传时未找到对应的文件字段: ${u.field_name}`);
-        return;
-      }
-      await axios.put(u.upload_url, entry.file, {
-        headers: {
-          'Content-Type': entry.file.type || 'application/octet-stream'
-        },
-        onUploadProgress: progressEvent => {
-          if (progressEvent.total) {
-            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            console.log(`正在上传 ${u.field_name}: ${percent}%`);
-          } else {
-            console.log(`正在上传 ${u.field_name}: 已上传 ${progressEvent.loaded} 字节`);
-          }
-        },
-        maxBodyLength: Infinity, // 允许大文件
-        maxContentLength: Infinity
+  progressDialogVisible.value = true;
+  uploadProgressPercent.value = 0;
+  uploadingFileName.value = '';
+  uploadError.value = '';
+  // 创建全局 cancel token
+  uploadCancelTokenSource = axios.CancelToken.source();
+  showUploadProgressDialog({
+    percent: 0,
+    fileName: '',
+    error: '',
+    cancelTokenSource: uploadCancelTokenSource
+  });
+
+  let finishedCount = 0;
+  const totalCount = currentUploadUrls.length;
+
+  try {
+    await Promise.all(
+      currentUploadUrls.map(async (u: any) => {
+        const entry = fileEntries.find(e => e.field_name === u.field_name);
+        if (!entry) {
+          showUploadProgressDialog({
+            percent: uploadProgressPercent.value,
+            fileName: '',
+            error: `上传时未找到对应的文件字段: ${u.field_name}`,
+            cancelTokenSource: null
+          });
+          throw new Error(`上传时未找到对应的文件字段: ${u.field_name}`);
+        }
+        uploadingFileName.value = entry.file.name;
+        await axios.put(u.upload_url, entry.file, {
+          headers: {
+            'Content-Type': entry.file.type || 'application/octet-stream'
+          },
+          onUploadProgress: progressEvent => {
+            if (progressEvent.total) {
+              const singlePercent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              uploadProgressPercent.value = Math.min(
+                100,
+                Math.round(((finishedCount + singlePercent / 100) / totalCount) * 100)
+              );
+              showUploadProgressDialog({
+                percent: uploadProgressPercent.value,
+                fileName: entry.file.name,
+                error: '',
+                cancelTokenSource: uploadCancelTokenSource
+              });
+            }
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          cancelToken: uploadCancelTokenSource?.token
+        });
+        finishedCount += 1;
+        uploadProgressPercent.value = Math.round((finishedCount / totalCount) * 100);
+        showUploadProgressDialog({
+          percent: uploadProgressPercent.value,
+          fileName: entry.file.name,
+          error: '',
+          cancelTokenSource: uploadCancelTokenSource
+        });
+      })
+    );
+    // 上传成功后，显示成功状态，等待用户主动关闭
+    showUploadProgressDialog({
+      percent: 100,
+      fileName: '',
+      error: '',
+      cancelTokenSource: null
+    });
+    // 不自动关闭弹窗
+    uploadCancelTokenSource = null;
+  } catch (err: any) {
+    if (axios.isCancel(err)) {
+      showUploadProgressDialog({
+        percent: uploadProgressPercent.value,
+        fileName: '',
+        error: '上传已取消',
+        cancelTokenSource: null
       });
-    })
-  );
+    } else {
+      showUploadProgressDialog({
+        percent: uploadProgressPercent.value,
+        fileName: '',
+        error: err?.message || '上传失败',
+        cancelTokenSource: null
+      });
+    }
+    // 不自动关闭弹窗
+    uploadCancelTokenSource = null;
+    throw err;
+  }
 
   // 回填路径信息
   currentUploadUrls.forEach((u: any) => {
@@ -915,6 +1018,23 @@ async function processFileUploads(): Promise<any[]> {
   return uploadedFiles;
 }
 
+// 主动取消上传
+function handleCancelUpload() {
+  if (uploadCancelTokenSource) {
+    uploadCancelTokenSource.cancel('用户取消上传');
+  }
+  // 只重置cancelToken，不关闭弹窗，让用户主动点关闭
+  uploadCancelTokenSource = null;
+}
+
+function handleCloseProgressDialog() {
+  progressDialogVisible.value = false;
+  uploadProgressPercent.value = 0;
+  uploadingFileName.value = '';
+  uploadError.value = '';
+  uploadCancelTokenSource = null;
+}
+
 // 构建描述JSON
 function buildDescriptionJson(uploadedFiles: any[]): any {
   const descriptionJson: any = {};
@@ -959,7 +1079,11 @@ async function handleSubmit() {
   try {
     // 处理文件上传
     const uploadedFiles = await processFileUploads();
-
+    if (uploadedFiles.length === 0) {
+      ElMessage.error('没有文件被上传');
+      uploadLoading.value = false;
+      return;
+    }
     // 构建描述JSON
     const descriptionJson = buildDescriptionJson(uploadedFiles);
 
@@ -1340,6 +1464,41 @@ onMounted(() => {
         </div>
       </ElCard>
     </div>
+
+    <!-- 上传进度对话框 -->
+    <ElDialog
+      v-model="progressDialogVisible"
+      title="文件上传中"
+      width="400px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      align-center
+    >
+      <div style="margin-bottom: 12px">
+        <span>正在上传：</span>
+        <b>{{ uploadingFileName }}</b>
+      </div>
+      <ElProgress
+        :percentage="uploadProgressPercent"
+        :status="uploadError ? 'exception' : uploadProgressPercent === 100 ? 'success' : ''"
+      />
+      <div v-if="uploadError" style="margin-top: 10px; color: #f56c6c">
+        {{ uploadError }}
+      </div>
+      <div v-else-if="uploadProgressPercent < 100" style="margin-top: 10px; color: #888">
+        请勿关闭页面，正在上传文件...
+      </div>
+      <div v-else style="margin-top: 10px; color: #67c23a">上传成功，请点击关闭</div>
+      <template #footer>
+        <ElButton v-if="!uploadError && uploadProgressPercent < 100" type="danger" @click="handleCancelUpload">
+          取消上传
+        </ElButton>
+        <ElButton v-if="uploadError || uploadProgressPercent === 100" type="primary" @click="handleCloseProgressDialog">
+          关闭
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
