@@ -1465,16 +1465,6 @@ onMounted(() => {
                 >
                   详情
                 </ElButton>
-                <!--
- <ElButton
-                  type="success"
-                  size="small"
-                  :disabled=true
-                  @click="DownloadFile(scope.row)"
-                >
-                  下载
-                </ElButton> 
--->
               </template>
             </ElTableColumn>
           </ElTable>
