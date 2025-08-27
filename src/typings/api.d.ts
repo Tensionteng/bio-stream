@@ -140,6 +140,7 @@ declare namespace Api {
       field_name: string;
       file_type: string;
       file_size: number;
+      file_hash: string;
       upload_time: string;
     }
 

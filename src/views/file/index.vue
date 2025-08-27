@@ -1567,7 +1567,8 @@ onMounted(() => {
           <ElTableColumn prop="origin_filename" label="原始文件名" show-overflow-tooltip />
           <ElTableColumn prop="field_name" label="字段名" show-overflow-tooltip />
           <ElTableColumn prop="file_type" label="类型" show-overflow-tooltip />
-          <ElTableColumn prop="file_size" label="大小" show-overflow-tooltip />
+          <ElTableColumn prop="file_size" label="大小(字节)" show-overflow-tooltip />
+          <ElTableColumn prop="file_hash" label="哈希值" show-overflow-tooltip />
           <ElTableColumn prop="upload_time" label="上传时间" show-overflow-tooltip />
         </ElTable>
         <div v-else style="color: #aaa; text-align: center">无子文件</div>
