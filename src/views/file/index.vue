@@ -1459,7 +1459,7 @@ onMounted(() => {
                 <ElButton
                   type="primary"
                   size="small"
-                  :disabled="!scope.row.file_id"
+                  :disabled="false"
                   style="margin-right: 6px"
                   @click="ShowFileDetail(scope.row.file_id)"
                 >
