@@ -23,6 +23,8 @@ export interface ExecutionUnit {
   /** 运行状态 (例如: "success", "running", "failed") */
   status: 'success' | 'running' | 'failed' | string; // 使用联合类型来增强类型安全
 
+  upload_status: 'Success' | 'Running' | 'Failed' | 'Pending';
+
   /** 附带信息，成功或失败都可能有内容 */
   message: string;
 
@@ -38,6 +40,7 @@ export interface TaskDetail {
   start_time: string;
   end_time: string | null;
   status: string; // "running", "success", "failed"
+  upload_status: 'Success' | 'Running' | 'Failed' | 'Pending';
   total_units?: number;
   success_units?: number;
   error_summary: string | null;
@@ -222,7 +225,7 @@ export interface UploadStatusPayload {
   task_id: number;
   upload_status: 'Success' | 'Failed' | 'Running' | 'Pending'; // 定义所有可能的状态
 }
-export function fetchUploadStatus(taskId: number) {
+export function reuploadTaskFiles(taskId: number) {
   return request<UploadStatusPayload>({
     url: `/analysis/processes/tasks/${taskId}/upload/`,
     method: 'post'
