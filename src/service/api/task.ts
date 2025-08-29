@@ -217,3 +217,14 @@ export function createNewTask(payload: NewTaskPayload) {
     data: payload
   });
 }
+/** 定义文件上传状态的数据格式 'upload_status' 使用联合类型来约束可能的取值 */
+export interface UploadStatusPayload {
+  task_id: number;
+  upload_status: 'Success' | 'Failed' | 'Running' | 'Pending'; // 定义所有可能的状态
+}
+export function fetchUploadStatus(taskId: number) {
+  return request<UploadStatusPayload>({
+    url: `/analysis/processes/tasks/${taskId}/upload/`,
+    method: 'post'
+  });
+}

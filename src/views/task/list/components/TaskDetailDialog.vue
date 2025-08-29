@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { type TaskDetail, fetchTaskDetail, restartTask, stopTask } from '@/service/api/task';
+import {
+  type TaskDetail,
+  type UploadStatusPayload,
+  fetchTaskDetail,
+  fetchUploadStatus,
+  restartTask,
+  stopTask
+} from '@/service/api/task';
 
 // -- Props and Emits --
 const props = defineProps<{
@@ -16,13 +23,15 @@ const emit = defineEmits<{
 
 const loading = ref(false);
 const taskDetails = ref<TaskDetail | null>(null);
+// 用于存储文件上传状态
+const uploadStatus = ref<UploadStatusPayload['upload_status'] | null>(null);
 
 const isDialogVisible = computed({
   get: () => props.modelValue,
   set: val => emit('update:modelValue', val)
 });
 
-// --- 监听器部分保持不变 ---
+// --- 监听器 ---
 watch(
   () => props.taskId,
   newId => {
@@ -37,30 +46,40 @@ watch(isDialogVisible, isVisible => {
     getTaskDetails(props.taskId);
   } else {
     taskDetails.value = null;
+    uploadStatus.value = null; // 关闭时重置
   }
 });
 
-// --- 核心逻辑：将 execution_units 对象转换为表格所需的数组 ---
+// --- 计算属性 ---
 const taskUnitsArray = computed(() => {
   if (!taskDetails.value?.result_json?.execution_units) {
     return [];
   }
-
   const units = taskDetails.value.result_json.execution_units;
   return Object.values(units).map(unit => ({
     unit_name: unit.name,
     start_time: unit.start_time,
     end_time: unit.end_time,
     duration: calculateDuration(unit.start_time, unit.end_time),
-    status: unit.status.toUpperCase(), // 统一状态为大写以便处理
+    status: unit.status.toUpperCase(),
     message: unit.message,
     description: unit.description,
     type: unit.type
   }));
 });
 
-// --- 辅助函数 ---
+const canBeStopped = computed(() => {
+  const status = taskDetails.value?.status?.toUpperCase();
+  return status === 'RUNNING' || status === 'PENDING';
+});
 
+const canBeRestarted = computed(() => {
+  const status = taskDetails.value?.status?.toUpperCase() || '';
+  // 当任务状态为 FAILED 或 CANCELLED 时才允许重启
+  return ['FAILED', 'CANCELLED'].includes(status);
+});
+
+// --- 辅助函数 ---
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   const date = new Date(isoString);
@@ -101,7 +120,6 @@ function calculateDuration(start: string | null, end: string | null): string {
   return result.trim();
 }
 
-// 统一将状态转为大写处理
 const getStatusTagType = (status: string): 'success' | 'primary' | 'danger' | 'warning' | 'info' => {
   if (!status) return 'info';
   switch (status.toUpperCase()) {
@@ -120,26 +138,38 @@ const getStatusTagType = (status: string): 'success' | 'primary' | 'danger' | 'w
   }
 };
 
-const canBeStopped = computed(() => {
-  const status = taskDetails.value?.status?.toUpperCase();
-  return status === 'RUNNING' || status === 'PENDING';
-});
+const getUploadStatusInfo = (status: string | null) => {
+  if (!status) return { type: 'info' as const, text: '未知' };
+  switch (status.toUpperCase()) {
+    case 'SUCCESS':
+      return { type: 'success' as const, text: '上传成功' };
+    case 'FAILED':
+      return { type: 'danger' as const, text: '上传失败' };
+    case 'RUNNING':
+      return { type: 'primary' as const, text: '上传中' };
 
-const canBeRestarted = computed(() => {
-  const status = taskDetails.value?.status?.toUpperCase() || '';
-  return ['SUCCESS', 'FAILED', 'CANCELLED'].includes(status);
-});
+    case 'PENDING':
+      return { type: 'warning' as const, text: '等待中' };
+    default:
+      return { type: 'info' as const, text: status };
+  }
+};
 
-// --- API 调用逻辑保持不变 ---
+// --- API 调用 ---
 
+// --- 同时获取任务详情和上传状态 ---
 async function getTaskDetails(id: number) {
   loading.value = true;
   taskDetails.value = null;
+  uploadStatus.value = null; // 先重置
   try {
-    const { data } = await fetchTaskDetail(id);
-    taskDetails.value = data as TaskDetail;
+    // 并行请求两个接口
+    const [detailRes, uploadRes] = await Promise.all([fetchTaskDetail(id), fetchUploadStatus(id)]);
+
+    taskDetails.value = detailRes.data as TaskDetail;
+    uploadStatus.value = uploadRes.data ? uploadRes.data.upload_status : null;
   } catch (error) {
-    ElMessage.error('获取任务详情失败');
+    ElMessage.error('获取任务详情或上传状态失败');
     console.error(error);
     isDialogVisible.value = false;
   } finally {
@@ -154,8 +184,7 @@ async function handleStopTask() {
     loading.value = true;
     const res = await stopTask(props.taskId);
     ElMessage.success(res.data?.message || '操作成功');
-    await getTaskDetails(props.taskId);
-    isDialogVisible.value = false;
+    await getTaskDetails(props.taskId); // 重新加载数据
   } catch (error) {
     if (error !== 'cancel') ElMessage.error('中断任务失败');
   } finally {
@@ -200,6 +229,7 @@ async function handleRestartTask() {
               <ElButton type="primary" :disabled="!canBeRestarted" @click="handleRestartTask">重启任务</ElButton>
             </div>
           </template>
+
           <ElDescriptionsItem label="任务流名称">{{ taskDetails.process_name }}</ElDescriptionsItem>
           <ElDescriptionsItem label="文件ID">
             {{ Array.isArray(taskDetails.file_ids) ? taskDetails.file_ids.join(', ') : '-' }}
@@ -207,6 +237,14 @@ async function handleRestartTask() {
           <ElDescriptionsItem label="运行状态">
             <ElTag :type="getStatusTagType(taskDetails.status)">{{ taskDetails.status }}</ElTag>
           </ElDescriptionsItem>
+
+          <ElDescriptionsItem label="最终文件上传状态" :span="2">
+            <ElTag v-if="uploadStatus" :type="getUploadStatusInfo(uploadStatus).type">
+              {{ getUploadStatusInfo(uploadStatus).text }}
+            </ElTag>
+            <span v-else>-</span>
+          </ElDescriptionsItem>
+
           <ElDescriptionsItem label="启动时间">{{ formatDateTime(taskDetails.start_time) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="结束时间">{{ formatDateTime(taskDetails.end_time) }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="taskDetails.total_units !== undefined" label="任务单元">
