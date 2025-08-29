@@ -147,7 +147,6 @@ const getUploadStatusInfo = (status: string | null) => {
       return { type: 'danger' as const, text: '上传失败' };
     case 'RUNNING':
       return { type: 'primary' as const, text: '上传中' };
-
     case 'PENDING':
       return { type: 'warning' as const, text: '等待中' };
     default:
@@ -156,8 +155,6 @@ const getUploadStatusInfo = (status: string | null) => {
 };
 
 // --- API 调用 ---
-
-// --- 同时获取任务详情和上传状态 ---
 async function getTaskDetails(id: number) {
   loading.value = true;
   taskDetails.value = null;
@@ -213,7 +210,7 @@ async function handleRestartTask() {
   <ElDialog
     v-model="isDialogVisible"
     :title="`任务详情：${taskId}`"
-    width="70%"
+    width="90%"
     top="5vh"
     :close-on-click-modal="false"
   >
@@ -282,7 +279,7 @@ async function handleRestartTask() {
                 <ElTag :type="getStatusTagType(row.status)">{{ row.status }}</ElTag>
               </template>
             </ElTableColumn>
-            <ElTableColumn prop="message" label="执行信息" min-width="250">
+            <ElTableColumn prop="message" label="执行信息" min-width="400">
               <template #default="{ row }">{{ row.message || '-' }}</template>
             </ElTableColumn>
           </ElTable>
