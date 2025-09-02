@@ -38,6 +38,22 @@ export function fetchRefreshToken(refreshToken: string) {
 }
 
 /**
+ * 用户注册
+ *
+ * @param username - 用户名
+ * @param password - 密码
+ */
+export function fetchRegister(username: string, password: string) {
+  return request<null>({
+    url: '/auth/register',
+    method: 'post',
+    data: {
+      username,
+      password
+    }
+  });
+}
+/**
  * return custom backend error
  *
  * @param code error code
