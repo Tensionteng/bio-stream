@@ -7,18 +7,6 @@ import type { GeneratedRoute } from '@elegant-router/types';
 
 export const generatedRoutes: GeneratedRoute[] = [
   {
-    name: 'home',
-    path: '/home',
-    component: 'layout.base$view.home',
-    meta: {
-      title: 'home',
-      i18nKey: 'route.home',
-      icon: 'mdi:monitor-dashboard',
-      order: 1
-    }
-  },
-
-  {
     name: '403',
     path: '/403',
     component: 'layout.blank$view.403',
@@ -58,6 +46,17 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'file',
       i18nKey: 'route.file'
+    }
+  },
+  {
+    name: 'home',
+    path: '/home',
+    component: 'layout.base$view.home',
+    meta: {
+      title: 'home',
+      i18nKey: 'route.home',
+      icon: 'mdi:monitor-dashboard',
+      order: 1
     }
   },
   {
