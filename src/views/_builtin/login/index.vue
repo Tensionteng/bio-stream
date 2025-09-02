@@ -3,7 +3,6 @@ import { computed } from 'vue';
 import type { Component } from 'vue';
 import { getPaletteColorByNumber, mixColor } from '@sa/color';
 import { loginModuleRecord } from '@/constants/app';
-import { useAppStore } from '@/store/modules/app';
 import { useThemeStore } from '@/store/modules/theme';
 import { $t } from '@/locales';
 import PwdLogin from './modules/pwd-login.vue';
@@ -18,7 +17,6 @@ interface Props {
 
 const props = defineProps<Props>();
 
-const appStore = useAppStore();
 const themeStore = useThemeStore();
 
 interface LoginModule {
@@ -60,13 +58,6 @@ const bgColor = computed(() => {
               :show-tooltip="false"
               class="text-20px lt-sm:text-18px"
               @switch="themeStore.toggleThemeScheme"
-            />
-            <LangSwitch
-              v-if="themeStore.header.multilingual.visible"
-              :lang="appStore.locale"
-              :lang-options="appStore.localeOptions"
-              :show-tooltip="false"
-              @change-lang="appStore.changeLocale"
             />
           </div>
         </header>
