@@ -3,14 +3,10 @@ import { computed } from 'vue';
 import type { Component } from 'vue';
 import { getPaletteColorByNumber, mixColor } from '@sa/color';
 import { loginModuleRecord } from '@/constants/app';
-import { useAppStore } from '@/store/modules/app';
 import { useThemeStore } from '@/store/modules/theme';
 import { $t } from '@/locales';
 import PwdLogin from './modules/pwd-login.vue';
-import CodeLogin from './modules/code-login.vue';
 import Register from './modules/register.vue';
-import ResetPwd from './modules/reset-pwd.vue';
-import BindWechat from './modules/bind-wechat.vue';
 
 defineOptions({ name: 'LoginPage' });
 
@@ -21,7 +17,6 @@ interface Props {
 
 const props = defineProps<Props>();
 
-const appStore = useAppStore();
 const themeStore = useThemeStore();
 
 interface LoginModule {
@@ -31,10 +26,7 @@ interface LoginModule {
 
 const moduleMap: Record<UnionKey.LoginModule, LoginModule> = {
   'pwd-login': { label: loginModuleRecord['pwd-login'], component: PwdLogin },
-  'code-login': { label: loginModuleRecord['code-login'], component: CodeLogin },
-  register: { label: loginModuleRecord.register, component: Register },
-  'reset-pwd': { label: loginModuleRecord['reset-pwd'], component: ResetPwd },
-  'bind-wechat': { label: loginModuleRecord['bind-wechat'], component: BindWechat }
+  register: { label: loginModuleRecord.register, component: Register }
 };
 
 const activeModule = computed(() => moduleMap[props.module || 'pwd-login']);
@@ -66,13 +58,6 @@ const bgColor = computed(() => {
               :show-tooltip="false"
               class="text-20px lt-sm:text-18px"
               @switch="themeStore.toggleThemeScheme"
-            />
-            <LangSwitch
-              v-if="themeStore.header.multilingual.visible"
-              :lang="appStore.locale"
-              :lang-options="appStore.localeOptions"
-              :show-tooltip="false"
-              @change-lang="appStore.changeLocale"
             />
           </div>
         </header>

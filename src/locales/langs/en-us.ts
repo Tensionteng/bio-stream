@@ -161,7 +161,6 @@ const local: App.I18n.Schema = {
     403: 'No Permission',
     404: 'Page Not Found',
     500: 'Server Error',
-    'iframe-page': 'Iframe',
     home: 'Home',
     document: 'Document',
     document_project: 'Project Document',
@@ -187,6 +186,7 @@ const local: App.I18n.Schema = {
     login: {
       common: {
         loginOrRegister: 'Login / Register',
+        registerSuccess: 'Register successfully',
         userNamePlaceholder: 'Please enter user name',
         phonePlaceholder: 'Please enter phone number',
         codePlaceholder: 'Please enter verification code',

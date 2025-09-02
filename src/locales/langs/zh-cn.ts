@@ -1,6 +1,6 @@
 const local: App.I18n.Schema = {
   system: {
-    title: 'Soybean 管理系统',
+    title: '生物学分析平台',
     updateTitle: '系统版本更新通知',
     updateContent: '检测到系统有新版本发布，是否立即刷新页面？',
     updateConfirm: '立即刷新',
@@ -161,7 +161,6 @@ const local: App.I18n.Schema = {
     403: '无权限',
     404: '页面不存在',
     500: '服务器错误',
-    'iframe-page': '外链页面',
     home: '首页',
     task: '任务',
     task_list: '任务列表',
@@ -187,6 +186,7 @@ const local: App.I18n.Schema = {
     login: {
       common: {
         loginOrRegister: '登录 / 注册',
+        registerSuccess: '注册成功！',
         userNamePlaceholder: '请输入用户名',
         phonePlaceholder: '请输入手机号',
         codePlaceholder: '请输入验证码',
@@ -448,7 +448,7 @@ const local: App.I18n.Schema = {
     required: '不能为空',
     userName: {
       required: '请输入用户名',
-      invalid: '用户名格式不正确'
+      invalid: '用户名需为4-16位，可包含中文、字母、数字、下划线和连字符'
     },
     phone: {
       required: '请输入手机号',

@@ -44,9 +44,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     path: '/file',
     component: 'layout.base$view.file',
     meta: {
-      title: '文件',
-      i18nKey: 'route.file',
-      icon: 'ep:upload-filled'
+      title: 'file',
+      i18nKey: 'route.file'
     }
   },
   {
@@ -61,18 +60,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
-    name: 'iframe-page',
-    path: '/iframe-page/:url',
-    component: 'layout.base$view.iframe-page',
-    props: true,
-    meta: {
-      title: 'iframe-page',
-      i18nKey: 'route.iframe-page'
-    }
-  },
-  {
     name: 'login',
-    path: '/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?',
+    path: '/login/:module(pwd-login|register)?',
     component: 'layout.blank$view.login',
     props: true,
     meta: {

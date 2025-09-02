@@ -68,7 +68,6 @@ declare namespace Api {
   }
 
   namespace Files {
-
     interface Schema {
       id: number;
       name: string;
@@ -76,7 +75,7 @@ declare namespace Api {
     }
     /** 文件 Schema 信息 */
     interface FileSchemaInfo {
-      schemas: Schema[]
+      schemas: Schema[];
     }
 
     interface FileStatistics {
@@ -136,6 +135,24 @@ declare namespace Api {
       file_id: number;
     }
 
+    interface FileDetailSubfile {
+      origin_filename: string;
+      field_name: string;
+      file_type: string;
+      file_size: number;
+      file_hash: string;
+      upload_time: string;
+    }
+
+    interface FileDetail {
+      file_id: number;
+      file_name: string;
+      file_size: number;
+      created_time: string;
+      upload_user: UserItem;
+      description_json: object;
+      uploaded_subfiles: FileDetailSubfile[];
+    }
   }
 
   namespace Visualization {

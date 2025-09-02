@@ -73,6 +73,7 @@
     "echarts": "5.6.0",
     "elegant-router": "1.0.4-beta.1",
     "element-plus": "^2.9.5",
+    "hash-wasm": "^4.12.0",
     "jsbarcode": "3.11.6",
     "json5": "2.2.3",
     "nprogress": "0.2.0",

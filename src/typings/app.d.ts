@@ -411,6 +411,7 @@ declare namespace App {
         login: {
           common: {
             loginOrRegister: string;
+            registerSuccess: string;
             userNamePlaceholder: string;
             phonePlaceholder: string;
             codePlaceholder: string;

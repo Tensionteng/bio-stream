@@ -36,8 +36,7 @@ declare module "@elegant-router/types" {
     "500": "/500";
     "file": "/file";
     "home": "/home";
-    "iframe-page": "/iframe-page/:url";
-    "login": "/login/:module(pwd-login|code-login|register|reset-pwd|bind-wechat)?";
+    "login": "/login/:module(pwd-login|register)?";
     "task": "/task";
     "task_create": "/task/create";
     "task_list": "/task/list";
@@ -92,7 +91,6 @@ declare module "@elegant-router/types" {
     | "500"
     | "file"
     | "home"
-    | "iframe-page"
     | "login"
     | "task"
     | "visualization"
@@ -117,7 +115,6 @@ declare module "@elegant-router/types" {
     | "403"
     | "404"
     | "500"
-    | "iframe-page"
     | "login"
     | "file"
     | "home"
