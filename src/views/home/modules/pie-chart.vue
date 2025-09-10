@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { watch } from 'vue';
+import { ref, watch } from 'vue';
+import { fetchFileTypes } from '@/service/api/home';
 import { useAppStore } from '@/store/modules/app';
 import { useEcharts } from '@/hooks/common/echarts';
 import { $t } from '@/locales';
@@ -7,84 +8,113 @@ import { $t } from '@/locales';
 defineOptions({ name: 'PieChart' });
 
 const appStore = useAppStore();
+const loading = ref(true);
+const fileTypeData = ref<Api.Home.FileType[]>([]);
 
 const { domRef, updateOptions } = useEcharts(() => ({
+  title: {
+    text: $t('page.home.fileTypesOverview'),
+    subtext: $t('page.home.fileTypesDescription'),
+    left: 'center',
+    top: 20,
+    textStyle: {
+      fontSize: 16,
+      fontWeight: 'bold'
+    },
+    subtextStyle: {
+      fontSize: 12,
+      color: '#666'
+    }
+  },
   tooltip: {
-    trigger: 'item'
+    trigger: 'item',
+    formatter: '{a} <br/>{b} : {c} ({d}%)'
   },
   legend: {
-    bottom: '1%',
+    bottom: '10px',
     left: 'center',
     itemStyle: {
       borderWidth: 0
+    },
+    textStyle: {
+      fontSize: 12
     }
   },
   series: [
     {
-      color: ['#5da8ff', '#8e9dff', '#fedc69', '#26deca'],
-      name: $t('page.home.schedule'),
+      color: ['#5da8ff', '#8e9dff', '#fedc69', '#26deca', '#ff7875', '#52c41a', '#fa8c16', '#722ed1'],
+      name: $t('page.home.fileTypes'),
       type: 'pie',
-      radius: ['45%', '75%'],
+      radius: ['40%', '70%'],
+      center: ['50%', '55%'],
       avoidLabelOverlap: false,
       itemStyle: {
-        borderRadius: 10,
+        borderRadius: 8,
         borderColor: '#fff',
-        borderWidth: 1
+        borderWidth: 2
       },
       label: {
-        show: false,
-        position: 'center'
+        show: true,
+        position: 'outside',
+        formatter: '{b}: {c}',
+        fontSize: 11
       },
       emphasis: {
         label: {
           show: true,
-          fontSize: '12'
+          fontSize: 12,
+          fontWeight: 'bold'
         }
       },
       labelLine: {
-        show: false
+        show: true,
+        length: 15,
+        length2: 10
       },
       data: [] as { name: string; value: number }[]
     }
   ]
 }));
 
-async function mockData() {
-  await new Promise(resolve => {
-    setTimeout(resolve, 1000);
-  });
+async function fetchData() {
+  try {
+    loading.value = true;
+    const { data } = await fetchFileTypes();
+    fileTypeData.value = data?.file_types || [];
 
-  updateOptions(opts => {
-    opts.series[0].data = [
-      { name: $t('page.home.study'), value: 20 },
-      { name: $t('page.home.entertainment'), value: 10 },
-      { name: $t('page.home.work'), value: 40 },
-      { name: $t('page.home.rest'), value: 30 }
-    ];
-
-    return opts;
-  });
+    updateOptions(opts => {
+      opts.series[0].data = fileTypeData.value.map(item => ({
+        name: item.file_type_name,
+        value: item.count
+      }));
+      return opts;
+    });
+  } catch (error) {
+    console.error('获取文件类型统计失败:', error);
+    // 使用空数据
+    updateOptions(opts => {
+      opts.series[0].data = [];
+      return opts;
+    });
+  } finally {
+    loading.value = false;
+  }
 }
 
 function updateLocale() {
   updateOptions((opts, factory) => {
     const originOpts = factory();
-
     opts.series[0].name = originOpts.series[0].name;
-
-    opts.series[0].data = [
-      { name: $t('page.home.study'), value: 20 },
-      { name: $t('page.home.entertainment'), value: 10 },
-      { name: $t('page.home.work'), value: 40 },
-      { name: $t('page.home.rest'), value: 30 }
-    ];
-
+    opts.series[0].data = fileTypeData.value.map(item => ({
+      name: item.file_type_name,
+      value: item.count
+    }));
     return opts;
   });
 }
 
 async function init() {
-  mockData();
+  await fetchData();
 }
 
 watch(
@@ -100,7 +130,7 @@ init();
 
 <template>
   <ElCard class="card-wrapper">
-    <div ref="domRef" class="h-360px overflow-hidden"></div>
+    <div ref="domRef" class="h-500px overflow-hidden pb-2"></div>
   </ElCard>
 </template>
 

@@ -485,6 +485,21 @@ declare namespace App {
           visitCount: string;
           turnover: string;
           dealCount: string;
+          totalFiles: string;
+          bamFiles: string;
+          fastqFiles: string;
+          vcfFiles: string;
+          fileTypes: string;
+          fileTypesOverview: string;
+          fileTypesDescription: string;
+          taskStatus: string;
+          taskStatusOverview: string;
+          taskStatusDescription: string;
+          taskPending: string;
+          taskRunning: string;
+          taskCompleted: string;
+          taskFailed: string;
+          taskCancelled: string;
           projectNews: {
             title: string;
             moreNews: string;

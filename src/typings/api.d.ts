@@ -155,6 +155,36 @@ declare namespace Api {
     }
   }
 
+  namespace Home {
+    interface FileType {
+      file_type_name: string;
+      count: number;
+    }
+
+    interface FileTypesResponse {
+      file_types: FileType[];
+    }
+
+    interface TaskStatus {
+      status: string;
+      count: number;
+    }
+
+    interface TaskStatusResponse {
+      status: TaskStatus[];
+    }
+
+    interface Event {
+      event_time: string;
+      event_message: string;
+      event_type: string;
+    }
+
+    interface EventsResponse {
+      events: Event[];
+    }
+  }
+
   namespace Visualization {
     /** 任务信息 */
     interface TaskInfo {
