@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { fetchTaskStatus } from '@/service/api/home';
 import { useAppStore } from '@/store/modules/app';
 import { useAuthStore } from '@/store/modules/auth';
 import { $t } from '@/locales';
@@ -10,6 +11,8 @@ const appStore = useAppStore();
 const authStore = useAuthStore();
 
 const gap = computed(() => (appStore.isMobile ? 0 : 16));
+const taskStatusData = ref<Api.Home.TaskStatus[]>([]);
+const loading = ref(false);
 
 interface StatisticData {
   id: number;
@@ -17,15 +20,36 @@ interface StatisticData {
   value: number;
 }
 
-const statisticData = computed<StatisticData[]>(() => [
-  { id: 0, title: $t('page.home.projectCount'), value: 25 },
-  { id: 1, title: $t('page.home.todo'), value: 4, formatter: (val: number) => `${val}/${16}` },
-  { id: 2, title: $t('page.home.message'), value: 12 }
-]);
+const statisticData = computed<StatisticData[]>(() => {
+  const totalTasks = taskStatusData.value.reduce((sum, status) => sum + status.count, 0);
+  const runningTasks = taskStatusData.value.find(status => status.status === 'Running')?.count || 0;
+
+  return [
+    { id: 0, title: $t('page.home.taskCount'), value: totalTasks },
+    { id: 1, title: $t('page.home.taskRunning'), value: runningTasks }
+  ];
+});
+
+async function fetchData() {
+  try {
+    loading.value = true;
+    const { data } = await fetchTaskStatus();
+    taskStatusData.value = data?.status || [];
+  } catch (error) {
+    console.error('获取任务统计失败:', error);
+    taskStatusData.value = [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
+  fetchData();
+});
 </script>
 
 <template>
-  <ElCard class="card-wrapper">
+  <ElCard v-loading="loading" class="card-wrapper">
     <ElRow :gutter="gap" class="px-8px">
       <ElCol :md="18" :sm="24">
         <div class="flex-y-center">

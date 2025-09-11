@@ -249,6 +249,7 @@ const local: App.I18n.Schema = {
       greeting: '早安，{userName}, 今天又是充满活力的一天!',
       weatherDesc: '今日多云转晴，20℃ - 25℃!',
       projectCount: '项目数',
+      taskCount: '任务数',
       todo: '待办',
       message: '消息',
       downloadCount: '下载量',

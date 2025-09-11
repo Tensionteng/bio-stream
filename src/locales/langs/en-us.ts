@@ -249,6 +249,7 @@ const local: App.I18n.Schema = {
       greeting: 'Good morning, {userName}, today is another day full of vitality!',
       weatherDesc: 'Today is cloudy to clear, 20℃ - 25℃!',
       projectCount: 'Project Count',
+      taskCount: 'Task Count',
       todo: 'Todo',
       message: 'Message',
       downloadCount: 'Download Count',

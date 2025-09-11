@@ -473,6 +473,7 @@ declare namespace App {
           greeting: string;
           weatherDesc: string;
           projectCount: string;
+          taskCount: string;
           todo: string;
           message: string;
           downloadCount: string;

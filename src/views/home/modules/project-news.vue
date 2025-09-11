@@ -78,12 +78,9 @@ onMounted(() => {
 <template>
   <ElCard v-loading="loading" class="h-500px card-wrapper">
     <template #header>
-      <ElRow>
-        <ElCol :span="18">{{ $t('page.home.projectNews.title') }}</ElCol>
-        <ElCol :span="6" class="text-right">
-          <a class="text-primary" href="javascript:;" @click="fetchData">{{ $t('page.home.projectNews.moreNews') }}</a>
-        </ElCol>
-      </ElRow>
+      <div class="text-center">
+        <span>{{ $t('page.home.projectNews.title') }}</span>
+      </div>
     </template>
     <div class="timeline-container">
       <div v-if="newses.length === 0 && !loading" class="py-8 text-center text-gray-500">

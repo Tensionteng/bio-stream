@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { createReusableTemplate } from '@vueuse/core';
+import { CaretRight, Check, Clock, Close, Minus } from '@element-plus/icons-vue';
 import { fetchTaskStatus } from '@/service/api/home';
 import { $t } from '@/locales';
 
@@ -15,7 +16,7 @@ interface CardData {
     start: string;
     end: string;
   };
-  icon: string;
+  iconComponent: any;
 }
 
 const taskStatusData = ref<Api.Home.TaskStatus[]>([]);
@@ -34,12 +35,12 @@ const cardData = computed<CardData[]>(() => {
   const cards: CardData[] = [];
 
   // 状态名称和图标映射
-  const statusConfig: Record<string, { title: string; icon: string }> = {
-    Pending: { title: $t('page.home.taskPending'), icon: 'ant-design:clock-circle-outlined' },
-    Running: { title: $t('page.home.taskRunning'), icon: 'ant-design:loading-outlined' },
-    Success: { title: $t('page.home.taskCompleted'), icon: 'ant-design:check-circle-outlined' },
-    Failed: { title: $t('page.home.taskFailed'), icon: 'ant-design:close-circle-outlined' },
-    Canceled: { title: $t('page.home.taskCancelled'), icon: 'ant-design:stop-outlined' }
+  const statusConfig: Record<string, { title: string; iconComponent: any }> = {
+    pending: { title: $t('page.home.taskPending'), iconComponent: Clock },
+    running: { title: $t('page.home.taskRunning'), iconComponent: CaretRight },
+    success: { title: $t('page.home.taskCompleted'), iconComponent: Check },
+    failed: { title: $t('page.home.taskFailed'), iconComponent: Close },
+    canceled: { title: $t('page.home.taskCancelled'), iconComponent: Minus }
   };
 
   // 自适应添加各种任务状态卡片
@@ -53,7 +54,7 @@ const cardData = computed<CardData[]>(() => {
       value: taskStatus.count,
       unit: '',
       color: colorSchemes[colorIndex],
-      icon: config?.icon || 'ant-design:info-circle-outlined'
+      iconComponent: config?.iconComponent || Check
     });
   });
 
@@ -107,7 +108,9 @@ onMounted(() => {
         <GradientBg :gradient-color="getGradientColor(item.color)" class="flex-1">
           <h3 class="text-14px">{{ item.title }}</h3>
           <div class="flex justify-between pt-12px">
-            <SvgIcon :icon="item.icon" class="text-28px" />
+            <ElIcon class="text-28px">
+              <component :is="item.iconComponent" />
+            </ElIcon>
             <CountTo
               :prefix="item.unit"
               :start-value="1"
