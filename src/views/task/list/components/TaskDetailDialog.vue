@@ -11,7 +11,7 @@ import {
   reuploadTaskFiles, // 导入触发文件重新上传的API函数。
   stopTask // 导入中断任务的API函数。
 } from '@/service/api/task';
-
+import TaskFlow from './TaskFlow.vue';
 // -- Props and Emits --
 // 定义组件接收的属性（Props），这里接收v-model绑定的modelValue（控制对话框显示/隐藏）和任务ID（taskId）。
 const props = defineProps<{
@@ -37,7 +37,14 @@ const isDialogVisible = computed({
   get: () => props.modelValue,
   set: val => emit('update:modelValue', val)
 });
-
+// 一个计算属性，用于获取流程图数据
+const flowNodes = computed(() => {
+  // 从 taskDetails 中获取后端处理好的 execution_flow 数组，并将 message 为 null 的转换为 undefined
+  return (taskDetails.value?.execution_flow || []).map((node: any) => ({
+    ...node,
+    message: node.message === null ? undefined : node.message
+  }));
+});
 // --- Watchers (侦听器) ---
 // 侦听taskId的变化。如果taskId变了并且对话框是可见的，就重新获取任务详情。
 watch(
@@ -63,7 +70,7 @@ watch(isDialogVisible, isVisible => {
 // --- Computed Properties (计算属性) ---
 // 将任务详情中的执行单元（execution_units）对象转换为一个数组，方便在表格中渲染。
 const taskUnitsArray = computed(() => {
-  if (!taskDetails.value?.result_json?.execution_units) {
+  if (!taskDetails.value?.execution_flow) {
     return [];
   }
   const units = taskDetails.value.result_json.execution_units;
@@ -181,7 +188,6 @@ async function getTaskDetails(id: number) {
   try {
     const detailRes = await fetchTaskDetail(id); // 调用API
     taskDetails.value = detailRes.data as TaskDetail; // 将返回的数据存入响应式变量
-    console.log(taskDetails.value.upload_status); // 在控制台打印上传状态，用于调试
   } catch (error) {
     ElMessage.error('获取任务详情失败'); // 显示错误提示
     console.error(error);
@@ -288,7 +294,10 @@ async function handleReupload() {
             {{ taskDetails.success_units }} / {{ taskDetails.total_units }}
           </ElDescriptionsItem>
         </ElDescriptions>
-
+        <div v-if="Array.isArray(flowNodes) && flowNodes.length > 0" class="mt-6 border rounded-lg p-4">
+          <h3 class="mb-4 text-lg font-semibold">任务流程</h3>
+          <TaskFlow :steps="flowNodes" />
+        </div>
         <div class="mt-6">
           <h3 class="mb-3 text-lg font-semibold">执行细节</h3>
           <ElTable :data="taskUnitsArray" stripe border max-height="40vh">

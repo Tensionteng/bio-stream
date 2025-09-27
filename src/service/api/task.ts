@@ -44,12 +44,19 @@ export interface TaskDetail {
   total_units?: number;
   success_units?: number;
   error_summary: string | null;
+  execution_flow: ExecutionFlowStep[];
   result_json: {
     process_name: string;
     total_units: number;
     success_units: number;
     execution_units: Record<string, ExecutionUnit>; // 使用 Record<string, T> 表示一个对象/字典
   };
+}
+// 流程图节点
+export interface ExecutionFlowStep {
+  name: string;
+  status: string;
+  message: string | null;
 }
 export interface PaginatingQueryRecord<T> {
   count: number;

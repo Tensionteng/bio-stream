@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import { Refresh } from '@element-plus/icons-vue';
 import { type TaskListItem, type TaskListParams, type TaskStatus, fetchTaskList } from '@/service/api/task';
 // 1. 引入新的对话框组件
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
@@ -137,12 +138,12 @@ onMounted(() => {
     <div class="p-4">
       <ElCard shadow="never" class="rounded-lg">
         <template #header>
-          <div class="card-header">
+          <div class="card-header flex items-center justify-between">
             <span>任务列表</span>
+            <ElButton :icon="Refresh" :disabled="loading" circle @click="getTasks" />
           </div>
         </template>
 
-        <!-- 筛选区域 -->
         <ElForm :inline="true" @submit.prevent>
           <ElFormItem label="状态筛选:">
             <ElSelect v-model="filterStatus" placeholder="请选择任务状态" clearable @change="handleFilter">
@@ -151,7 +152,6 @@ onMounted(() => {
           </ElFormItem>
         </ElForm>
 
-        <!-- 数据表格 -->
         <ElTable v-loading="loading" :data="tasks" stripe>
           <ElTableColumn prop="id" label="任务ID" width="100" />
           <ElTableColumn prop="process_name" label="任务流名称" min-width="180" />
@@ -180,13 +180,11 @@ onMounted(() => {
           </ElTableColumn>
           <ElTableColumn label="操作" width="120" fixed="right">
             <template #default="{ row }">
-              <!-- 修改了这里的点击事件 -->
               <ElButton link type="primary" @click="showDetailsDialog(row.id)">查看详情</ElButton>
             </template>
           </ElTableColumn>
         </ElTable>
 
-        <!-- 分页 -->
         <div class="mt-4 flex justify-end">
           <ElPagination
             v-model:current-page="pagination.page"
@@ -201,7 +199,6 @@ onMounted(() => {
       </ElCard>
     </div>
 
-    <!-- 5. 在 template 的末尾添加新的对话框组件 -->
     <TaskDetailDialog v-model="isDetailDialogVisible" :task-id="selectedTaskId" @task-restarted="handleTaskRestarted" />
   </div>
 </template>

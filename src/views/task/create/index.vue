@@ -87,7 +87,8 @@ async function handleSubmit() {
   console.log('Submitting payload:', payload);
   submitting.value = true;
   try {
-    await createNewTask(payload);
+    const data = await createNewTask(payload);
+    console.log(data);
     ElMessage.success('任务创建成功！');
     // 可以在这里重置表单或跳转页面
   } catch (error) {
