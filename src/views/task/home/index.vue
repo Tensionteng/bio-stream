@@ -11,8 +11,12 @@ const router = useRouter();
 
 // 点击卡片时，跳转到新的动态路由页面
 function handleProcessSelect(process: ProcessListItem) {
-  // 跳转路径现在是 /task/create/{具体的流程ID}
-  router.push(`/task/create/${process.process_id}`);
+  router.push({
+    path: `/task/create/${process.process_id}`,
+    query: {
+      name: process.name
+    }
+  });
 }
 
 async function getProcessList() {

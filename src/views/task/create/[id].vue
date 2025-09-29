@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElButton, ElCard, ElIcon, ElMessage } from 'element-plus';
-import { ArrowLeft, CircleCheck, Promotion } from '@element-plus/icons-vue';
+import { ElButton, ElCard, ElMessage } from 'element-plus';
+import { ArrowLeft, Promotion } from '@element-plus/icons-vue';
 import { type NewTaskPayload, type ProcessSchema, createNewTask, fetchProcessSchema } from '@/service/api/task'; // 确认路径正确
 // 从同级目录下的 components 文件夹导入
 import DynamicForm from './components/DynamicForm.vue';
@@ -15,10 +15,8 @@ const submitting = ref(false);
 const processSchema = ref<ProcessSchema | null>(null);
 const formData = ref<Record<string, any>>({});
 const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
-
-// 从路由参数中获取ID，这里的 'id' 对应文件名 [id].vue
 const processId = Number(route.params.id);
-
+const processName = computed(() => (route.query.name as string) || '');
 async function getSchema() {
   if (!processId) return;
   loadingSchema.value = true;
@@ -51,7 +49,7 @@ async function handleSubmit() {
     await createNewTask(payload);
     ElMessage.success('任务创建成功！');
     // 成功后可以跳转到任务列表页或其他页面
-    router.push('/task/list'); // 假设任务列表页的路径是 /task/list
+    router.push('/task/list');
   } catch {
     ElMessage.error('任务创建失败');
   } finally {
@@ -70,8 +68,7 @@ onMounted(() => {
       <template #header>
         <div class="card-header">
           <ElButton type="default" :icon="ArrowLeft" circle style="margin-right: 16px" @click="router.back()" />
-          <ElIcon class="header-icon"><CircleCheck /></ElIcon>
-          <span>第二步：配置任务参数 (流程ID: {{ processId }})</span>
+          <span>第二步：配置 {{ processName }}</span>
         </div>
       </template>
 
