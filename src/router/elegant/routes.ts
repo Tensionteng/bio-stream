@@ -83,12 +83,22 @@ export const generatedRoutes: GeneratedRoute[] = [
     children: [
       {
         name: 'task_create',
-        path: '/task/create',
+        path: '/task/create/:id',
         component: 'view.task_create',
         meta: {
           title: 'task_create',
           i18nKey: 'route.task_create',
-          localIcon: 'task_create'
+          localIcon: 'task_create',
+          hideInMenu: true
+        }
+      },
+      {
+        name: 'task_home',
+        path: '/task/home',
+        component: 'view.task_home',
+        meta: {
+          title: 'task_home',
+          i18nKey: 'route.task_home'
         }
       },
       {

@@ -184,7 +184,8 @@ const routeMap: RouteMap = {
   "home": "/home",
   "login": "/login/:module(pwd-login|register)?",
   "task": "/task",
-  "task_create": "/task/create",
+  "task_create": "/task/create/:id",
+  "task_home": "/task/home",
   "task_list": "/task/list",
   "visualization": "/visualization"
 };

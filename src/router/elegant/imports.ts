@@ -21,7 +21,8 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   login: () => import("@/views/_builtin/login/index.vue"),
   file: () => import("@/views/file/index.vue"),
   home: () => import("@/views/home/index.vue"),
-  task_create: () => import("@/views/task/create/index.vue"),
+  task_create: () => import("@/views/task/create/[id].vue"),
+  task_home: () => import("@/views/task/home/index.vue"),
   task_list: () => import("@/views/task/list/index.vue"),
   visualization: () => import("@/views/visualization/index.vue"),
 };

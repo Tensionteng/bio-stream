@@ -150,13 +150,19 @@ export function restartTask(taskId: number) {
     method: 'post'
   });
 }
-/** 单个分析流程的信息 */
-export interface ProcessListItem {
-  /** 流程的唯一ID */
-  process_id: number;
+export interface ProcessDescription {
+  process_name: string;
+  total_units: number;
+  execution_units: ExecutionUnit[];
+  // execution_strategy 可以根据需要添加更详细的类型
+  execution_strategy: Record<string, any>;
+}
 
-  /** 流程的名称 */
-  name: string;
+// 修改：更新 ProcessListItem 类型
+export interface ProcessListItem {
+  process_id: number;
+  name: string; // 这是外层的流程名
+  description: ProcessDescription; // description 现在是一个复杂的对象
 }
 
 /** 流程的参数结构（Schema） */

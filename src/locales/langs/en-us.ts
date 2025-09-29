@@ -179,6 +179,7 @@ const local: App.I18n.Schema = {
     file: 'File Upload & Download',
     task: 'Task',
     task_create: 'Create Task',
+    task_home: 'Task home',
     task_list: 'Task List',
     visualization: 'Visualization'
   },
