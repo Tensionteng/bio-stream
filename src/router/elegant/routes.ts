@@ -88,7 +88,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_create',
           i18nKey: 'route.task_create',
-          hideInMenu: true,
+          hideInMenu: true
         }
       },
       {
@@ -98,7 +98,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_home',
           i18nKey: 'route.task_home',
-          localIcon: 'task_create',
+          localIcon: 'task_create'
         }
       },
       {

@@ -10,7 +10,6 @@ defineProps<{
   }>;
 }>();
 
-// 在状态信息中增加了背景色的 class，用于图标
 const getStatusInfo = (status: string) => {
   switch (status.toUpperCase()) {
     case 'SUCCESS':

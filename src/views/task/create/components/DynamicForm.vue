@@ -1,6 +1,8 @@
 <script setup lang="ts">
+// --- 核心依赖导入 ---
 import { computed, ref, watch } from 'vue';
 import {
+  // 导入 Element Plus 组件，用于构建 UI
   ElButton,
   ElCol,
   ElDialog,
@@ -19,17 +21,20 @@ import {
   ElTableColumn,
   ElTag
 } from 'element-plus';
-import type { FormInstance, FormRules } from 'element-plus';
-import { Document, FolderOpened } from '@element-plus/icons-vue';
-import { request } from '@/service/request';
+import type { FormInstance, FormRules } from 'element-plus'; // 导入 Element Plus 的类型定义
+import { Document, FolderOpened } from '@element-plus/icons-vue'; // 导入图标
+import { request } from '@/service/request'; // 导入封装的请求函数
 
 // --- API 数据类型定义 ---
+// 定义了与后端 API 交互时的数据结构，增强了代码的可读性和类型安全。
 
+// 上传用户信息
 interface UploadUser {
   user_id: number;
   username: string;
 }
 
+// 文件详细信息
 interface FileInfo {
   file_id: number;
   file_name: string;
@@ -39,18 +44,28 @@ interface FileInfo {
   upload_user: UploadUser;
 }
 
+// 分页文件列表的响应体结构
 interface PaginatedFilesResponse {
-  count: number;
-  page: number;
-  page_size: number;
-  results: FileInfo[];
+  count: number; // 总文件数
+  page: number; // 当前页码
+  page_size: number; // 每页大小
+  results: FileInfo[]; // 文件列表数据
 }
 
+/**
+ * 从服务器获取文件列表的 API 请求函数
+ *
+ * @param {number} page - 请求的页码
+ * @param {number} pageSize - 每页请求的数量
+ * @param {string} [fileType] - (可选) 按文件类型筛选
+ * @returns {Promise<PaginatedFilesResponse>} 包含文件列表数据的 Promise
+ */
 function fetchFileList(page: number, pageSize: number, fileType?: string) {
   const params: { page: number; page_size: number; File_type?: string } = {
     page,
     page_size: pageSize
   };
+  // 如果提供了文件类型，则加入请求参数
   if (fileType) {
     params.File_type = fileType;
   }
@@ -62,74 +77,89 @@ function fetchFileList(page: number, pageSize: number, fileType?: string) {
 }
 
 // --- 组件 Props 和 Emits 定义 ---
+// `defineProps` 和 `defineEmits` 是 Vue 3 <script setup> 中用于定义组件接口的宏。
+
 const props = defineProps<{
-  schema: Record<string, any>;
-  modelValue: Record<string, any>;
+  schema: Record<string, any>; // 表单结构定义 (JSON Schema 格式)，用于动态生成表单项
+  modelValue: Record<string, any>; // 通过 v-model 传入的表单数据
 }>();
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue']); // 定义 v-model 所需的 update 事件
 
 // --- 内部状态 ---
+
+// `formRef` 用于获取 ElForm 组件实例，以便调用其 validate 等方法
 const formRef = ref<FormInstance | null>(null);
+// `localModel` 是 `props.modelValue` 的一个本地深拷贝副本。
+// 这是 Vue 的最佳实践，避免直接修改 props，并通过 watch 将本地更改同步回父组件。
 const localModel = ref<Record<string, any>>({});
 
 // --- 文件选择对话框状态 ---
-const fileDialogVisible = ref(false);
-const availableFiles = ref<FileInfo[]>([]);
-const loadingFiles = ref(false);
-const currentFileSelectionKey = ref<string | null>(null);
-const tempSelection = ref<FileInfo[]>([]);
-const selectedFileType = ref<string>('');
-const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']);
+const fileDialogVisible = ref(false); // 控制文件选择对话框的显示与隐藏
+const availableFiles = ref<FileInfo[]>([]); // 存储从 API 获取的可选文件列表
+const loadingFiles = ref(false); // 标记文件列表是否正在加载中
+const currentFileSelectionKey = ref<string | null>(null); // 存储当前正在选择文件的表单字段名 (key)
+const tempSelection = ref<FileInfo[]>([]); // 临时存储在对话框表格中选中的文件
+const selectedFileType = ref<string>(''); // 对话框中文件类型筛选器的绑定值
+const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']); // 文件类型筛选器的选项
 
 // --- 分页状态 ---
+// 用于实现文件选择对话框中的无限滚动加载
 const pagination = ref({
-  page: 1,
-  pageSize: 20,
-  total: 0,
-  hasNextPage: false
+  page: 1, // 当前页码
+  pageSize: 20, // 每页数量
+  total: 0, // 文件总数
+  hasNextPage: false // 是否还有下一页
 });
 
 // --- v-model 同步逻辑 ---
+
+// 监听父组件传入的 `modelValue` 的变化
 watch(
   () => props.modelValue,
   newModel => {
+    // 只有在数据真正发生变化时才更新本地 `localModel`，避免不必要的重渲染
     if (JSON.stringify(newModel) !== JSON.stringify(localModel.value)) {
-      localModel.value = JSON.parse(JSON.stringify(newModel));
+      localModel.value = JSON.parse(JSON.stringify(newModel)); // 深拷贝传入的数据
     }
   },
-  { deep: true, immediate: true }
+  { deep: true, immediate: true } // `deep` 确保深层对象的变更也能被监听到, `immediate` 确保组件初始化时立即执行一次
 );
 
+// 监听本地 `localModel` 的变化
 watch(
   localModel,
   newLocalModel => {
+    // 当本地数据变化时（例如用户输入），通过 emit `update:modelValue` 事件将变更通知父组件
     emit('update:modelValue', newLocalModel);
   },
   { deep: true }
 );
 
 // --- 核心功能: 动态验证规则 ---
+// 使用 computed 属性，根据传入的 `schema` 动态生成 Element Plus 的表单验证规则
 const formRules = computed<FormRules>(() => {
   const rules: FormRules = {};
   if (!props.schema || !props.schema.properties) {
     return {};
   }
 
+  // 遍历 schema 中的所有属性
   for (const key in props.schema.properties) {
+    // 检查该属性是否在 `required` 数组中
     if (props.schema.required?.includes(key)) {
       const property = props.schema.properties[key];
-      let trigger: 'blur' | 'change' = 'blur';
+      let trigger: 'blur' | 'change' = 'blur'; // 默认触发时机为 blur
       let message = `请输入 ${formatLabel(key)}`;
       let validator;
 
-      // 对不同类型的字段设置不同的触发器和提示
+      // 根据字段类型定制验证规则
       if (property.type === 'array') {
+        // 数组类型（文件选择框）
         trigger = 'change';
         message = `请选择文件`;
-        // 数组类型需要自定义验证器来检查是否为空
-        validator = (rule: any, value: any, callback: any) => {
-          console.log(rule);
+        // 自定义验证器，检查数组是否为空
+        validator = (value: any, callback: any) => {
           if (!value || value.length === 0) {
             callback(new Error(message));
           } else {
@@ -137,10 +167,12 @@ const formRules = computed<FormRules>(() => {
           }
         };
       } else if (property.type === 'string' && property.enum) {
+        // 字符串且带枚举值（下拉选择框）
         trigger = 'change';
         message = `请选择 ${formatLabel(key)}`;
       }
 
+      // 将生成的规则赋值给对应的 key
       rules[key] = [validator ? { validator, trigger } : { required: true, message, trigger }];
     }
   }
@@ -148,15 +180,19 @@ const formRules = computed<FormRules>(() => {
 });
 
 // --- 计算属性 ---
+// 创建一个文件ID到文件信息的映射，用于快速查找文件名
 const fileIdMap = computed(() => {
   const map = new Map<number, FileInfo>();
+  // 遍历当前已加载的文件列表
   for (const file of availableFiles.value) {
     map.set(file.file_id, file);
   }
+  // 遍历已选择的文件，确保即使文件信息还未从API加载，也能显示一个基础信息
   for (const key in localModel.value) {
     if (Array.isArray(localModel.value[key])) {
       localModel.value[key].forEach((item: any) => {
         if (item.file_id && !map.has(item.file_id)) {
+          // 如果映射中不存在，则添加一个临时的文件信息
           map.set(item.file_id, { file_name: `文件ID: ${item.file_id}` } as FileInfo);
         }
       });
@@ -166,6 +202,8 @@ const fileIdMap = computed(() => {
 });
 
 // --- 辅助函数 ---
+
+/** 检查 schema 属性是否为数字类型 */
 function isNumericType(property: Record<string, any>): boolean {
   if (!property || !property.type) return false;
   if (Array.isArray(property.type)) {
@@ -173,13 +211,21 @@ function isNumericType(property: Record<string, any>): boolean {
   }
   return property.type === 'number' || property.type === 'integer';
 }
+
+/**
+ * 将 camelCase 或 snake_case 格式的 key 转换成用户友好的标签文本
+ *
+ * @example
+ *   formatLabel("inputFastqFile") -> "Input Fastq File"
+ */
 function formatLabel(key: string): string {
-  const spacedKey = key.replace(/([A-Z])/g, ' $1');
+  const spacedKey = key.replace(/([A-Z])/g, ' $1'); // 在大写字母前加空格
   return spacedKey
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, char => char.toUpperCase())
+    .replace(/_/g, ' ') // 替换下划线为空格
+    .replace(/\b\w/g, char => char.toUpperCase()) // 首字母大写
     .trim();
 }
+/** 将文件大小（字节）格式化为更易读的单位 (KB, MB, GB) */
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes === 0) return '0 Bytes';
   const k = 1024;
@@ -187,21 +233,28 @@ function formatFileSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${Number.parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
 }
+/** 根据文件 ID 从 fileIdMap 中获取文件名 */
 function getFileName(fileId: number): string {
   return fileIdMap.value.get(fileId)?.file_name ?? `加载中...`;
 }
 
 // --- 文件选择与数据加载逻辑 ---
+
+/** 加载一页文件数据，用于无限滚动 */
 async function loadFilesPage() {
+  // 如果正在加载或已无更多数据，则直接返回
   if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
   try {
     const response = await fetchFileList(pagination.value.page, pagination.value.pageSize, selectedFileType.value);
     if (response && response.data && Array.isArray(response.data.results)) {
+      // 将新加载的数据追加到现有列表
       availableFiles.value.push(...response.data.results);
       pagination.value.total = response.data.count;
+      // 更新是否有下一页的状态
       pagination.value.hasNextPage = availableFiles.value.length < response.data.count;
       if (pagination.value.hasNextPage) {
+        // 页码加一，为下一次加载做准备
         pagination.value.page += 1;
       }
     }
@@ -212,35 +265,59 @@ async function loadFilesPage() {
     loadingFiles.value = false;
   }
 }
+
+/** 当文件类型筛选器变化时触发 */
 const handleFileTypeChange = () => {
+  // 重置文件列表和分页状态
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+  // 重新加载数据
   loadFilesPage();
 };
+/** 关闭文件选择对话框，并重置相关状态 */
 const closeFileDialog = () => {
   fileDialogVisible.value = false;
   currentFileSelectionKey.value = null;
   tempSelection.value = [];
 };
+/**
+ * 打开文件选择对话框
+ *
+ * @param {string} key - 触发此操作的表单字段名
+ */
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
+  // 重置筛选和分页状态
   selectedFileType.value = '';
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
-  loadFilesPage();
+  loadFilesPage(); // 加载第一页数据
   fileDialogVisible.value = true;
 };
+/**
+ * 处理表格中选项变化的事件
+ *
+ * @param {FileInfo[]} selection - 当前选中的行数据
+ */
 const handleTableSelectionChange = (selection: FileInfo[]) => {
   tempSelection.value = selection;
 };
+/** 用户点击“确认”按钮，将选择的文件更新到 `localModel` */
 const confirmFileSelection = () => {
   if (currentFileSelectionKey.value) {
+    // 将选中的文件信息转换为 `{ file_id: number }` 的格式
     localModel.value[currentFileSelectionKey.value] = tempSelection.value.map(file => ({
       file_id: file.file_id
     }));
   }
   closeFileDialog();
 };
+/**
+ * 移除一个已选择的文件标签
+ *
+ * @param {string} key - 表单字段名
+ * @param {number} fileIdToRemove - 要移除的文件的 ID
+ */
 const removeFile = (key: string, fileIdToRemove: number) => {
   if (localModel.value[key]) {
     localModel.value[key] = localModel.value[key].filter(
@@ -248,25 +325,40 @@ const removeFile = (key: string, fileIdToRemove: number) => {
     );
   }
 };
+
+// 获取对话框中表格的引用
 const dialogTableRef = ref();
+// 监听对话框的可见性变化
 watch(fileDialogVisible, isVisible => {
+  // 当对话框变为可见时，同步已选中的文件状态到表格中
   if (isVisible && dialogTableRef.value) {
     setTimeout(() => {
+      // 先清空所有选择
       dialogTableRef.value.clearSelection();
+      // 如果当前表单字段已有选中的文件
       if (currentFileSelectionKey.value && localModel.value[currentFileSelectionKey.value]) {
+        // 获取已选文件 ID 的集合
         const selectedFileIds = new Set(
           localModel.value[currentFileSelectionKey.value].map((item: any) => item.file_id)
         );
+        // 从当前加载的文件中找出需要被勾选的行
         const rowsToSelect = availableFiles.value.filter(file => selectedFileIds.has(file.file_id));
+        // 遍历并勾选这些行
         rowsToSelect.forEach(row => {
           dialogTableRef.value.toggleRowSelection(row, true);
         });
       }
-    }, 100);
+    }, 100); // 使用 setTimeout 确保 DOM 更新完成
   }
 });
 
 // --- 核心功能: 表单验证方法 ---
+
+/**
+ * 触发表单验证
+ *
+ * @returns {Promise<boolean>} 验证是否通过
+ */
 const validate = async (): Promise<boolean> => {
   if (!formRef.value) return false;
   try {
@@ -280,6 +372,8 @@ const validate = async (): Promise<boolean> => {
 };
 
 // --- 核心功能: 暴露方法给父组件 ---
+// 使用 `defineExpose` 将 `validate` 方法暴露出去，
+// 这样父组件可以通过 ref 调用子组件的 `validate` 方法。
 defineExpose({
   validate
 });
@@ -308,7 +402,9 @@ defineExpose({
                 class="form-input"
                 controls-position="right"
               />
+
               <ElSwitch v-else-if="property.type === 'boolean'" v-model="localModel[key]" />
+
               <ElSelect
                 v-else-if="property.type === 'string' && property.enum"
                 v-model="localModel[key]"
@@ -341,7 +437,7 @@ defineExpose({
                 </template>
                 <div v-else class="file-placeholder">
                   <ElIcon :size="40"><FolderOpened /></ElIcon>
-                  <span class="placeholder-text">点击选择或拖拽文件到此处</span>
+                  <span class="placeholder-text">点击选择文件</span>
                 </div>
               </div>
 
@@ -374,6 +470,7 @@ defineExpose({
       >
         <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
       </ElSelect>
+
       <ElTable
         ref="dialogTableRef"
         v-loading="loadingFiles && availableFiles.length === 0"
