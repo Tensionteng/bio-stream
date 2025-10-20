@@ -159,7 +159,7 @@ const formRules = computed<FormRules>(() => {
         trigger = 'change';
         message = `请选择文件`;
         // 自定义验证器，检查数组是否为空
-        validator = (value: any, callback: any) => {
+        validator = (_rule: any, value: any, callback: any) => {
           if (!value || value.length === 0) {
             callback(new Error(message));
           } else {
