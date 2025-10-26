@@ -86,14 +86,48 @@ const fetchTasks = async () => {
 };
 
 // 获取可视化结果
+const normalizePdfUrl = (url: string) => {
+  if (!url) return '';
+
+  const isHttpUrl = /^https?:\/\//i.test(url);
+  if (!isHttpUrl) return url;
+
+  try {
+    const pdfUrl = new URL(url);
+    const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
+
+    if (!serviceBase) return url;
+
+    const serviceUrl = new URL(serviceBase);
+    const isSameOrigin = pdfUrl.origin === serviceUrl.origin;
+
+    if (!isSameOrigin) return url;
+
+    const proxyPrefix = '/proxy-default';
+    const pdfPathWithQuery = `${pdfUrl.pathname}${pdfUrl.search}`;
+    return `${proxyPrefix}${pdfPathWithQuery}`;
+  } catch (error) {
+    console.warn('normalizePdfUrl error => ', error);
+    return url;
+  }
+};
+
 const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
   if (!selectedTaskId.value || !fileType) return;
 
   try {
     visualizationLoading.value = true;
     selectedFileType.value = fileType;
-    const { data } = await fetchTaskResult(selectedTaskId.value.toString(), fileType);
-    visualizationResult.value = data;
+    const { data: resultData } = await fetchTaskResult(selectedTaskId.value.toString(), fileType);
+
+    if (resultData && resultData.type === 'pdf') {
+      visualizationResult.value = {
+        type: 'pdf',
+        data: normalizePdfUrl(resultData.data)
+      };
+    } else {
+      visualizationResult.value = resultData ?? null;
+    }
 
     // 根据文件类型显示不同的消息通知
     const messages: Record<Api.Visualization.FileType, string> = {
