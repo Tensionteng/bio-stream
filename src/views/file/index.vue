@@ -187,8 +187,12 @@ function parseSchemaProperty({
 // 判断是否为文件相关字段，降低主分支复杂度
 function isFileLikeField(prop: any, propType: string, propName: string): boolean {
   if (propType !== 'string') return false;
-  if (typeof prop.pattern === 'string' && prop.pattern.length > 0) return true;
-  if (propName.toLowerCase().includes('file')) return true;
+  // 判断字段是否有file关键字，如果还有pattern的话，就判断为文件
+  if (propName.toLowerCase().includes('file')) {
+    if (typeof prop.pattern === 'string' && prop.pattern.trim().length > 0) return true;
+    return false;
+  }
+  // 其次根据 description 中关键字判断（兼容已有描述）
   if (typeof prop.description === 'string' && /文件|路径|file|path/i.test(prop.description)) return true;
   return false;
 }
@@ -1254,11 +1258,11 @@ onMounted(() => {
     <ElCard shadow="hover" class="transfer-card main-card">
       <div class="title-bar">
         <ElIcon class="title-icon" color="#409EFF"><UploadFilled /></ElIcon>
-        <span class="main-title main-title-text">文件上传</span>
+        <span class="main-title main-title-text">数据入湖</span>
       </div>
       <!-- 新增统计信息 -->
       <div class="stats-line">
-        <span>已上传文件总数：</span>
+        <span>入湖数据总数：</span>
         <b class="stats-num">{{ totalFileCount }}</b>
         <span class="stats-gap">总数据量：</span>
         <b class="stats-num">{{ (totalFileSize / 1024 / 1024).toFixed(2) }} MB</b>
