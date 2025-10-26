@@ -5,6 +5,7 @@ import {
   ElButton,
   ElButtonGroup,
   ElCard,
+  ElImage,
   ElMessage,
   ElOption,
   ElSelect,
@@ -52,12 +53,20 @@ const currentCsvData = computed(() => {
   return [];
 });
 
+const imageList = computed(() => {
+  if (visualizationResult.value?.type === 'image') {
+    return visualizationResult.value.data.filter(image => Boolean(image.url));
+  }
+  return [];
+});
+
+const imagePreviewUrls = computed(() => imageList.value.map(image => image.url));
+
 // 获取任务列表
 const fetchTasks = async () => {
   try {
     loading.value = true;
     const { data } = await fetchTaskInfo();
-    console.log('获取任务列表:', data);
 
     if (data && data.length > 0) {
       tasks.value = data;
@@ -87,11 +96,12 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
     visualizationResult.value = data;
 
     // 根据文件类型显示不同的消息通知
-    const messages = {
+    const messages: Record<Api.Visualization.FileType, string> = {
       txt: 'TXT文本数据加载成功',
       pdf: 'PDF文档加载成功',
       vcf: 'VCF变异数据加载成功',
-      csv: 'CSV表格数据加载成功'
+      csv: 'CSV表格数据加载成功',
+      image: '图片数据加载成功'
     };
     ElMessage.success(messages[fileType]);
   } catch (error) {
@@ -136,7 +146,8 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
     txt: 'TXT 文本',
     pdf: 'PDF 文档',
     vcf: 'VCF 变异',
-    csv: 'CSV 表格'
+    csv: 'CSV 表格',
+    image: '图片'
   };
   return labels[fileType] || fileType.toUpperCase();
 };
@@ -280,6 +291,29 @@ onMounted(() => {
                 </ElTable>
               </div>
             </template>
+
+            <!-- 图片展示 -->
+            <template v-else-if="visualizationResult.type === 'image'">
+              <div v-if="imageList.length" class="image-grid">
+                <div v-for="(image, index) in imageList" :key="image.url || index" class="image-item">
+                  <div class="image-thumb-wrapper">
+                    <ElImage
+                      class="image-thumb"
+                      :src="image.url"
+                      :preview-src-list="imagePreviewUrls"
+                      :initial-index="index"
+                      :preview-teleported="true"
+                      fit="cover"
+                      :lazy="true"
+                    />
+                  </div>
+                  <p v-if="image.name" class="image-caption">{{ image.name }}</p>
+                </div>
+              </div>
+              <div v-else class="no-image-hint">
+                <ElAlert title="当前没有可展示的图片" type="info" :closable="false" show-icon />
+              </div>
+            </template>
           </div>
 
           <!-- 未选择任务时的提示 -->
@@ -406,6 +440,60 @@ onMounted(() => {
 .csv-container {
   display: flex;
   flex-direction: column;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.image-item {
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.image-item:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.image-thumb-wrapper {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  background-color: #f5f7fa;
+}
+
+.image-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.image-thumb :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-caption {
+  margin: 8px 12px 12px;
+  font-size: 14px;
+  color: #606266;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.no-image-hint {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
 }
 
 .select-hint,

@@ -198,7 +198,7 @@ declare namespace Api {
       default_format: FileType;
     }
 
-    type FileType = 'txt' | 'pdf' | 'vcf' | 'csv';
+    type FileType = 'txt' | 'pdf' | 'vcf' | 'csv' | 'image';
 
     /** VCF文件数据结构 */
     interface VcfData {
@@ -217,12 +217,20 @@ declare namespace Api {
       tpm_csv: CsvData[];
     }
 
+    interface ImageData {
+      url: string;
+      name?: string;
+    }
+
+    type ImageResult = ImageData[];
+
     /** 可视化结果，只能是四种文件类型中的一种 */
     type Result =
       | { type: 'vcf'; data: VcfData[] }
       | { type: 'csv'; data: CsvResult }
       | { type: 'txt'; data: string }
-      | { type: 'pdf'; data: string }; // PDF data is a URL string
+      | { type: 'pdf'; data: string }
+      | { type: 'image'; data: ImageResult };
   }
   /**
    * namespace Route
