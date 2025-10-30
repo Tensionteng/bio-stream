@@ -3,6 +3,7 @@
 import { computed, ref, watch } from 'vue';
 // 导入Element Plus组件库中的消息提示和确认对话框功能。
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { Refresh } from '@element-plus/icons-vue';
 // 从后端服务接口定义文件中导入类型和API请求函数。
 import {
   type TaskDetail, // 导入任务详情的数据类型定义。
@@ -295,7 +296,16 @@ async function handleReupload() {
           </ElDescriptionsItem>
         </ElDescriptions>
         <div v-if="Array.isArray(flowNodes) && flowNodes.length > 0" class="mt-6 border rounded-lg p-4">
-          <h3 class="mb-4 text-lg font-semibold">任务流程</h3>
+          <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-lg font-semibold">任务流程</h3>
+            <ElButton
+              :icon="Refresh"
+              circle
+              :loading="loading"
+              :disabled="loading || !props.taskId"
+              @click="props.taskId && getTaskDetails(props.taskId)"
+            />
+          </div>
           <TaskFlow :steps="flowNodes" />
         </div>
         <div class="mt-6">

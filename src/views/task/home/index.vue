@@ -217,7 +217,6 @@ onMounted(() => {
   color: var(--el-text-color-primary);
   padding: 10px 8px;
   border-radius: 6px;
-  /* margin-bottom: 8px;  <-- 删除这一行 */
   background-color: #fff;
   border: 1px solid var(--el-border-color-lighter);
   white-space: nowrap;
@@ -249,8 +248,8 @@ onMounted(() => {
   display: block;
   width: 2px; /* 线条宽度 */
   height: 8px; /* 线条高度 */
-  /* 使用 Element Plus 的边框颜色变量，与背景协调 */
-  background-color: var(--el-border-color-light);
+  /* 使用 Element Plus 的信息色，或者你可以直接写一个深色，例如 #909399 */
+  background-color: var(--el-color-info); /* 加深颜色 */
 }
 
 /* 绘制箭头 (使用 ::after) */
@@ -262,7 +261,7 @@ onMounted(() => {
   /* 使用 border 技巧创建三角形 */
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 5px solid var(--el-border-color-light); /* 箭头颜色 */
+  border-top: 5px solid var(--el-color-info); /* 箭头颜色，与竖线保持一致 */
   margin-top: -1px; /* 让箭头和竖线无缝连接 */
 }
 
