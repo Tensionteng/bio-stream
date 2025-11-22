@@ -103,7 +103,7 @@ const normalizePdfUrl = (url: string) => {
 
     if (!isSameOrigin) return url;
 
-    const proxyPrefix = '/proxy-default';
+    const proxyPrefix = '/proxy-media';
     const pdfPathWithQuery = `${pdfUrl.pathname}${pdfUrl.search}`;
     return `${proxyPrefix}${pdfPathWithQuery}`;
   } catch (error) {
