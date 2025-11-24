@@ -1,13 +1,15 @@
 <script lang="ts" setup>
-import { onMounted, reactive, ref, watch } from 'vue';
+import { nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
 import { Search, Upload, UploadFilled } from '@element-plus/icons-vue';
 import { createSHA256 } from 'hash-wasm';
+import * as echarts from 'echarts';
 import {
   FileUploadComplete,
   FileUploadInit,
   fetchFileDetail,
+  fetchFileGenealogy,
   fetchFileListInfo,
   fetchFileSchemaInfo,
   fetchFileStatistics
@@ -1245,6 +1247,455 @@ async function ShowFileDetail(file_id: number) {
   }
 }
 
+// 世系弹窗可见性
+const lineageDialogVisible = ref(false);
+const lineageLoading = ref(false);
+const lineageChartRef = ref<HTMLElement>();
+const lineageChart = ref<echarts.ECharts>();
+const currentFileGenealogy = ref<any>(null);
+
+// 处理世系图对话框关闭
+async function handleLineageDialogClose() {
+  lineageDialogVisible.value = false;
+  lineageChart.value?.dispose();
+  lineageChart.value = undefined;
+}
+
+// 数据世系相关
+async function showLineage(row: any) {
+  lineageDialogVisible.value = true;
+  lineageLoading.value = true;
+  currentFileGenealogy.value = null;
+
+  try {
+    const res = await fetchFileGenealogy(row.file_id);
+    console.log('genealogy response:', res);
+
+    const genealogyData = res.response?.data || res.data;
+    console.log('genealogyData:', genealogyData);
+
+    if (genealogyData && Array.isArray(genealogyData.data) && genealogyData.data.length > 0) {
+      currentFileGenealogy.value = genealogyData;
+      // 延迟确保DOM已渲染
+      await nextTick();
+      setTimeout(() => {
+        renderLineageGraph(genealogyData.data as any[]);
+      }, 100);
+    } else {
+      ElMessage.warning('暂无世系数据');
+      lineageDialogVisible.value = false;
+    }
+  } catch (e: any) {
+    ElMessage.error(`获取世系数据失败: ${e.message || '未知错误'}`);
+    lineageDialogVisible.value = false;
+  } finally {
+    lineageLoading.value = false;
+  }
+}
+
+// 转换世系数据为ECharts格式
+function transformLineageData(data: any[]) {
+  if (!Array.isArray(data) || data.length === 0) {
+    console.warn('No lineage data provided');
+    return { nodes: [], links: [], categories: [{ name: 'file' }] };
+  }
+
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+
+  data.forEach((genealogy, index) => {
+    console.log(`Processing genealogy ${index}:`, genealogy);
+
+    if (!genealogy.file1 || !genealogy.file2) {
+      console.warn(`Skipping genealogy ${index}: missing file1 or file2`);
+      return;
+    }
+
+    // 添加file1节点
+    if (!nodeMap.has(genealogy.file1.file_id)) {
+      nodeMap.set(genealogy.file1.file_id, {
+        id: genealogy.file1.file_id,
+        name: genealogy.file1.file_name,
+        value: genealogy.file1,
+        category: 0,
+        symbolSize: 45,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: genealogy.file1.file_name,
+          fontSize: 12,
+          color: '#333',
+          fontWeight: 'bold',
+          distance: 8
+        },
+        itemStyle: {
+          color: '#5470c6',
+          borderColor: '#fff',
+          borderWidth: 2
+        }
+      });
+    }
+
+    // 添加file2节点
+    if (!nodeMap.has(genealogy.file2.file_id)) {
+      nodeMap.set(genealogy.file2.file_id, {
+        id: genealogy.file2.file_id,
+        name: genealogy.file2.file_name,
+        value: genealogy.file2,
+        category: 0,
+        symbolSize: 45,
+        label: {
+          show: true,
+          position: 'right',
+          formatter: genealogy.file2.file_name,
+          fontSize: 12,
+          color: '#333',
+          fontWeight: 'bold',
+          distance: 8
+        },
+        itemStyle: {
+          color: '#91cc75',
+          borderColor: '#fff',
+          borderWidth: 2
+        }
+      });
+    }
+
+    // 添加连接线
+    links.push({
+      source: genealogy.file1.file_id,
+      target: genealogy.file2.file_id,
+      value: genealogy.task,
+      label: {
+        show: false,
+        position: 'middle',
+        fontSize: 10,
+        color: '#666'
+      },
+      lineStyle: {
+        width: 5,
+        color: '#5470c6',
+        opacity: 0.6,
+        type: 'solid'
+      }
+    });
+  });
+
+  console.log('Transformed nodes:', Array.from(nodeMap.values()));
+  console.log('Transformed links:', links);
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    links,
+    categories: [{ name: 'file' }]
+  };
+}
+
+// 渲染世系图
+function renderLineageGraph(genealogyData: any[]) {
+  console.log('Starting renderLineageGraph with data:', genealogyData);
+
+  if (!lineageChartRef.value) {
+    console.error('lineageChartRef is not available');
+    return;
+  }
+
+  // 释放旧图表
+  if (lineageChart.value) {
+    lineageChart.value.dispose();
+  }
+
+  // 初始化新图表
+  lineageChart.value = echarts.init(lineageChartRef.value, 'light', {
+    renderer: 'canvas',
+    useDirtyRect: false
+  });
+
+  const graphData = transformLineageData(genealogyData);
+
+  console.log('Graph data:', graphData);
+
+  if (graphData.nodes.length === 0) {
+    console.warn('No nodes in graph data');
+    ElMessage.warning('无法生成世系图：没有有效的数据');
+    return;
+  }
+
+  // 计算合理的布局：按层级展示
+  const levels = calculateNodeLevels(graphData);
+
+  // 计算节点位置
+  const nodePositions = new Map<string, [number, number]>();
+  const levelHeight = 120;
+  const nodeWidth = 200;
+
+  Object.entries(levels).forEach(([level, nodes]: [string, any[]]) => {
+    const levelIndex = Number.parseInt(level, 10);
+    const y = levelIndex * levelHeight + 50;
+    const totalWidth = nodes.length * nodeWidth;
+    const startX = 100 - totalWidth / 2;
+
+    nodes.forEach((node: any, index: number) => {
+      const x = startX + index * nodeWidth;
+      nodePositions.set(node.id, [x, y]);
+    });
+  });
+
+  // 更新节点位置
+  graphData.nodes.forEach((node: any) => {
+    const pos = nodePositions.get(node.id);
+    if (pos) {
+      node.x = pos[0];
+      node.y = pos[1];
+      node.fixed = true;
+    }
+  });
+
+  const option = {
+    title: {
+      text: '文件数据世系图',
+      left: 'center',
+      top: 10,
+      textStyle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#333'
+      }
+    },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(50, 50, 50, 0.9)',
+      borderColor: '#555',
+      textStyle: {
+        color: '#fff',
+        fontSize: 12
+      },
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          const nodeData = params.data.value;
+          return `
+            <div style="padding: 8px; max-width: 300px;">
+              <b style="font-size: 14px;">📄 文件信息</b><br/>
+              <span style="color: #ccc;">文件名:</span> ${nodeData.file_name}<br/>
+              <span style="color: #ccc;">类型:</span> ${nodeData.file_type}<br/>
+              <span style="color: #ccc;">用户:</span> ${nodeData.user}
+            </div>
+          `;
+        } else if (params.dataType === 'edge') {
+          const taskData = params.data.value;
+          if (!taskData || !taskData.task_units) {
+            return '<div style="padding: 8px;">任务信息加载中...</div>';
+          }
+          const taskUnits = taskData.task_units.map((u: any) => `<li>${u.id}. ${u.task_unit_name}</li>`).join('');
+          return `
+            <div style="padding: 8px; max-width: 350px;">
+              <b style="font-size: 14px;">⚙️ 任务信息</b><br/>
+              <span style="color: #ccc;">任务数:</span> ${taskData.task_units.length}<br/>
+              <span style="color: #ccc;">执行用户:</span> ${taskData.user}<br/>
+              <span style="color: #ccc;">时间:</span> ${new Date(taskData.time).toLocaleString('zh-CN')}<br/>
+              <b style="color: #ffd700;">任务单元列表:</b>
+              <ul style="margin: 4px 0; padding-left: 20px;">
+                ${taskUnits}
+              </ul>
+            </div>
+          `;
+        }
+        return '';
+      }
+    },
+    legend: [
+      {
+        data: ['file'],
+        left: 'left',
+        top: 50,
+        textStyle: {
+          color: '#333'
+        }
+      }
+    ],
+    animationDuration: 300,
+    animationEasingUpdate: 'cubicInOut' as const,
+    series: [
+      {
+        name: 'file',
+        type: 'graph',
+        layout: 'none',
+        data: graphData.nodes,
+        links: graphData.links,
+        categories: graphData.categories,
+        roam: 'scale',
+        focusNodeAdjacency: false,
+        draggable: true,
+        label: {
+          show: true,
+          position: 'bottom',
+          fontSize: 12,
+          color: '#333',
+          fontWeight: 'bold',
+          distance: 5,
+          formatter: (params: any) => {
+            const name = params.data.name || params.data.id;
+            // 限制标签长度
+            return name.length > 15 ? `${name.substring(0, 12)}...` : name;
+          }
+        },
+        edgeLabel: {
+          show: false
+        },
+        lineStyle: {
+          width: 2,
+          color: '#5470c6',
+          curveness: 0.3,
+          opacity: 0.6
+        },
+        itemStyle: {
+          color: '#5470c6',
+          borderColor: '#fff',
+          borderWidth: 2,
+          shadowBlur: 8,
+          shadowColor: 'rgba(0, 0, 0, 0.3)'
+        },
+        emphasis: {
+          focus: 'series',
+          itemStyle: {
+            color: '#f0816d',
+            borderColor: '#fff',
+            borderWidth: 3,
+            shadowBlur: 12,
+            shadowColor: 'rgba(0, 0, 0, 0.5)'
+          },
+          label: {
+            fontSize: 13,
+            fontWeight: 'bold',
+            color: '#000',
+            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            borderRadius: 3,
+            padding: 3
+          },
+          lineStyle: {
+            width: 3,
+            color: '#f0816d',
+            opacity: 1
+          }
+        }
+      }
+    ],
+    grid: {
+      containLabel: true
+    }
+  };
+
+  console.log('Setting option:', option);
+  lineageChart.value.setOption(option);
+
+  // 自动调整缩放以显示所有内容
+  setTimeout(() => {
+    if (lineageChart.value) {
+      lineageChart.value.dispatchAction({
+        type: 'restore',
+        seriesIndex: 0
+      });
+    }
+  }, 100);
+
+  // 清理旧事件监听
+  lineageChart.value.off('mouseover');
+  lineageChart.value.off('mouseout');
+  lineageChart.value.off('click');
+
+  // 绑定正确的交互事件
+  lineageChart.value.on('mouseover', (params: any) => {
+    if (!params.data) return;
+
+    // 只处理节点高亮
+    if (params.dataType === 'node') {
+      lineageChart.value?.dispatchAction({
+        type: 'highlight',
+        seriesIndex: 0,
+        dataIndex: params.dataIndex
+      });
+    }
+  });
+
+  lineageChart.value.on('mouseout', () => {
+    lineageChart.value?.dispatchAction({
+      type: 'downplay',
+      seriesIndex: 0
+    });
+  });
+
+  // 点击节点显示详情
+  lineageChart.value.on('click', (params: any) => {
+    if (params.dataType === 'node') {
+      const nodeData = params.data.value;
+      ElMessage.info(`${nodeData.file_name} (${nodeData.file_type})`);
+    } else if (params.dataType === 'edge') {
+      const taskData = params.data.value;
+      const taskNames = taskData.task_units.map((u: any) => u.task_unit_name).join(', ');
+      ElMessage.info(`任务: ${taskNames}`);
+    }
+  });
+
+  // 监听窗口大小变化
+  const resizeHandler = () => {
+    lineageChart.value?.resize();
+  };
+  window.addEventListener('resize', resizeHandler);
+}
+
+// 计算节点层级（按拓扑排序）
+function calculateNodeLevels(graphData: any): Record<number, any[]> {
+  const levels: Record<number, any[]> = {};
+  const visited = new Set<string>();
+  const nodeLevel: Record<string, number> = {};
+
+  // 找出所有源节点（没有入边的节点）
+  const inDegree: Record<string, number> = {};
+  graphData.nodes.forEach((node: any) => {
+    inDegree[node.id] = 0;
+  });
+
+  graphData.links.forEach((link: any) => {
+    inDegree[link.target] = (inDegree[link.target] || 0) + 1;
+  });
+
+  // 拓扑排序
+  const queue: any[] = [];
+  graphData.nodes.forEach((node: any) => {
+    if (inDegree[node.id] === 0) {
+      queue.push(node);
+      nodeLevel[node.id] = 0;
+      if (!levels[0]) levels[0] = [];
+      levels[0].push(node);
+    }
+  });
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    visited.add(node.id);
+
+    // 找出所有从这个节点出发的边
+    graphData.links.forEach((link: any) => {
+      if (link.source === node.id) {
+        const targetNode = graphData.nodes.find((n: any) => n.id === link.target);
+        if (targetNode && !visited.has(link.target)) {
+          const newLevel = (nodeLevel[node.id] || 0) + 1;
+          nodeLevel[link.target] = Math.max(nodeLevel[link.target] || 0, newLevel);
+
+          if (!levels[newLevel]) levels[newLevel] = [];
+          if (!levels[newLevel].includes(targetNode)) {
+            levels[newLevel].push(targetNode);
+          }
+
+          queue.push(targetNode);
+        }
+      }
+    });
+  }
+
+  return levels;
+}
+
 onMounted(() => {
   fetchSchemas();
   fetchFileStats();
@@ -1452,23 +1903,23 @@ onMounted(() => {
         </div>
         <ElEmpty v-if="!fileList.length && !fileListLoading" description="暂无上传记录" :image-size="60" />
         <div class="history-table-scroll">
-          <ElTable :data="fileList" style="width: 100%" size="small" border stripe>
+          <ElTable :data="fileList" :style="{ width: '100%' }" size="small" border stripe>
             <ElTableColumn prop="file_id" label="ID" show-overflow-tooltip />
             <ElTableColumn prop="file_name" label="文件名" show-overflow-tooltip />
             <ElTableColumn prop="file_size" label="文件大小（字节）" show-overflow-tooltip />
             <ElTableColumn prop="created_time" label="上传时间" show-overflow-tooltip />
             <ElTableColumn prop="upload_user.user_id" label="上传用户" show-overflow-tooltip />
-            <ElTableColumn label="操作" width="120" align="center">
+            <ElTableColumn label="操作" width="200" align="center">
               <template #default="scope">
                 <ElButton
                   type="primary"
                   size="small"
-                  :disabled="false"
                   style="margin-right: 6px"
                   @click="ShowFileDetail(scope.row.file_id)"
                 >
                   详情
                 </ElButton>
+                <ElButton type="success" size="small" @click="showLineage(scope.row)">查看世系</ElButton>
               </template>
             </ElTableColumn>
           </ElTable>
@@ -1580,6 +2031,32 @@ onMounted(() => {
       <div v-else style="color: #aaa; text-align: center">无详情数据</div>
       <template #footer>
         <ElButton type="primary" @click="fileDetailDialogVisible = false">关闭</ElButton>
+      </template>
+    </ElDialog>
+
+    <!-- 数据世系展示弹窗 -->
+    <ElDialog
+      v-model="lineageDialogVisible"
+      title="文件数据世系展示"
+      width="90%"
+      :close-on-click-modal="false"
+      :close-on-press-escape="true"
+      :show-close="true"
+      align-center
+      @close="handleLineageDialogClose"
+    >
+      <div v-if="lineageLoading" class="lineage-overlay">
+        <ElIcon class="is-loading"><i class="el-icon-loading"></i></ElIcon>
+        <span style="margin-left: 8px">加载中...</span>
+      </div>
+      <div v-else class="lineage-container">
+        <div ref="lineageChartRef" class="lineage-graph"></div>
+        <div v-if="!currentFileGenealogy || !currentFileGenealogy.data.length" class="lineage-overlay">
+          <span>暂无世系数据</span>
+        </div>
+      </div>
+      <template #footer>
+        <ElButton type="primary" @click="handleLineageDialogClose">关闭</ElButton>
       </template>
     </ElDialog>
   </div>
@@ -1883,5 +2360,64 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   width: 100%;
+}
+
+/* 世系图容器样式 */
+.lineage-container {
+  width: 100%;
+  height: 70vh;
+  display: flex;
+  position: relative;
+  background: #fff;
+}
+
+.lineage-graph {
+  flex: 1;
+  height: 100%;
+  min-height: 400px;
+  position: relative;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fafcff 0%, #f5f8fd 100%);
+  overflow: hidden;
+}
+
+.lineage-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  z-index: 20;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.lineage-overlay .is-loading {
+  font-size: 24px;
+  color: #409eff;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .lineage-container {
+    height: 50vh;
+  }
+
+  .lineage-graph {
+    min-height: 300px;
+  }
 }
 </style>

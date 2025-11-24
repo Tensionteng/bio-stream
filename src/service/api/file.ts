@@ -58,3 +58,13 @@ export function fetchFileDetail(file_id: number) {
     }
   });
 }
+
+export function fetchFileGenealogy(file_id: number) {
+  return request<Api.Files.FileGenealogy>({
+    url: `/genealogy/${file_id}/`,
+    method: 'get',
+    data: {
+      file_id
+    }
+  });
+}
