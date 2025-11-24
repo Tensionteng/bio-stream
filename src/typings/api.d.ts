@@ -153,6 +153,35 @@ declare namespace Api {
       description_json: object;
       uploaded_subfiles: FileDetailSubfile[];
     }
+
+    interface TaskItem {
+      user: string;
+      time: string;
+      task_units: [
+        {
+          task_unit_id: string; // 任务id
+          id: string; // 执行顺序编号
+          task_unit_name: string;
+        }
+      ];
+    }
+
+    interface FileUserItem {
+      file_id: string;
+      file_name: string;
+      file_type: string;
+      user: string; // 上传用户
+    }
+
+    interface FileGenealogy {
+      Genealogy: [
+        {
+          file1: FileUserItem; // 上游文件
+          task: TaskItem; // 任务信息
+          file2: FileUserItem; // 下游文件
+        }
+      ];
+    }
   }
 
   namespace Home {
