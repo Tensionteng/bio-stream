@@ -114,6 +114,70 @@ export const generatedRoutes: GeneratedRoute[] = [
     ]
   },
   {
+    name: 'taskchain',
+    path: '/taskchain',
+    component: 'layout.base',
+    meta: {
+      title: 'taskchain',
+      i18nKey: 'route.taskchain',
+      localIcon: 'task_chains'
+    },
+    children: [
+      {
+        name: 'taskchain_create',
+        path: '/taskchain/create',
+        component: 'view.taskchain_create',
+        meta: {
+          title: 'taskchain_create',
+          i18nKey: 'route.taskchain_create',
+          localIcon: 'task_chains_create'
+        }
+      },
+      {
+        name: 'taskchain_list',
+        path: '/taskchain/list',
+        component: 'view.taskchain_list',
+        meta: {
+          title: 'taskchain_list',
+          i18nKey: 'route.taskchain_list',
+          localIcon: 'task_chains'
+        }
+      }
+    ]
+  },
+  {
+    name: 'taskunit',
+    path: '/taskunit',
+    component: 'layout.base',
+    meta: {
+      title: 'taskunit',
+      i18nKey: 'route.taskunit',
+      localIcon: 'task'
+    },
+    children: [
+      {
+        name: 'taskunit_create',
+        path: '/taskunit/create',
+        component: 'view.taskunit_create',
+        meta: {
+          title: 'taskunit_create',
+          i18nKey: 'route.taskunit_create',
+          localIcon: 'task_create'
+        }
+      },
+      {
+        name: 'taskunit_list',
+        path: '/taskunit/list',
+        component: 'view.taskunit_list',
+        meta: {
+          title: 'taskunit_list',
+          i18nKey: 'route.taskunit_list',
+          localIcon: 'task_list'
+        }
+      }
+    ]
+  },
+  {
     name: 'visualization',
     path: '/visualization',
     component: 'layout.base$view.visualization',

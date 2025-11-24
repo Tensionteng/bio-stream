@@ -24,5 +24,9 @@ export const views: Record<LastLevelRouteKey, RouteComponent | (() => Promise<Ro
   task_create: () => import("@/views/task/create/[id].vue"),
   task_home: () => import("@/views/task/home/index.vue"),
   task_list: () => import("@/views/task/list/index.vue"),
+  taskchain_create: () => import("@/views/taskChain/create/index.vue"),
+  taskchain_list: () => import("@/views/taskChain/list/index.vue"),
+  taskunit_create: () => import("@/views/taskUnit/create/index.vue"),
+  taskunit_list: () => import("@/views/taskUnit/list/index.vue"),
   visualization: () => import("@/views/visualization/index.vue"),
 };

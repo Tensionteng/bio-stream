@@ -11,7 +11,7 @@ defineOptions({
       target="_blank"
       rel="noopener noreferrer"
     >
-      Copyright MIT © 2021 Soybean
+      Copyright 2025 生物学生物分析平台
     </a>
   </DarkModeContainer>
 </template>

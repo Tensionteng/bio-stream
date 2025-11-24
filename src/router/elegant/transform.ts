@@ -187,6 +187,12 @@ const routeMap: RouteMap = {
   "task_create": "/task/create/:id",
   "task_home": "/task/home",
   "task_list": "/task/list",
+  "taskchain": "/taskchain",
+  "taskchain_create": "/taskchain/create",
+  "taskchain_list": "/taskchain/list",
+  "taskunit": "/taskunit",
+  "taskunit_create": "/taskunit/create",
+  "taskunit_list": "/taskunit/list",
   "visualization": "/visualization"
 };
 
