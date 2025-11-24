@@ -178,7 +178,7 @@ export function fetchFileSchemaList() {
 /** 2. 获取任务链列表 Method: GET /task-chains/list/ */
 export function fetchTaskChainList(params: TaskChainListParams) {
   return request<TaskChainListResponse>({
-    url: '/task-chains/list/',
+    url: '/task-chains/list',
     method: 'get',
     params
   });
@@ -187,7 +187,7 @@ export function fetchTaskChainList(params: TaskChainListParams) {
 /** 3. 获取任务链详情 Method: GET /task-chains/detail/{chain_id}/ */
 export function fetchTaskChainDetail(chain_id: string | number) {
   return request<TaskChainDetail>({
-    url: `/task-chains/detail/${chain_id}/`,
+    url: `/task-chains/detail/${chain_id}`,
     method: 'get'
   });
 }
@@ -195,7 +195,7 @@ export function fetchTaskChainDetail(chain_id: string | number) {
 /** 4. 创建任务链 Method: POST /task-chains/create/ */
 export function createTaskChain(payload: TaskChainSubmitParams) {
   return request<TaskChainSubmitResponse>({
-    url: '/task-chains/create/',
+    url: '/task-chains/create',
     method: 'post',
     data: payload
   });
@@ -204,7 +204,7 @@ export function createTaskChain(payload: TaskChainSubmitParams) {
 /** 5. 更新任务链 Method: PATCH /task-chains/update/{chain_id}/ Note: 接收完整的配置信息 */
 export function updateTaskChain(chain_id: string | number, params: TaskChainSubmitParams) {
   return request<TaskChainSubmitResponse>({
-    url: `/task-chains/update/${chain_id}/`,
+    url: `/task-chains/update/${chain_id}`,
     method: 'patch',
     data: params
   });
@@ -213,14 +213,14 @@ export function updateTaskChain(chain_id: string | number, params: TaskChainSubm
 /** 6. 删除任务链 Method: DELETE /task-chains/delete/{chain_id}/ */
 export function deleteTaskChain(chain_id: string | number) {
   return request<TaskChainDeleteResponse>({
-    url: `/task-chains/delete/${chain_id}/`,
+    url: `/task-chains/delete/${chain_id}`,
     method: 'delete'
   });
 }
 /** 6. 检查任务链合法性 Method: POST /task-chains/check/ Note: 标准做法，通过 Body 传递检测参数 */
 export function checkTaskChain(params: TaskChainSubmitParams) {
   return request<TaskChainCheckResponse>({
-    url: '/task-chains/check/',
+    url: '/task-chains/check',
     method: 'post',
     data: params
   });

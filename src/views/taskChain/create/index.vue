@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification } from 'element-plus';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import draggable from 'vuedraggable';
+// 修改点3：将导入名改为 Draggable (大驼峰)，匹配组件命名规范
+import Draggable from 'vuedraggable';
 import {
   ArrowDown,
   Box,
@@ -119,6 +119,7 @@ async function loadTaskUnits() {
       availableTaskUnits.value = [];
     }
   } catch {
+    // 修改点4：移除 console.log
     ElMessage.error('获取任务单元列表失败');
   } finally {
     isLoadingUnits.value = false;
@@ -498,8 +499,8 @@ watch(
 
             <div class="canvas-area">
               <Draggable
+                v-model="chainSteps"
                 class="flow-list"
-                :list="chainSteps"
                 group="chain"
                 item-key="tempKey"
                 animation="200"

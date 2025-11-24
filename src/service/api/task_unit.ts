@@ -116,7 +116,7 @@ export function fetchTaskUnitList(params: TaskUnitListParams) {
  */
 export function fetchTaskUnitDetail(unit_id: string) {
   return request<TaskUnitDetail>({
-    url: `/task-units/detail/${unit_id}/`,
+    url: `/task-units/detail/${unit_id}`,
     method: 'get'
   });
 }
@@ -133,7 +133,7 @@ export function createTaskUnit(files: File[]) {
   }
 
   return request<TaskUnitCreateData>({
-    url: '/task-units/create/',
+    url: '/task-units/create',
     method: 'post',
     data: formData
   });
@@ -146,7 +146,7 @@ export function createTaskUnit(files: File[]) {
  */
 export function checkRelatedTaskChains(unit_id: string | number) {
   return request<RelatedTaskChainsResponse>({
-    url: `/task-units/related/${unit_id}/`,
+    url: `/task-units/related/${unit_id}`,
     method: 'get'
   });
 }
@@ -158,7 +158,7 @@ export function checkRelatedTaskChains(unit_id: string | number) {
  */
 export function deleteTaskUnit(unit_id: string | number) {
   return request<any>({
-    url: `/task-units/delete/${unit_id}/`,
+    url: `/task-units/delete/${unit_id}`,
     method: 'delete'
   });
 }
