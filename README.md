@@ -199,4 +199,223 @@ soybean-admin
 └── vite.config.ts             //vite配置
 ```
 
+## 权限系统使用指南
+
+本项目实现了完整的权限控制系统，支持7种权限类型：文件管理(file)、场景管理(scene)、任务管理(task)、谱系管理(genealogy)、任务链管理(task_chain)、任务单元管理(task_unit)、管理员(admin)。
+
+### 权限类型说明
+
+权限采用字符串标识，支持以下7种类型：
+- `file` - 文件管理权限
+- `scene` - 场景管理权限
+- `task` - 任务管理权限
+- `genealogy` - 谱系管理权限
+- `task_chain` - 任务链管理权限
+- `task_unit` - 任务单元管理权限
+- `admin` - 管理员权限（拥有所有权限，无需申请）
+
+### 权限检查
+
+#### 1. 在组件中检查权限
+
+```typescript
+import { usePermissionStore } from '@/store/modules/permission';
+
+const permissionStore = usePermissionStore();
+
+// 检查是否有指定权限
+const hasAccess = permissionStore.hasPermission('file'); // 返回 boolean
+
+// 检查是否有任意一个权限
+const hasAny = permissionStore.hasPermission('file') || permissionStore.hasPermission('admin');
+```
+
+#### 2. 使用权限守卫钩子
+
+提供了两个权限守卫钩子，自动处理权限检查和用户引导：
+
+```typescript
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
+
+const { checkAndRequestPermission, checkPermissionAndNotify } = usePermissionGuard();
+
+// 检查权限，如果没有则弹出确认框询问是否申请
+// 用户点击"申请权限"会自动跳转到申请页面
+const hasPermission = await checkAndRequestPermission('file', {
+  title: '无权限访问',
+  message: '您没有文件管理权限，是否需要申请该权限？',
+  autoRedirect: true
+});
+
+// 仅检查并提示，不自动跳转
+const hasAccess = await checkPermissionAndNotify('file');
+```
+
+#### 3. 简单同步检查
+
+如果不需要引导用户申请，只进行同步检查：
+
+```typescript
+import { useSimplePermissionCheck } from '@/hooks/business/permission-guard';
+
+const { hasPermission, hasAnyPermission, hasAllPermissions } = useSimplePermissionCheck();
+
+// 检查单个权限
+const canAccess = hasPermission('file');
+
+// 检查是否有任意一个权限
+const hasAny = hasAnyPermission(['file', 'scene', 'task']);
+
+// 检查是否拥有所有权限
+const hasAll = hasAllPermissions(['file', 'scene']);
+```
+
+#### 4. 路由元信息配置
+
+在路由配置中添加权限要求，用户访问时自动检查：
+
+```typescript
+{
+  name: 'file_list',
+  path: '/file/list',
+  meta: {
+    requiredPermission: 'file'  // 需要的权限类型
+  },
+  component: () => import('@/views/file/list/index.vue')
+}
+```
+
+用户访问该路由时：
+- 有权限：正常访问
+- 无权限：弹出确认框询问是否申请，点击"申请权限"自动跳转到申请页面
+
+### 权限申请
+
+#### 1. 用户申请权限
+
+```typescript
+import { usePermissionStore } from '@/store/modules/permission';
+
+const permissionStore = usePermissionStore();
+
+// 提交权限申请
+const success = await permissionStore.applyPermission({
+  permissionType: 'file',  // 权限类型
+  days: 30,                // 申请天数（0表示永久）
+  reason: '需要管理项目文件'  // 申请理由（不超过500字）
+});
+
+if (success) {
+  // 申请提交成功
+  console.log('申请已提交，等待管理员审批');
+}
+```
+
+#### 2. 跳转到申请页面
+
+```typescript
+import { useRouter } from 'vue-router';
+
+const router = useRouter();
+
+// 跳转到申请页面（可选：携带权限类型）
+router.push({
+  name: 'permission_apply',
+  query: { type: 'file' }  // 可选：预选择权限类型
+});
+```
+
+### 权限管理（管理员）
+
+#### 1. 审批权限申请
+
+```typescript
+import { usePermissionStore } from '@/store/modules/permission';
+
+const permissionStore = usePermissionStore();
+
+// 批准申请
+await permissionStore.reviewPermissionRequest({
+  requestId: 123,
+  approve: true,
+  comment: '同意申请'
+});
+
+// 拒绝申请
+await permissionStore.reviewPermissionRequest({
+  requestId: 123,
+  approve: false,
+  comment: '理由不充分'
+});
+```
+
+#### 2. 直接添加权限
+
+```typescript
+import { usePermissionStore } from '@/store/modules/permission';
+
+const permissionStore = usePermissionStore();
+
+// 为用户添加权限（无需审批）
+await permissionStore.addUserPermission('username', [
+  {
+    type: 'file',
+    days: -1  // -1表示永久
+  },
+  {
+    type: 'task',
+    days: 30
+  }
+]);
+```
+
+#### 3. 撤销权限
+
+```typescript
+// 撤销用户的某个权限
+await permissionStore.revokePermission(permissionId);
+```
+
+#### 4. 导出权限数据
+
+```typescript
+// 导出所有权限数据到Excel（前端导出，无需后端）
+await permissionStore.exportPermissions();
+// 自动生成：权限管理_2025-11-27.xlsx
+```
+
+### 权限状态
+
+权限和申请有以下几种状态：
+- `PENDING` - 待审批
+- `ACTIVE` - 已通过/已激活
+- `REJECTED` - 已拒绝
+- `WITHDRAWN` - 已撤回
+- `EXPIRED` - 已过期
+- `ERROR` - 错误
+
+### 最佳实践
+
+1. **管理员权限**：拥有 `admin` 权限的用户拥有所有权限，无需申请，申请页面会自动隐藏
+2. **前端导出**：权限导出功能在前端实现，使用 `xlsx` 库，无需后端支持
+3. **天数表示**：`-1` 或 `0` 表示永久权限，显示时为"永久"
+4. **字段映射**：后端使用 `days` 字段表示天数，前端统一使用 `days`（不是 `duration`）
+5. **理由长度**：申请理由最大500字，无最小字数限制
+
+### 权限数据流
+
+1. 用户申请权限 → 状态为 `PENDING`
+2. 管理员审批：
+   - 批准 → 状态变为 `ACTIVE`，权限生效
+   - 拒绝 → 状态变为 `REJECTED`
+3. 权限到期 → 状态自动变为 `EXPIRED`
+4. 管理员可撤销 → 状态变为 `WITHDRAWN`
+
+### 文件位置
+
+- **权限钩子**：`src/hooks/business/permission-guard.ts`
+- **权限存储**：`src/store/modules/permission/index.ts`
+- **权限API**：`src/service/api/permission.ts`
+- **权限类型**：`src/typings/api.d.ts` (namespace Api.Permission)
+- **权限页面**：`src/views/permission/apply/`, `src/views/permission/my/`, `src/views/permission/manage/`
 
