@@ -64,6 +64,7 @@ declare namespace Api {
       userName: string;
       roles: string[];
       buttons: string[];
+      permissions: string[];
     }
   }
 
@@ -415,5 +416,69 @@ declare namespace Api {
       pId: number;
       children?: MenuTree[];
     };
+  }
+
+  namespace Permission {
+    /** 权限类型 */
+    type PermissionType = 'file' | 'scene' | 'task' | 'genealogy' | 'task_chain' | 'task_unit' | 'admin';
+
+    /** 权限状态 */
+    type PermissionStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'WITHDRAWN' | 'EXPIRED' | 'ERROR';
+
+    /** 用户权限 */
+    interface UserPermission {
+      id: number;
+      userId: string;
+      userName: string;
+      permissionType: PermissionType;
+      status: PermissionStatus;
+      days: number;
+      createTime: string;
+      expireTime?: string;
+      grantedTime?: string;
+    }
+
+    /** 权限申请 */
+    interface PermissionRequest {
+      id: number;
+      userId: string;
+      userName: string;
+      permissionType: PermissionType;
+      requestTime: string;
+      days: number;
+      reason: string;
+      status: PermissionStatus;
+      createBy: string;
+      createTime: string;
+      updateBy: string;
+      updateTime: string;
+      expireTime?: string;
+      reviewerId: string;
+      reviewerName: string;
+      reviewTime?: string;
+      reviewComment?: string;
+    }
+
+    /** 权限申请参数 */
+    interface PermissionApplyParams {
+      permissionType: PermissionType;
+      days: number;
+      reason: string;
+    }
+
+    /** 权限审批参数 */
+    interface PermissionReviewParams {
+      requestId: number;
+      approve: boolean;
+      comment?: string;
+    }
+
+    /** 权限搜索参数 */
+    interface PermissionSearchParams {
+      permissionType: PermissionType | null;
+      userName: string | null;
+      current: number;
+      size: number;
+    }
   }
 }

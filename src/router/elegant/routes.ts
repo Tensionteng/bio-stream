@@ -45,7 +45,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     component: 'layout.base$view.file',
     meta: {
       title: 'file',
-      i18nKey: 'route.file'
+      i18nKey: 'route.file',
+      requiredPermission: 'file'
     }
   },
   {
@@ -72,6 +73,44 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'permission',
+    path: '/permission',
+    component: 'layout.base',
+    meta: {
+      title: 'permission',
+      i18nKey: 'route.permission'
+    },
+    children: [
+      {
+        name: 'permission_apply',
+        path: '/permission/apply',
+        component: 'view.permission_apply',
+        meta: {
+          title: 'permission_apply',
+          i18nKey: 'route.permission_apply'
+        }
+      },
+      {
+        name: 'permission_manage',
+        path: '/permission/manage',
+        component: 'view.permission_manage',
+        meta: {
+          title: 'permission_manage',
+          i18nKey: 'route.permission_manage'
+        }
+      },
+      {
+        name: 'permission_my',
+        path: '/permission/my',
+        component: 'view.permission_my',
+        meta: {
+          title: 'permission_my',
+          i18nKey: 'route.permission_my'
+        }
+      }
+    ]
+  },
+  {
     name: 'task',
     path: '/task',
     component: 'layout.base',
@@ -88,7 +127,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_create',
           i18nKey: 'route.task_create',
-          hideInMenu: true
+          hideInMenu: true,
+          requiredPermission: 'task'
         }
       },
       {
@@ -98,7 +138,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_home',
           i18nKey: 'route.task_home',
-          localIcon: 'task_create'
+          localIcon: 'task_create',
+          requiredPermission: 'task'
         }
       },
       {
@@ -108,7 +149,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_list',
           i18nKey: 'route.task_list',
-          localIcon: 'task_list'
+          localIcon: 'task_list',
+          requiredPermission: 'task'
         }
       }
     ]
@@ -184,7 +226,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'visualization',
       i18nKey: 'route.visualization',
-      icon: 'mdi:chart-areaspline'
+      icon: 'mdi:chart-areaspline',
+      requiredPermission: 'scene'
     }
   }
 ];

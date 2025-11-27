@@ -298,7 +298,7 @@ onMounted(() => {
 
             <!-- VCF 表格展示 -->
             <template v-else-if="visualizationResult.type === 'vcf'">
-              <ElTable :data="visualizationResult.data" border stripe style="width: 100%" max-height="600">
+              <ElTable :data="visualizationResult.data" border stripe class="max-h[600px] w-full">
                 <ElTableColumn
                   v-for="column in getTableColumns(visualizationResult.data)"
                   :key="column"
@@ -313,7 +313,7 @@ onMounted(() => {
             <!-- CSV 表格展示 -->
             <template v-else-if="visualizationResult.type === 'csv'">
               <div class="csv-container">
-                <ElTable :data="currentCsvData" border stripe style="width: 100%" max-height="600">
+                <ElTable :data="currentCsvData" border stripe class="max-h[600px] w-full">
                   <ElTableColumn
                     v-for="column in getTableColumns(currentCsvData)"
                     :key="column"
