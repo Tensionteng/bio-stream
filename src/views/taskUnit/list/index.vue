@@ -226,7 +226,7 @@ onMounted(() => {
         </ElFormItem>
       </ElForm>
 
-      <ElTable v-loading="isLoadingList" :data="taskUnits" style="width: 100%" empty-text="未找到任何任务单元">
+      <ElTable v-loading="isLoadingList" :data="taskUnits" :style="{ width: '100%' }" empty-text="未找到任何任务单元">
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
         <ElTableColumn prop="created_time" label="创建时间 (Created Time)" min-width="200" />
         <ElTableColumn prop="link_file" label="链接文件 (Link File)" min-width="200" show-overflow-tooltip />
@@ -305,7 +305,7 @@ onMounted(() => {
                 border
                 stripe
                 size="small"
-                style="width: 100%"
+                :style="{ width: '100%' }"
               >
                 <ElTableColumn type="expand">
                   <template #default="props">
@@ -347,7 +347,7 @@ onMounted(() => {
                 border
                 stripe
                 size="small"
-                style="width: 100%"
+                :style="{ width: '100%' }"
               >
                 <ElTableColumn prop="name" label="名称" min-width="100" show-overflow-tooltip />
                 <ElTableColumn prop="per_sample" label="逐样本" width="70" align="center">

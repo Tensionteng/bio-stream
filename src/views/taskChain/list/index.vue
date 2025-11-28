@@ -226,7 +226,7 @@ onMounted(() => {
         </ElFormItem>
       </ElForm>
 
-      <ElTable v-loading="isLoadingList" :data="taskChainList" style="width: 100%" empty-text="未找到任何任务链">
+      <ElTable v-loading="isLoadingList" :data="taskChainList" :style="{ width: '100%' }" empty-text="未找到任何任务链">
         <ElTableColumn prop="id" label="ID" width="100" />
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
         <ElTableColumn prop="nums" label="单元数量" width="100" align="center" />
@@ -427,7 +427,7 @@ onMounted(() => {
         />
 
         <div class="section-title-small">关联/冲突详情：</div>
-        <ElTable :data="deleteConflictData" border stripe size="small" max-height="300" style="width: 100%">
+        <ElTable :data="deleteConflictData" border stripe size="small" max-height="300" :style="{ width: '100%' }">
           <ElTableColumn prop="id" label="关联ID" width="120" />
           <ElTableColumn prop="status" label="状态" show-overflow-tooltip>
             <template #default="{ row }">

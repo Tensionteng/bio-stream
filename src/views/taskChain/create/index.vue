@@ -802,7 +802,7 @@ watch(
         :data="validationResults"
         border
         stripe
-        style="width: 100%"
+        :style="{ width: '100%' }"
         max-height="400"
         empty-text="暂无详细错误信息"
       >

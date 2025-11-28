@@ -72,6 +72,48 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'scene',
+    path: '/scene',
+    component: 'layout.base',
+    meta: {
+      title: 'scene',
+      i18nKey: 'route.scene',
+      localIcon: 'scene'
+    },
+    children: [
+      {
+        name: 'scene_create',
+        path: '/scene/create/:id',
+        component: 'view.scene_create',
+        meta: {
+          title: 'scene_create',
+          i18nKey: 'route.scene_create',
+          hideInMenu: true
+        }
+      },
+      {
+        name: 'scene_home',
+        path: '/scene/home',
+        component: 'view.scene_home',
+        meta: {
+          title: 'scene_home',
+          i18nKey: 'route.scene_home',
+          localIcon: 'scene_create'
+        }
+      },
+      {
+        name: 'scene_list',
+        path: '/scene/list',
+        component: 'view.scene_list',
+        meta: {
+          title: 'scene_list',
+          i18nKey: 'route.scene_list',
+          localIcon: 'scene_list'
+        }
+      }
+    ]
+  },
+  {
     name: 'task',
     path: '/task',
     component: 'layout.base',

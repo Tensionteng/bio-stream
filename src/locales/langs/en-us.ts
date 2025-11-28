@@ -187,6 +187,10 @@ const local: App.I18n.Schema = {
     task_create: 'Create Task',
     task_home: 'Task home',
     task_list: 'Task List',
+    scene: 'scene',
+    scene_create: 'scene_create',
+    scene_home: 'scene_home',
+    scene_list: 'scene_list',
     visualization: 'Visualization'
   },
   page: {

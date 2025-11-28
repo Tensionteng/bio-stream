@@ -16,10 +16,10 @@ import {
   ElSwitch,
   ElTable,
   ElTableColumn,
-  ElTag
+  ElTag // 1. 移除了 ElScrollbar
 } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
-import { Document, FolderOpened, UploadFilled } from '@element-plus/icons-vue';
+import { Document, FolderOpened, Search, UploadFilled } from '@element-plus/icons-vue';
 import { request } from '@/service/request';
 
 // --- 类型定义 ---
@@ -42,10 +42,19 @@ interface PaginatedFilesResponse {
   results: FileInfo[];
 }
 
+// 2. 修复 max-params: 将参数合并为一个对象
+interface FetchFileListParams {
+  page: number;
+  pageSize: number;
+  fileType?: string;
+  keyword?: string;
+}
+
 // --- API ---
-function fetchFileList(page: number, pageSize: number, fileType?: string) {
+function fetchFileList({ page, pageSize, fileType, keyword }: FetchFileListParams) {
   const params: any = { page, page_size: pageSize };
   if (fileType) params.File_type = fileType;
+  if (keyword) params.file_name = keyword;
   return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
 }
 
@@ -54,6 +63,8 @@ const props = defineProps<{
   schema: Record<string, any>;
   modelValue: Record<string, any>;
 }>();
+
+// 3. 修复 vue/define-emits-declaration: 使用类型声明
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, any>): void;
 }>();
@@ -66,27 +77,14 @@ const availableFiles = ref<FileInfo[]>([]);
 const loadingFiles = ref(false);
 const currentFileSelectionKey = ref<string | null>(null);
 const tempSelection = ref<FileInfo[]>([]);
+
+// 搜索相关状态
 const selectedFileType = ref<string>('');
+const searchKeyword = ref<string>('');
 const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']);
+
 const pagination = ref({ page: 1, pageSize: 20, total: 0, hasNextPage: false });
 const dialogTableRef = ref();
-
-// --- Helpers (纯函数前置) ---
-// 1. 修复 no-use-before-define: 将不依赖 computed 的工具函数移到 computed 之前
-const isNumericType = (p: any) =>
-  Array.isArray(p.type)
-    ? p.type.some((t: string) => ['number', 'integer'].includes(t))
-    : ['number', 'integer'].includes(p.type);
-const formatLabel = (k: string) =>
-  k
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase())
-    .trim();
-const formatFileSize = (b: number) =>
-  b === 0
-    ? '0 B'
-    : `${(b / 1024 ** Math.floor(Math.log(b) / Math.log(1024))).toFixed(2)} ${['B', 'KB', 'MB', 'GB', 'TB'][Math.floor(Math.log(b) / Math.log(1024))]}`;
 
 // --- Watchers ---
 watch(
@@ -121,6 +119,22 @@ watch(fileDialogVisible, isVisible => {
     }, 100);
   }
 });
+
+// --- 4. Helpers (移动到 Computed 之前，修复 no-use-before-define) ---
+const isNumericType = (p: any) =>
+  Array.isArray(p.type)
+    ? p.type.some((t: string) => ['number', 'integer'].includes(t))
+    : ['number', 'integer'].includes(p.type);
+const formatLabel = (k: string) =>
+  k
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+const formatFileSize = (b: number) =>
+  b === 0
+    ? '0 B'
+    : `${(b / 1024 ** Math.floor(Math.log(b) / Math.log(1024))).toFixed(2)} ${['B', 'KB', 'MB', 'GB', 'TB'][Math.floor(Math.log(b) / Math.log(1024))]}`;
 
 // --- Computed ---
 const formRules = computed<FormRules>(() => {
@@ -158,7 +172,7 @@ const fileIdMap = computed(() => {
   return map;
 });
 
-// 依赖 computed 的 Helper 放在后面
+// Helper dependent on computed (Needs to stay here or inside logic)
 const getFileName = (id: number) => fileIdMap.value.get(id)?.file_name ?? `ID: ${id}`;
 
 // --- Logic ---
@@ -166,25 +180,31 @@ async function loadFilesPage() {
   if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
   try {
-    const res = await fetchFileList(pagination.value.page, pagination.value.pageSize, selectedFileType.value);
+    // 调用修改后的 API 格式
+    const res = await fetchFileList({
+      page: pagination.value.page,
+      pageSize: pagination.value.pageSize,
+      fileType: selectedFileType.value,
+      keyword: searchKeyword.value
+    });
+
     if (res?.data?.results) {
       availableFiles.value.push(...res.data.results);
       pagination.value.total = res.data.count;
       pagination.value.hasNextPage = availableFiles.value.length < res.data.count;
-      if (pagination.value.hasNextPage) {
-        // 2. 修复 no-plusplus: 改用 += 1
-        pagination.value.page += 1;
-      }
+      // 5. 修复 no-plusplus
+      if (pagination.value.hasNextPage) pagination.value.page += 1;
     }
   } catch {
-    // 3. 修复 no-unused-vars: 移除未使用的 (e)
+    // 6. 修复 unused vars (去掉 e)
     ElMessage.error('加载文件失败');
   } finally {
     loadingFiles.value = false;
   }
 }
 
-const handleFileTypeChange = () => {
+// 触发搜索（重置列表）
+const handleSearch = () => {
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
   loadFilesPage();
@@ -193,6 +213,7 @@ const handleFileTypeChange = () => {
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
   selectedFileType.value = '';
+  searchKeyword.value = ''; // 打开时重置关键词
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
   loadFilesPage();
@@ -315,7 +336,7 @@ defineExpose({ validate });
     <ElDialog
       v-model="fileDialogVisible"
       title="选择文件"
-      width="60%"
+      width="70%"
       :before-close="
         () => {
           fileDialogVisible = false;
@@ -324,15 +345,40 @@ defineExpose({ validate });
       append-to-body
       class="file-dialog"
     >
-      <ElSelect
-        v-model="selectedFileType"
-        placeholder="筛选文件类型"
-        clearable
-        class="dialog-filter-select"
-        @change="handleFileTypeChange"
-      >
-        <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
-      </ElSelect>
+      <div class="dialog-header-bar">
+        <div class="filter-wrapper">
+          <span class="filter-label">类型筛选：</span>
+          <ElSelect
+            v-model="selectedFileType"
+            placeholder="全部类型"
+            clearable
+            class="pretty-select"
+            @change="handleSearch"
+          >
+            <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
+          </ElSelect>
+        </div>
+
+        <div class="search-group">
+          <ElInput
+            v-model="searchKeyword"
+            placeholder="搜索文件名 (回车确认)"
+            class="pretty-input"
+            clearable
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          >
+            <template #prefix>
+              <ElIcon class="input-icon"><Search /></ElIcon>
+            </template>
+          </ElInput>
+
+          <ElButton type="primary" class="pretty-search-btn" @click="handleSearch">
+            <ElIcon><Search /></ElIcon>
+            <span>查询</span>
+          </ElButton>
+        </div>
+      </div>
 
       <ElTable
         ref="dialogTableRef"
@@ -407,7 +453,7 @@ defineExpose({ validate });
   display: none;
 }
 
-/* === 输入框与选择框美化 === */
+/* === 输入框与选择框美化 (表单部分) === */
 .modern-input :deep(.el-input__wrapper),
 .modern-select :deep(.el-select__wrapper),
 .modern-input-number :deep(.el-input__wrapper) {
@@ -592,14 +638,143 @@ defineExpose({ validate });
   color: #fff;
 }
 
-/* === 对话框样式 === */
-.dialog-filter-select {
-  width: 240px;
-  margin-bottom: 16px;
-}
-
-/* 让表格行可点击的鼠标样式 */
+/* === 弹窗部分样式 === */
 .dialog-table :deep(.el-table__row) {
   cursor: pointer;
+}
+
+.dialog-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  padding: 16px;
+  background-color: #f8f9fb;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+
+.filter-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-label {
+  font-size: 13px;
+  color: #606266;
+  font-weight: 500;
+}
+
+.search-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 圆润的输入框与选择框 */
+.pretty-select {
+  width: 160px;
+}
+
+.pretty-input {
+  width: 280px;
+}
+
+.pretty-select :deep(.el-select__wrapper),
+.pretty-input :deep(.el-input__wrapper) {
+  border-radius: 20px;
+  box-shadow: 0 0 0 1px #dcdfe6 inset;
+  padding-left: 12px;
+}
+
+.pretty-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow:
+    0 0 0 1px var(--primary-color) inset,
+    0 2px 8px rgba(64, 158, 255, 0.15);
+}
+
+/* === 重点：美化后的搜索按钮 === */
+.pretty-search-btn {
+  height: 32px;
+  padding: 0 20px;
+  border-radius: 20px; /* 胶囊形状 */
+  border: none;
+  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%); /* 细微渐变 */
+  box-shadow: 0 4px 10px rgba(64, 158, 255, 0.3); /* 投影让按钮浮起来 */
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* 弹性动画 */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.pretty-search-btn:hover {
+  background: linear-gradient(135deg, #66b1ff 0%, #409eff 100%);
+  transform: translateY(-2px); /* 悬浮上移 */
+  box-shadow: 0 6px 15px rgba(64, 158, 255, 0.4); /* 加深阴影 */
+}
+
+.pretty-search-btn:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 5px rgba(64, 158, 255, 0.2);
+}
+
+.input-icon {
+  color: #909399;
+}
+/* 底部整体区域，增加上边框 & 内边距 */
+.file-dialog :deep(.el-dialog__footer) {
+  border-top: 1px solid #ebeef5;
+  padding: 14px 20px;
+}
+
+/* 右下角对齐 + 间距 */
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 通用按钮风格：圆角胶囊 + 稍微大一点 */
+.dialog-footer :deep(.el-button) {
+  height: 32px;
+  padding: 0 18px;
+  border-radius: 20px;
+  font-size: 13px;
+}
+
+/* 取消按钮：浅色边框 */
+.dialog-footer :deep(.el-button--default) {
+  background-color: #fff;
+  border-color: #dcdfe6;
+  color: #606266;
+}
+
+.dialog-footer :deep(.el-button--default:hover) {
+  background-color: #f5f7fa;
+}
+
+/* 确认按钮：跟上面 pretty-search-btn 保持一致 */
+.dialog-footer :deep(.el-button--primary) {
+  border: none;
+  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+  box-shadow: 0 4px 10px rgba(64, 158, 255, 0.3);
+  font-weight: 500;
+}
+
+.dialog-footer :deep(.el-button--primary:hover) {
+  background: linear-gradient(135deg, #66b1ff 0%, #409eff 100%);
+  box-shadow: 0 6px 15px rgba(64, 158, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.dialog-footer :deep(.el-button--primary:active) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 5px rgba(64, 158, 255, 0.2);
 }
 </style>

@@ -37,6 +37,10 @@ declare module "@elegant-router/types" {
     "file": "/file";
     "home": "/home";
     "login": "/login/:module(pwd-login|register)?";
+    "scene": "/scene";
+    "scene_create": "/scene/create/:id";
+    "scene_home": "/scene/home";
+    "scene_list": "/scene/list";
     "task": "/task";
     "task_create": "/task/create/:id";
     "task_home": "/task/home";
@@ -99,6 +103,7 @@ declare module "@elegant-router/types" {
     | "file"
     | "home"
     | "login"
+    | "scene"
     | "task"
     | "taskchain"
     | "taskunit"
@@ -127,6 +132,9 @@ declare module "@elegant-router/types" {
     | "login"
     | "file"
     | "home"
+    | "scene_create"
+    | "scene_home"
+    | "scene_list"
     | "task_create"
     | "task_home"
     | "task_list"

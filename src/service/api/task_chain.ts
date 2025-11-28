@@ -34,8 +34,8 @@ export interface TaskChainListItem {
   name: string;
   created_time: string;
   updated_time: string;
-  nums: string; // 对应 JSON 中的 "nums" (原 unit_nums)
-  type: string; // 对应 JSON 中的 "type"
+  nums: string;
+  type: string;
 }
 
 export interface TaskChainListResponse {
