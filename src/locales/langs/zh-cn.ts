@@ -488,7 +488,7 @@ const local: App.I18n.Schema = {
       pendingRequests: '待审批申请',
       allPermissions: '所有权限',
       file: '文件',
-      scene: '可视化',
+      scene: '场景',
       task: '任务',
       genealogy: '世系',
       taskChain: '任务链',
