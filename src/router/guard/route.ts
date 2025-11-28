@@ -67,12 +67,19 @@ export function createRouteGuard(router: Router) {
     // 检查路由权限
     const requiredPermission = to.meta?.requiredPermission as Api.Permission.PermissionType | undefined;
     if (requiredPermission) {
-      // 动态导入permission store以避免循环依赖
-      const permissionModule = await import('@/store/modules/permission');
+      // 动态导入permission store和auth store
+      const [permissionModule, authModule] = await Promise.all([
+        import('@/store/modules/permission'),
+        import('@/store/modules/auth')
+      ]);
       const permissionStore = permissionModule.usePermissionStore();
+      const currentAuthStore = authModule.useAuthStore();
 
-      // 检查是否有权限
-      const hasPermission = permissionStore.hasPermission(requiredPermission);
+      // 检查是否是管理员（管理员拥有所有权限）
+      const isAdmin = currentAuthStore.userInfo.permissions.includes('admin');
+
+      // 检查是否有权限（管理员直接通过）
+      const hasPermission = isAdmin || permissionStore.hasPermission(requiredPermission);
 
       if (!hasPermission) {
         try {
