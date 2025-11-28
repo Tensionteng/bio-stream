@@ -41,6 +41,10 @@ declare module "@elegant-router/types" {
     "scene_create": "/scene/create/:id";
     "scene_home": "/scene/home";
     "scene_list": "/scene/list";
+    "permission": "/permission";
+    "permission_apply": "/permission/apply";
+    "permission_manage": "/permission/manage";
+    "permission_my": "/permission/my";
     "task": "/task";
     "task_create": "/task/create/:id";
     "task_home": "/task/home";
@@ -104,6 +108,7 @@ declare module "@elegant-router/types" {
     | "home"
     | "login"
     | "scene"
+    | "permission"
     | "task"
     | "taskchain"
     | "taskunit"
@@ -135,6 +140,9 @@ declare module "@elegant-router/types" {
     | "scene_create"
     | "scene_home"
     | "scene_list"
+    | "permission_apply"
+    | "permission_manage"
+    | "permission_my"
     | "task_create"
     | "task_home"
     | "task_list"
@@ -226,7 +234,7 @@ declare module "@elegant-router/types" {
         component: `view.${K}`;
       }
     : never;
-  
+
   /**
    * the center level route
    */
@@ -249,7 +257,7 @@ declare module "@elegant-router/types" {
         children: (CenterLevelRoute<GetChildRouteKey<K>> | LastLevelRoute<GetChildRouteKey<K>>)[];
       }
     : never;
-  
+
   /**
    * the custom first level route
    */

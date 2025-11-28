@@ -8,7 +8,9 @@ import type {
 import type { RouteKey, RoutePath } from '@elegant-router/types';
 import { useAuthStore } from '@/store/modules/auth';
 import { useRouteStore } from '@/store/modules/route';
+import { getI18nPermissionKey } from '@/hooks/business/permission-guard';
 import { localStg } from '@/utils/storage';
+import { $t } from '@/locales';
 import { getRouteName } from '@/router/elegant/transform';
 
 /**
@@ -60,6 +62,61 @@ export function createRouteGuard(router: Router) {
     if (!hasAuth) {
       next({ name: noAuthorizationRoute });
       return;
+    }
+
+    // 检查路由权限
+    const requiredPermission = to.meta?.requiredPermission as Api.Permission.PermissionType | undefined;
+    if (requiredPermission) {
+      // 动态导入permission store以避免循环依赖
+      const permissionModule = await import('@/store/modules/permission');
+      const permissionStore = permissionModule.usePermissionStore();
+
+      // 检查是否有权限
+      const hasPermission = permissionStore.hasPermission(requiredPermission);
+
+      if (!hasPermission) {
+        try {
+          // 将权限类型从 snake_case 转换为 camelCase（用于 i18n 键）
+          const permissionKey = getI18nPermissionKey(requiredPermission);
+
+          // 弹出确认框询问是否申请权限
+          await window.$messageBox?.confirm(
+            $t('page.permission.noPermissionGuide', {
+              name: $t(`page.permission.${permissionKey}` as any)
+            }),
+            $t('common.permissionDenied'),
+            {
+              confirmButtonText: $t('page.permission.applyPermission'),
+              cancelButtonText: $t('common.cancel'),
+              type: 'warning'
+            }
+          );
+
+          // 跳转到权限申请页面
+          next({
+            name: 'permission_apply',
+            query: { type: requiredPermission }
+          });
+          return;
+        } catch {
+          // 用户取消，停留在当前页面
+          next(false);
+          return;
+        }
+      }
+    }
+
+    // 如果是管理员访问申请权限页面，跳转到我的权限页面
+    if (to.name === 'permission_apply') {
+      // 动态导入auth store以检查权限
+      const authModule = await import('@/store/modules/auth');
+      const currentAuthStore = authModule.useAuthStore();
+
+      if (currentAuthStore.userInfo.permissions.includes('admin')) {
+        window.$message?.warning($t('page.permission.adminNoNeedApply'));
+        next({ name: 'permission_my' });
+        return;
+      }
     }
 
     // switch route normally
