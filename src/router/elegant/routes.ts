@@ -73,6 +73,44 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'permission',
+    path: '/permission',
+    component: 'layout.base',
+    meta: {
+      title: 'permission',
+      i18nKey: 'route.permission'
+    },
+    children: [
+      {
+        name: 'permission_apply',
+        path: '/permission/apply',
+        component: 'view.permission_apply',
+        meta: {
+          title: 'permission_apply',
+          i18nKey: 'route.permission_apply'
+        }
+      },
+      {
+        name: 'permission_manage',
+        path: '/permission/manage',
+        component: 'view.permission_manage',
+        meta: {
+          title: 'permission_manage',
+          i18nKey: 'route.permission_manage'
+        }
+      },
+      {
+        name: 'permission_my',
+        path: '/permission/my',
+        component: 'view.permission_my',
+        meta: {
+          title: 'permission_my',
+          i18nKey: 'route.permission_my'
+        }
+      }
+    ]
+  },
+  {
     name: 'scene',
     path: '/scene',
     component: 'layout.base',
@@ -115,44 +153,6 @@ export const generatedRoutes: GeneratedRoute[] = [
     ]
   },
   {
-    name: 'permission',
-    path: '/permission',
-    component: 'layout.base',
-    meta: {
-      title: 'permission',
-      i18nKey: 'route.permission'
-    },
-    children: [
-      {
-        name: 'permission_apply',
-        path: '/permission/apply',
-        component: 'view.permission_apply',
-        meta: {
-          title: 'permission_apply',
-          i18nKey: 'route.permission_apply'
-        }
-      },
-      {
-        name: 'permission_manage',
-        path: '/permission/manage',
-        component: 'view.permission_manage',
-        meta: {
-          title: 'permission_manage',
-          i18nKey: 'route.permission_manage'
-        }
-      },
-      {
-        name: 'permission_my',
-        path: '/permission/my',
-        component: 'view.permission_my',
-        meta: {
-          title: 'permission_my',
-          i18nKey: 'route.permission_my'
-        }
-      }
-    ]
-  },
-  {
     name: 'task',
     path: '/task',
     component: 'layout.base',
@@ -169,8 +169,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_create',
           i18nKey: 'route.task_create',
-          hideInMenu: true,
-          requiredPermission: 'task'
+          hideInMenu: true
         }
       },
       {
@@ -180,8 +179,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_home',
           i18nKey: 'route.task_home',
-          localIcon: 'task_create',
-          requiredPermission: 'task'
+          localIcon: 'task_create'
         }
       },
       {
@@ -191,8 +189,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'task_list',
           i18nKey: 'route.task_list',
-          localIcon: 'task_list',
-          requiredPermission: 'task'
+          localIcon: 'task_list'
         }
       }
     ]

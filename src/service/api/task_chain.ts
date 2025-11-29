@@ -225,12 +225,24 @@ export function checkTaskChain(params: TaskChainSubmitParams) {
     data: params
   });
 }
-/** 7. 删除前的冲突检测 Method: GET /task-chians/delete/check/{chain_id} Note: 注意文档截图 URL 中 task-chains 拼写为 task-chians，请根据实际后端情况确认 */
+/** 7. 删除前的冲突检测 Method: GET /task-chians/delete/check/{chain_id} */
 export function checkDeleteTaskChain(chain_id: string | number) {
   return request<TaskChainDeleteCheckResponse>({
-    // 如果后端确实拼错了，这里就用错的；如果是文档笔误，建议改为 task-chains
-    // 这里暂时按截图写 task-chians
     url: `/task-chains/delete/check/${chain_id}`,
     method: 'get'
+  });
+}
+/** 提交任务的 Body 结构 */
+export interface StartTaskChainParams {
+  task_chain_id: number;
+  parameter_json: Record<string, any>;
+}
+
+/** 提交分析任务 Method: POST /analysis/task-chains/start */
+export function startTaskChainAnalysis(data: StartTaskChainParams) {
+  return request<any>({
+    url: '/analysis/task-chains/start',
+    method: 'post',
+    data
   });
 }

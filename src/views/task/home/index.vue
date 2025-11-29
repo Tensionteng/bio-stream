@@ -1,292 +1,1093 @@
 <script setup lang="ts">
-// --- 核心依赖导入 ---
-import { onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router'; // 导入 Vue Router 的 useRouter hook，用于编程式导航
-import { ElCard, ElCol, ElIcon, ElPopover, ElRow, ElScrollbar } from 'element-plus'; // 导入 Element Plus UI 组件
-import { CollectionTag, Cpu } from '@element-plus/icons-vue'; // 导入图标
-import { type ProcessListItem, fetchProcessList } from '@/service/api/task'; // 导入 API 请求函数和相关 TypeScript 类型
+import { onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import {
+  ElButton,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElMessage,
+  ElOption,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElTooltip,
+  type FormItemRule,
+  type FormRules // [修复] 引入正确的类型
+} from 'element-plus';
+import {
+  ArrowLeft,
+  CircleCheckFilled,
+  Document,
+  Files,
+  FolderOpened,
+  InfoFilled,
+  Operation,
+  Promotion,
+  Search
+} from '@element-plus/icons-vue';
+import {
+  type StartTaskChainParams,
+  type TaskChainDetailInput,
+  type TaskChainDetailParameter,
+  fetchTaskChainDetail,
+  startTaskChainAnalysis
+} from '@/service/api/task_chain';
+import { request } from '@/service/request';
 
-// --- 组件状态定义 ---
-const loadingProcesses = ref(false); // 控制是否显示加载状态的布尔值
-const processList = ref<ProcessListItem[]>([]); // 存储从 API 获取的分析流程列表
-const router = useRouter(); // 初始化 router 实例
-
-/**
- * 处理用户选择一个分析流程的点击事件
- *
- * @param {ProcessListItem} process - 用户点击的流程对象
- */
-function handleProcessSelect(process: ProcessListItem) {
-  // 使用 router.push 进行页面跳转
-  router.push({
-    // 跳转到动态路由，其中 :id 将被 process.process_id 替换
-    path: `/task/create/${process.process_id}`,
-    // 通过 query 参数传递流程名称，以便在下一个页面显示
-    query: {
-      name: process.name
-    }
-  });
+// --- 类型定义 ---
+interface UploadUser {
+  user_id: number;
+  username: string;
+}
+interface FileInfo {
+  file_id: number;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  created_time: string;
+  upload_user: UploadUser;
+}
+interface PaginatedFilesResponse {
+  count: number;
+  page: number;
+  page_size: number;
+  results: FileInfo[];
 }
 
-/** 异步函数，用于从服务器获取所有可用的分析流程列表 */
-async function getProcessList() {
-  loadingProcesses.value = true; // 开始加载，显示 loading 动画
+interface TaskChainParamItem extends TaskChainDetailParameter {
+  name: string;
+  type: string;
+  limit: any;
+  min: number | null;
+  max: number | null;
+  enum: any[] | null;
+  default?: any;
+}
+
+interface FetchFileListParams {
+  page: number;
+  pageSize: number;
+  fileType?: string;
+  file_name?: string;
+  meta_ids?: string[];
+}
+
+function fetchFileList({ page, pageSize, fileType, file_name, meta_ids }: FetchFileListParams) {
+  const params: Record<string, any> = { page, page_size: pageSize };
+  if (fileType) params.file_type = fileType;
+  if (file_name) params.file_name = file_name;
+  if (meta_ids && meta_ids.length > 0) params.meta_ids = meta_ids.join(',');
+  return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
+}
+
+// --- 状态管理 ---
+const route = useRoute();
+const router = useRouter();
+const taskChainId = Number(route.params.id);
+const taskChainName = ref('');
+const loadingDetail = ref(false);
+const submitting = ref(false);
+
+const chainInputDefs = ref<TaskChainDetailInput[]>([]);
+const chainParamDefs = ref<TaskChainParamItem[]>([]);
+const formModel = reactive({
+  filesMap: {} as Record<string, FileInfo[]>,
+  paramsMap: {} as Record<string, any>
+});
+
+// [修复] 使用正确的 FormRules 类型
+const dynamicRules = ref<FormRules>({});
+const formRef = ref();
+
+// --- 文件弹窗相关 ---
+const fileDialogVisible = ref(false);
+const currentActiveInputName = ref<string>('');
+const currentMetaIds = ref<string[]>([]);
+const availableFiles = ref<FileInfo[]>([]);
+const loadingFiles = ref(false);
+const searchKeyword = ref('');
+const pagination = ref({ page: 1, pageSize: 20, total: 0, hasNextPage: true });
+const tempSelection = ref<FileInfo[]>([]);
+const dialogTableRef = ref();
+
+// --- 初始化逻辑 ---
+async function initData() {
+  if (!taskChainId) return;
+  loadingDetail.value = true;
   try {
-    const response = await fetchProcessList();
-    // 将获取到的数据赋值给 processList，如果数据为空则赋值为空数组
-    processList.value = response.data ?? [];
+    const res = await fetchTaskChainDetail(taskChainId);
+    if (res.data) {
+      const data = res.data;
+      taskChainName.value = data.name;
+
+      chainInputDefs.value = data.input || [];
+      chainInputDefs.value.forEach(def => {
+        if (def.file_name) formModel.filesMap[def.file_name] = [];
+      });
+
+      chainParamDefs.value = (data.parameters || []) as TaskChainParamItem[];
+
+      const rules: FormRules = {};
+      chainParamDefs.value.forEach(p => {
+        let defaultValue = p.default;
+        if (defaultValue === undefined) {
+          if (p.type === 'boolean') defaultValue = false;
+          else if (p.type === 'enum' && p.enum && p.enum.length > 0) defaultValue = p.enum[0];
+          else defaultValue = null;
+        }
+        formModel.paramsMap[p.name] = defaultValue;
+
+        // [修复] 显式指定类型 Array<FormItemRule>
+        const itemRules: FormItemRule[] = [{ required: true, message: '此项必填', trigger: 'change' }];
+
+        if ((p.type === 'integer' || p.type === 'float') && (p.min !== null || p.max !== null)) {
+          itemRules.push({
+            validator: (_rule: any, value: number, callback: any) => {
+              if (value === null || value === undefined) return callback();
+              if (p.min !== null && value < p.min) return callback(new Error(`不能小于 ${p.min}`));
+              if (p.max !== null && value > p.max) return callback(new Error(`不能大于 ${p.max}`));
+              return callback();
+            },
+            trigger: 'blur'
+          });
+        }
+        rules[p.name] = itemRules;
+      });
+      dynamicRules.value = rules;
+    }
   } catch (error) {
-    // 如果请求失败，在控制台打印错误信息
-    console.error('Failed to fetch process list:', error);
+    console.error(error);
+    ElMessage.error('加载任务链详情失败');
   } finally {
-    // 无论成功还是失败，都结束加载状态
-    loadingProcesses.value = false;
+    loadingDetail.value = false;
   }
 }
 
-// --- 生命周期钩子 ---
-// onMounted 会在组件挂载到 DOM 后执行
+// --- 文件选择逻辑 ---
+const formatFileSize = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / k ** i).toFixed(2)} ${sizes[i]}`;
+};
+
+const openFileDialog = (inputName: string) => {
+  currentActiveInputName.value = inputName;
+  searchKeyword.value = '';
+  availableFiles.value = [];
+  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+  tempSelection.value = [...(formModel.filesMap[inputName] || [])];
+
+  const def = chainInputDefs.value.find(i => i.file_name === inputName);
+  if (def && def.meta_id) {
+    currentMetaIds.value = [String(def.meta_id)];
+  } else {
+    currentMetaIds.value = [];
+  }
+
+  loadFilesPage();
+  fileDialogVisible.value = true;
+};
+
+async function loadFilesPage() {
+  if (loadingFiles.value || !pagination.value.hasNextPage) return;
+  loadingFiles.value = true;
+  try {
+    const res = await fetchFileList({
+      page: pagination.value.page,
+      pageSize: pagination.value.pageSize,
+      file_name: searchKeyword.value,
+      meta_ids: currentMetaIds.value
+    });
+    if (res?.data?.results) {
+      availableFiles.value.push(...res.data.results);
+      pagination.value.total = res.data.count;
+      pagination.value.hasNextPage = availableFiles.value.length < res.data.count;
+      if (pagination.value.hasNextPage) {
+        pagination.value.page += 1;
+      }
+    }
+  } catch {
+    ElMessage.error('加载文件失败');
+  } finally {
+    loadingFiles.value = false;
+  }
+}
+
+const confirmFileSelection = () => {
+  if (currentActiveInputName.value) {
+    formModel.filesMap[currentActiveInputName.value] = [...tempSelection.value];
+  }
+  fileDialogVisible.value = false;
+};
+
+const handleSelectionChange = (val: FileInfo[]) => {
+  const currentDef = chainInputDefs.value.find(i => i.file_name === currentActiveInputName.value);
+  const isMultiple = currentDef?.multiple ?? false;
+  if (!isMultiple && val.length > 1) {
+    const last = val[val.length - 1];
+    dialogTableRef.value.clearSelection();
+    dialogTableRef.value.toggleRowSelection(last, true);
+    tempSelection.value = [last];
+    return;
+  }
+  tempSelection.value = val;
+};
+
+const handleRowClick = (row: FileInfo) => {
+  const currentDef = chainInputDefs.value.find(i => i.file_name === currentActiveInputName.value);
+  const isMultiple = currentDef?.multiple ?? false;
+  if (!isMultiple) {
+    dialogTableRef.value.clearSelection();
+    dialogTableRef.value.toggleRowSelection(row, true);
+    tempSelection.value = [row];
+  } else {
+    dialogTableRef.value.toggleRowSelection(row);
+  }
+};
+
+watch(fileDialogVisible, (visible: boolean) => {
+  if (visible) {
+    setTimeout(() => {
+      if (!dialogTableRef.value) return;
+      dialogTableRef.value.clearSelection();
+      const selectedIds = new Set(tempSelection.value.map(f => f.file_id));
+      availableFiles.value.forEach(row => {
+        if (selectedIds.has(row.file_id)) dialogTableRef.value.toggleRowSelection(row, true);
+      });
+    }, 100);
+  }
+});
+
+const handleSearch = () => {
+  availableFiles.value = [];
+  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+  loadFilesPage();
+};
+
+// --- 提交逻辑 ---
+const handleSubmit = async () => {
+  for (const def of chainInputDefs.value) {
+    const files = formModel.filesMap[def.file_name!] || [];
+    if (files.length === 0) {
+      ElMessage.warning(`请配置输入文件：${def.file_name}`);
+      return;
+    }
+  }
+
+  if (!formRef.value) return;
+  await formRef.value.validate(async (valid: boolean) => {
+    if (valid) {
+      const parameter_json: Record<string, any> = {};
+
+      // [修改] 统一将所有文件放入 inputFiles 数组
+      const allFiles: { file_id: number }[] = [];
+      Object.values(formModel.filesMap).forEach(files => {
+        files.forEach(file => {
+          allFiles.push({ file_id: file.file_id });
+        });
+      });
+      parameter_json.inputFiles = allFiles;
+
+      Object.keys(formModel.paramsMap).forEach(key => {
+        parameter_json[key] = formModel.paramsMap[key];
+      });
+
+      const payload: StartTaskChainParams = {
+        task_chain_id: taskChainId,
+        parameter_json
+      };
+
+      submitting.value = true;
+      try {
+        await startTaskChainAnalysis(payload);
+        ElMessage.success('任务创建成功！');
+        router.push('/task/list'); // [修改] 跳转回任务列表
+      } catch (error) {
+        console.error(error);
+        ElMessage.error('提交失败');
+      } finally {
+        submitting.value = false;
+      }
+    } else {
+      ElMessage.warning('请检查参数');
+    }
+  });
+};
+
 onMounted(() => {
-  getProcessList(); // 调用函数，获取流程列表数据
+  initData();
 });
 </script>
 
 <template>
   <div class="create-task-page">
-    <ElCard class="step-card" shadow="never">
-      <template #header>
-        <div class="card-header">
-          <ElIcon class="header-icon"><CollectionTag /></ElIcon>
-          <span>第一步：选择分析流程</span>
+    <div class="page-content">
+      <div class="page-header">
+        <div class="header-left">
+          <ElButton class="back-btn" :icon="ArrowLeft" circle @click="router.back()" />
+          <div class="header-info">
+            <div class="header-title">提交任务链分析</div>
+            <div class="header-meta">
+              任务链：
+              <span class="value">{{ taskChainName }}</span>
+            </div>
+          </div>
         </div>
-      </template>
+      </div>
 
-      <div v-loading="loadingProcesses" class="process-grid-container">
-        <ElRow :gutter="20">
-          <ElCol v-for="process in processList" :key="process.process_id" :xs="24" :sm="12" :md="8" :lg="6">
-            <div class="process-card" @click="handleProcessSelect(process)">
-              <div class="process-card-header">
-                <ElIcon class="process-icon" :size="24"><Cpu /></ElIcon>
-                <h3 class="process-name">{{ process.name }}</h3>
-              </div>
-              <div class="step-container">
-                <p class="step-count">共 {{ process.description.total_units }} 个步骤</p>
-                <ElScrollbar class="step-scrollbar">
-                  <ul class="step-list">
-                    <template v-for="(unit, index) in process.description.execution_units" :key="unit.name">
-                      <ElPopover placement="right" :title="unit.name" :width="300" trigger="hover">
-                        <template #reference>
-                          <li class="step-item">
-                            {{ unit.name }}
-                          </li>
-                        </template>
-                        <div class="popover-content">{{ unit.description }}</div>
-                      </ElPopover>
-
-                      <li
-                        v-if="index < process.description.execution_units.length - 1"
-                        class="step-arrow"
-                        aria-hidden="true"
-                      ></li>
-                    </template>
-                  </ul>
-                </ElScrollbar>
+      <div v-loading="loadingDetail" class="form-wrapper">
+        <ElForm ref="formRef" :model="formModel.paramsMap" :rules="dynamicRules" label-position="top" class="main-form">
+          <div class="section-container">
+            <div class="section-header">
+              <div class="title-left">
+                <div class="icon-box blue-icon">
+                  <ElIcon><Files /></ElIcon>
+                </div>
+                <span class="title-text">输入文件 (Inputs)</span>
               </div>
             </div>
-          </ElCol>
-        </ElRow>
+
+            <div v-if="chainInputDefs.length === 0" class="empty-placeholder">此任务无需输入文件</div>
+
+            <div v-else class="input-grid">
+              <div
+                v-for="inputDef in chainInputDefs"
+                :key="inputDef.file_name ?? ''"
+                class="input-card"
+                :class="{ 'is-filled': formModel.filesMap[inputDef.file_name!]?.length > 0 }"
+                @click="openFileDialog(inputDef.file_name!)"
+              >
+                <div class="card-top">
+                  <div class="input-name" :title="inputDef.file_name ?? ''">
+                    <span class="required-mark">*</span>
+                    {{ inputDef.file_name }}
+                  </div>
+                  <div class="card-badges">
+                    <ElTag v-if="inputDef.multiple" size="small" type="primary" effect="plain" round>多文件</ElTag>
+                    <ElTag v-else size="small" type="warning" effect="plain" round>单文件</ElTag>
+                  </div>
+                </div>
+
+                <div class="card-body">
+                  <div v-if="!formModel.filesMap[inputDef.file_name!]?.length" class="empty-state">
+                    <div class="upload-icon-circle">
+                      <ElIcon><FolderOpened /></ElIcon>
+                    </div>
+                    <span class="hint-text">点击选择文件</span>
+                  </div>
+
+                  <div v-else class="file-list-preview">
+                    <div
+                      v-for="file in formModel.filesMap[inputDef.file_name!].slice(0, 3)"
+                      :key="file.file_id"
+                      class="mini-file-item"
+                    >
+                      <ElIcon><Document /></ElIcon>
+                      <span class="fname">{{ file.file_name }}</span>
+                    </div>
+                    <div v-if="formModel.filesMap[inputDef.file_name!].length > 3" class="more-count">
+                      +{{ formModel.filesMap[inputDef.file_name!].length - 3 }} 个文件
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card-footer-status">
+                  <span v-if="formModel.filesMap[inputDef.file_name!]?.length" class="status-text success">
+                    <ElIcon><CircleCheckFilled /></ElIcon>
+                    已就绪
+                  </span>
+                  <span v-else class="status-text pending">待选择</span>
+                  <div class="action-btn">选择</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-container">
+            <div class="section-header">
+              <div class="title-left">
+                <div class="icon-box purple-icon">
+                  <ElIcon><Operation /></ElIcon>
+                </div>
+                <span class="title-text">参数配置 (Parameters)</span>
+              </div>
+            </div>
+
+            <div v-if="chainParamDefs.length === 0" class="empty-placeholder">此任务无额外参数</div>
+
+            <div v-else class="params-grid-layout">
+              <div v-for="param in chainParamDefs" :key="param.name" class="param-grid-item">
+                <div class="custom-label">
+                  <span class="p-name">{{ param.name }}</span>
+                  <div class="p-meta">
+                    <span class="p-type">{{ param.type }}</span>
+                    <ElTooltip v-if="param.limit" :content="param.limit" placement="top">
+                      <ElIcon class="help-icon"><InfoFilled /></ElIcon>
+                    </ElTooltip>
+                  </div>
+                </div>
+
+                <ElFormItem :prop="param.name" class="compact-form-item">
+                  <ElSelect
+                    v-if="(param.type === 'enum' || param.enum) && param.enum!.length > 0"
+                    v-model="formModel.paramsMap[param.name]"
+                    placeholder="请选择"
+                    class="full-width"
+                    size="large"
+                  >
+                    <ElOption v-for="opt in param.enum" :key="String(opt)" :label="String(opt)" :value="opt" />
+                  </ElSelect>
+
+                  <div v-else-if="param.type === 'boolean'" class="switch-wrapper">
+                    <ElSwitch
+                      v-model="formModel.paramsMap[param.name]"
+                      inline-prompt
+                      active-text="ON"
+                      inactive-text="OFF"
+                      size="large"
+                    />
+                    <span class="switch-status">{{ formModel.paramsMap[param.name] ? '启用' : '禁用' }}</span>
+                  </div>
+
+                  <ElInputNumber
+                    v-else-if="param.type === 'integer' || param.type === 'float'"
+                    v-model="formModel.paramsMap[param.name]"
+                    :min="param.min ?? -Infinity"
+                    :max="param.max ?? Infinity"
+                    :precision="param.type === 'float' ? 2 : 0"
+                    controls-position="right"
+                    placeholder="请输入数值"
+                    class="full-width"
+                    size="large"
+                  />
+
+                  <ElInput v-else v-model="formModel.paramsMap[param.name]" placeholder="请输入参数值" size="large" />
+                </ElFormItem>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions-area">
+            <ElButton
+              type="primary"
+              size="large"
+              :loading="submitting"
+              :icon="Promotion"
+              class="submit-btn-lg"
+              @click="handleSubmit"
+            >
+              提交运行任务
+            </ElButton>
+            <div class="cancel-link" @click="router.back()">取消并返回</div>
+          </div>
+        </ElForm>
       </div>
-    </ElCard>
+    </div>
+
+    <ElDialog v-model="fileDialogVisible" title="选择文件" width="720px" append-to-body class="custom-dialog">
+      <div class="dialog-search-bar">
+        <ElInput
+          v-model="searchKeyword"
+          placeholder="搜索文件名..."
+          :prefix-icon="Search"
+          clearable
+          @keyup.enter="handleSearch"
+          @clear="handleSearch"
+        />
+        <ElButton type="primary" @click="handleSearch">搜索</ElButton>
+      </div>
+      <ElTable
+        ref="dialogTableRef"
+        v-loading="loadingFiles && !availableFiles.length"
+        :data="availableFiles"
+        height="400px"
+        :row-key="(row: any) => String(row.file_id)"
+        class="dialog-file-table"
+        @selection-change="handleSelectionChange"
+        @row-click="handleRowClick"
+      >
+        <ElTableColumn type="selection" width="50" reserve-selection />
+        <ElTableColumn property="file_name" label="文件名" show-overflow-tooltip />
+        <ElTableColumn property="file_size" label="大小" width="100">
+          <template #default="{ row }">{{ formatFileSize(row.file_size) }}</template>
+        </ElTableColumn>
+        <ElTableColumn property="file_type" label="类型" width="120" />
+        <ElTableColumn property="created_time" label="上传时间" width="160" show-overflow-tooltip />
+      </ElTable>
+      <div class="dialog-pager">
+        <ElButton
+          link
+          :disabled="pagination.page <= 1"
+          @click="
+            pagination.page -= 1;
+            loadFilesPage();
+          "
+        >
+          上一页
+        </ElButton>
+        <span class="pager-text">第 {{ pagination.page }} 页</span>
+        <ElButton
+          link
+          :disabled="!pagination.hasNextPage"
+          @click="
+            pagination.page += 1;
+            loadFilesPage();
+          "
+        >
+          下一页
+        </ElButton>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <ElButton @click="fileDialogVisible = false">取消</ElButton>
+          <ElButton type="primary" @click="confirmFileSelection">确认 ({{ tempSelection.length }})</ElButton>
+        </span>
+      </template>
+    </ElDialog>
   </div>
 </template>
 
 <style scoped>
-/* 页面整体布局 */
+/* 全局容器 */
 .create-task-page {
-  padding: 20px;
-  background-color: var(--el-bg-color-page);
+  min-height: 100vh;
+  background-color: #f5f7fa;
+  padding-bottom: 60px;
 }
 
-/* 步骤卡片（容器）样式 */
-.step-card {
-  margin-bottom: 20px;
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 8px;
+.page-content {
+  width: 98%;
+  max-width: 1800px; /* 宽屏适配 */
+  margin: 0 auto;
+  padding: 24px;
 }
 
-/* 卡片头部通用样式 */
-.card-header {
+/* Header */
+.page-header {
   display: flex;
   align-items: center;
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
+  justify-content: space-between;
+  margin-bottom: 24px;
 }
-
-.header-icon {
-  margin-right: 8px;
-  font-size: 18px;
-  color: var(--el-color-primary);
+.header-left {
+  display: flex;
+  align-items: center;
 }
-
-/* --- 流程选择卡片网格 --- */
-.process-grid-container {
-  padding: 10px 0;
+.back-btn {
+  margin-right: 16px;
+  border: 1px solid #e4e7ed;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
-
-.process-card {
-  min-height: 350px;
-  max-height: 400px;
-  padding: 20px;
-  border-radius: 8px;
-  border: 2px solid var(--el-border-color-light);
-  background-color: var(--el-bg-color);
-  cursor: pointer;
-  transition: all 0.3s ease;
+.back-btn:hover {
+  background-color: #ecf5ff;
+  color: #409eff;
+  border-color: #c6e2ff;
+}
+.header-info {
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  margin-bottom: 20px;
 }
-
-.process-card:hover {
-  transform: translateY(-5px); /* 鼠标悬浮时轻微上移 */
-  box-shadow: var(--el-box-shadow-light); /* 添加阴影效果 */
-  border-color: var(--el-color-primary-light-5);
-}
-
-.process-card.is-selected {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 4px 12px rgba(var(--el-color-primary-rgb), 0.2);
-  background-color: var(--el-color-primary-light-9);
-}
-
-/* --- 卡片内部内容样式 --- */
-.process-card-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.process-icon {
-  margin-right: 12px;
-  color: var(--el-color-primary);
-}
-
-.process-name {
-  margin: 0;
-  font-size: 16px;
+.header-title {
+  font-size: 22px;
   font-weight: 600;
-  color: var(--el-text-color-primary);
-  white-space: nowrap; /* 防止文本换行 */
-  overflow: hidden; /* 隐藏超出部分 */
-  text-overflow: ellipsis; /* 超出部分显示省略号 */
+  color: #1f2937;
+  line-height: 1.2;
+}
+.header-meta {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.header-meta .value {
+  color: #409eff;
+  font-weight: 500;
+  background: #ecf5ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
 }
 
-.step-container {
-  margin-top: 8px;
-  flex-grow: 1; /* 占据剩余空间 */
-  overflow: hidden; /* 隐藏内部溢出的内容 */
+/* 通用 Section */
+.section-container {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px;
+  margin-bottom: 24px;
+  box-shadow:
+    0 1px 3px rgba(0, 21, 41, 0.02),
+    0 4px 8px rgba(0, 0, 0, 0.02);
+  border: 1px solid #f0f0f0;
+}
+.section-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.title-left {
+  display: flex;
+  align-items: center;
+}
+.icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  font-size: 20px;
+}
+.blue-icon {
+  background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+  color: #0284c7;
+}
+.purple-icon {
+  background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+  color: #9333ea;
+}
+.title-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #374151;
+}
+
+/* Grid for Inputs */
+.input-grid {
+  display: grid;
+  /* 响应式：最小宽度 380px，自动填满 */
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
+}
+.input-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background-color: #fff;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 0; /* 修正 flex 布局在某些浏览器中的高度计算问题 */
+  height: 200px;
+}
+.input-card:hover {
+  border-color: #3b82f6;
+  box-shadow:
+    0 10px 15px -3px rgba(59, 130, 246, 0.1),
+    0 4px 6px -2px rgba(59, 130, 246, 0.05);
+  transform: translateY(-3px);
+}
+.input-card.is-filled {
+  border-color: #93c5fd;
+  background-color: #f0f9ff;
 }
 
-.step-count {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin: 0 0 8px;
-  text-align: left;
+/* 卡片细节 */
+.card-top {
+  padding: 14px 18px;
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-
-.step-scrollbar {
-  flex-grow: 1; /* 确保滚动条容器能填满父容器的剩余空间 */
-  height: 0; /* 配合flex-grow，强制容器高度由父元素分配 */
-}
-
-.step-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-/* --- 修改这里的样式 --- */
-.step-item {
+.input-name {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--el-text-color-primary);
-  padding: 10px 8px;
-  border-radius: 6px;
-  background-color: #fff;
-  border: 1px solid var(--el-border-color-lighter);
-  white-space: nowrap;
+  font-weight: 600;
+  color: #1f2937;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: help;
-  transition: all 0.2s ease-in-out;
+  white-space: nowrap;
+  max-width: 65%;
 }
-
-.step-item:hover {
-  transform: translateX(4px);
-  border-color: var(--el-color-primary);
-  color: var(--el-color-primary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+.required-mark {
+  color: #ef4444;
+  margin-right: 2px;
 }
-
-/* --- 新增下面的样式 --- */
-.step-arrow {
-  list-style: none;
+.card-badges {
   display: flex;
-  flex-direction: column; /* 垂直排列：先是线条，后是箭头 */
-  align-items: center; /* 水平居中 */
-  margin: 2px 0; /* 替代原来的 margin-bottom，在上下各加 2px 间距 */
+  gap: 6px;
 }
 
-/* 绘制竖线 (使用 ::before) */
-.step-arrow::before {
-  content: '';
-  display: block;
-  width: 2px; /* 线条宽度 */
-  height: 8px; /* 线条高度 */
-  /* 使用 Element Plus 的信息色，或者你可以直接写一个深色，例如 #909399 */
-  background-color: var(--el-color-info); /* 加深颜色 */
+.card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+}
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #94a3b8;
+}
+.upload-icon-circle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 10px;
+  transition: all 0.3s;
+  color: #cbd5e1;
+}
+.input-card:hover .upload-icon-circle {
+  background: #dbeafe;
+  color: #3b82f6;
+}
+.hint-text {
+  font-size: 13px;
+  font-weight: 500;
 }
 
-/* 绘制箭头 (使用 ::after) */
-.step-arrow::after {
-  content: '';
-  display: block;
-  width: 0;
-  height: 0;
-  /* 使用 border 技巧创建三角形 */
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid var(--el-color-info); /* 箭头颜色，与竖线保持一致 */
-  margin-top: -1px; /* 让箭头和竖线无缝连接 */
+.file-list-preview {
+  width: 100%;
+  padding: 0 8px;
+}
+.mini-file-item {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+.file-icon-wrap {
+  margin-right: 8px;
+  color: #64748b;
+  display: flex;
+}
+.fname {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.more-count {
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  margin-top: 6px;
+  background: #e2e8f0;
+  border-radius: 10px;
+  display: inline-block;
+  padding: 2px 8px;
+  margin-left: 50%;
+  transform: translateX(-50%);
 }
 
-.popover-content {
-  color: #606266;
+.card-footer-status {
+  padding: 10px 18px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  background: #fff;
+}
+.status-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.status-text.pending {
+  color: #94a3b8;
+}
+.status-text.success {
+  color: #10b981;
+}
+.action-arrow {
+  color: #cbd5e1;
+  transition: all 0.2s;
+}
+.input-card:hover .action-arrow {
+  color: #3b82f6;
+  transform: translateX(4px);
+}
+.action-btn {
+  color: #409eff;
+  font-weight: 500;
+}
+
+/* --- 参数配置 Grid --- */
+.params-grid-layout {
+  display: grid;
+  /* 参数小卡片，最小宽度 320px */
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+
+.custom-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.p-name {
   font-size: 14px;
-  line-height: 1.6;
+  font-weight: 600;
+  color: #374151;
 }
-.popover-content {
-  color: #606266;
+.p-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.p-type {
+  font-size: 11px;
+  background: #f3f4f6;
+  color: #6b7280;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  letter-spacing: 0.5px;
+}
+.help-icon {
+  color: #9ca3af;
+  cursor: help;
+  font-size: 15px;
+  transition: color 0.2s;
+}
+.help-icon:hover {
+  color: #60a5fa;
+}
+
+.compact-form-item {
+  margin-bottom: 0 !important;
+}
+.full-width {
+  width: 100%;
+}
+.switch-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  background: #f9fafb;
+  padding: 0 12px;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+}
+.switch-status {
+  font-size: 13px;
+  color: #4b5563;
+  font-weight: 500;
+}
+
+/* --- 底部提交区 --- */
+.form-actions-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 40px;
+  gap: 16px;
+  padding-top: 32px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.submit-btn-lg {
+  width: 280px;
+  height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+  transition: all 0.3s ease;
+}
+.submit-btn-lg:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+  filter: brightness(1.1);
+}
+.submit-btn-lg:active {
+  transform: translateY(1px);
+}
+
+.cancel-link {
   font-size: 14px;
-  line-height: 1.6;
+  color: #6b7280;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.cancel-link:hover {
+  color: #1f2937;
 }
 
-/* --- 自定义滚动条样式 --- */
-.step-scrollbar :deep(::-webkit-scrollbar) {
-  width: 6px;
+/* --- 弹窗美化 --- */
+:deep(.file-select-dialog) {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+}
+:deep(.file-select-dialog .el-dialog__header) {
+  margin: 0;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f0f0f0;
+}
+:deep(.file-select-dialog .el-dialog__title) {
+  font-weight: 600;
+  color: #1f2937;
+}
+:deep(.file-select-dialog .el-dialog__body) {
+  padding: 0;
+  background-color: #f9fafb;
+}
+:deep(.file-select-dialog .el-dialog__footer) {
+  padding: 16px 24px;
+  border-top: 1px solid #f0f0f0;
+  background-color: #fff;
 }
 
-.step-scrollbar :deep(::-webkit-scrollbar-thumb) {
-  border-radius: 3px;
-  background-color: #dcdfe6;
+.dialog-toolbar {
+  padding: 16px 24px;
+  background-color: #fff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #f0f0f0;
+}
+.search-wrapper {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  max-width: 400px;
+}
+.search-input :deep(.el-input__wrapper) {
+  border-radius: 20px;
+  background-color: #f3f4f6;
+  box-shadow: none !important;
+  padding-left: 12px;
+}
+.search-input :deep(.el-input__wrapper.is-focus) {
+  background-color: #fff;
+  box-shadow: 0 0 0 1px #409eff !important;
+}
+.search-icon {
+  color: #9ca3af;
+}
+.search-btn {
+  border-radius: 20px;
+  padding: 8px 20px;
+}
+.filter-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
 }
 
-.step-scrollbar :deep(::-webkit-scrollbar-thumb:hover) {
-  background-color: #c0c4cc;
+.table-container {
+  padding: 0 24px 24px 24px;
+  background-color: #fff;
+}
+.dialog-file-table {
+  margin-top: 10px;
+}
+.custom-table {
+  --el-table-header-bg-color: #fff;
+  --el-table-row-hover-bg-color: #f0f9ff;
+}
+:deep(.el-table th.el-table__cell) {
+  font-weight: 600;
+  color: #374151;
+  background-color: #fff !important;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.file-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.file-icon-box {
+  width: 32px;
+  height: 32px;
+  background-color: #eff6ff;
+  color: #3b82f6;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.fname-text {
+  font-weight: 500;
+  color: #1f2937;
+}
+.type-tag {
+  background-color: #f3f4f6;
+  border-color: #e5e7eb;
+  color: #4b5563;
+  border-radius: 4px;
+}
+.size-text {
+  font-family: monospace;
+  color: #6b7280;
+}
+.time-text {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.dialog-footer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pagination-simple {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-info {
+  font-size: 13px;
+  color: #4b5563;
+  font-variant-numeric: tabular-nums;
+}
+.action-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.selection-hint {
+  font-size: 13px;
+  color: #409eff;
+  font-weight: 500;
+}
+.confirm-btn {
+  padding: 8px 24px;
+  font-weight: 500;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+  transition: all 0.2s;
+}
+.confirm-btn:hover {
+  box-shadow: 0 6px 15px rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
 }
 </style>
