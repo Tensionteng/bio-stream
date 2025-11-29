@@ -2,7 +2,7 @@
 import { nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
-import { Search, Upload, UploadFilled } from '@element-plus/icons-vue';
+import { Search, Upload, UploadFilled, CaretTop } from '@element-plus/icons-vue';
 import { createSHA256 } from 'hash-wasm';
 import * as echarts from 'echarts';
 import {
@@ -46,6 +46,68 @@ const uploadProgressPercent = ref(0);
 const uploadingFileName = ref('');
 const uploadError = ref('');
 let uploadCancelTokenSource: ReturnType<typeof axios.CancelToken.source> | null = null;
+
+// 上传任务列表相关
+const uploadTaskList = ref<any[]>([]);
+const uploadTaskPanelCollapsed = ref(false);
+
+interface UploadTask {
+  id: string;
+  fileName: string;
+  progress: number;
+  status: 'uploading' | 'success' | 'error';
+  error?: string;
+  cancelTokenSource?: ReturnType<typeof axios.CancelToken.source>;
+}
+
+// 添加上传任务到列表
+function addUploadTask(fileName: string): string {
+  const taskId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  uploadTaskList.value.push({
+    id: taskId,
+    fileName,
+    progress: 0,
+    status: 'uploading'
+  });
+  return taskId;
+}
+
+// 更新上传任务进度
+function updateUploadTaskProgress(taskId: string, progress: number) {
+  const task = uploadTaskList.value.find(t => t.id === taskId);
+  if (task) {
+    task.progress = progress;
+  }
+}
+
+// 更新上传任务状态
+function updateUploadTaskStatus(taskId: string, status: 'uploading' | 'success' | 'error', error?: string) {
+  const task = uploadTaskList.value.find(t => t.id === taskId);
+  if (task) {
+    task.status = status;
+    if (error) {
+      task.error = error;
+    }
+  }
+}
+
+// 取消单个上传任务
+function cancelUploadTask(taskId: string) {
+  const task = uploadTaskList.value.find(t => t.id === taskId);
+  if (task && task.cancelTokenSource) {
+    task.cancelTokenSource.cancel('用户取消上传');
+    task.status = 'error';
+    task.error = '已取消';
+  }
+}
+
+// 删除上传任务
+function removeUploadTask(taskId: string) {
+  const index = uploadTaskList.value.findIndex(t => t.id === taskId);
+  if (index > -1) {
+    uploadTaskList.value.splice(index, 1);
+  }
+}
 
 // 封装上传进度弹窗控制函数
 function showUploadProgressDialog({
@@ -853,7 +915,7 @@ function validateTextFields(): boolean {
   return true;
 }
 
-// 处理文件上传
+// 处理文件上传 - 改为异步处理
 async function processFileUploads(): Promise<any[]> {
   const uploads: any[] = [];
   const fileEntries = collectFileEntries(dynamicForm);
@@ -869,180 +931,95 @@ async function processFileUploads(): Promise<any[]> {
   const initiateRes: any = await FileUploadInit(selectedSchema.value.id, uploads);
   const currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response.data?.upload_urls || []) as any[];
 
-  // 上传文件到对应的url
-  progressDialogVisible.value = true;
-  uploadProgressPercent.value = 0;
-  uploadingFileName.value = '';
-  uploadError.value = '';
-  // 创建全局 cancel token
-  uploadCancelTokenSource = axios.CancelToken.source();
-  showUploadProgressDialog({
-    percent: 0,
-    fileName: '',
-    error: '',
-    cancelTokenSource: uploadCancelTokenSource
-  });
-
-  let finishedCount = 0;
-  const totalCount = currentUploadUrls.length;
-
+  const uploadedFiles: any[] = [];
+  
   try {
     await Promise.all(
       currentUploadUrls.map(async (u: any) => {
         const entry = fileEntries.find(e => e.field_name === u.field_name);
         if (!entry) {
-          showUploadProgressDialog({
-            percent: uploadProgressPercent.value,
-            fileName: '',
-            error: `上传时未找到对应的文件字段: ${u.field_name}`,
-            cancelTokenSource: null
-          });
           throw new Error(`上传时未找到对应的文件字段: ${u.field_name}`);
         }
-        uploadingFileName.value = entry.file.name;
-        await axios.put(u.upload_url, entry.file, {
-          headers: {
-            'Content-Type': entry.file.type || 'application/octet-stream'
-          },
-          onUploadProgress: progressEvent => {
-            if (progressEvent.total) {
-              const singlePercent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              uploadProgressPercent.value = Math.min(
-                100,
-                Math.round(((finishedCount + singlePercent / 100) / totalCount) * 100)
-              );
-              showUploadProgressDialog({
-                percent: uploadProgressPercent.value,
-                fileName: entry.file.name,
-                error: '',
-                cancelTokenSource: uploadCancelTokenSource
-              });
-            }
-          },
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-          cancelToken: uploadCancelTokenSource?.token
-        });
-        finishedCount += 1;
-        uploadProgressPercent.value = Math.round((finishedCount / totalCount) * 100);
-        showUploadProgressDialog({
-          percent: uploadProgressPercent.value,
-          fileName: entry.file.name,
-          error: '',
-          cancelTokenSource: uploadCancelTokenSource
-        });
+
+        // 创建上传任务
+        const taskId = addUploadTask(entry.file.name);
+        const cancelTokenSource = axios.CancelToken.source();
+        
+        const task = uploadTaskList.value.find(t => t.id === taskId);
+        if (task) {
+          task.cancelTokenSource = cancelTokenSource;
+        }
+
+        try {
+          await axios.put(u.upload_url, entry.file, {
+            headers: {
+              'Content-Type': entry.file.type || 'application/octet-stream'
+            },
+            onUploadProgress: progressEvent => {
+              if (progressEvent.total) {
+                const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                updateUploadTaskProgress(taskId, percent);
+              }
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+            cancelToken: cancelTokenSource.token
+          });
+
+          // 上传成功
+          updateUploadTaskStatus(taskId, 'success');
+
+          // 回填路径信息
+          const stack: Array<{ obj: Record<string, any>; keyPath: string[] }> = [{ obj: dynamicForm, keyPath: [] }];
+          while (stack.length) {
+            const { obj, keyPath } = stack.pop()!;
+            Object.entries(obj).forEach(([k, v]) => {
+              const nextPath = [...keyPath, k];
+              if (k === u.field_name && v && typeof v === 'object') {
+                (v as any).path = u.s3_key;
+              }
+              if (v && typeof v === 'object' && !Array.isArray(v)) {
+                stack.push({ obj: v as Record<string, any>, keyPath: nextPath });
+              }
+            });
+          }
+
+          // 处理文件信息
+          try {
+            const sha256 = await hashFile(entry.file);
+            uploadedFiles.push({
+              field_name: u.field_name,
+              origin_filename: entry.file.name,
+              s3_key: u.s3_key,
+              file_type: entry.file.type || 'application/octet-stream',
+              file_size: entry.file.size,
+              file_hash: sha256
+            });
+          } catch {
+            uploadedFiles.push({
+              field_name: u.field_name,
+              origin_filename: entry.file.name,
+              s3_key: u.s3_key,
+              file_type: entry.file.type || 'application/octet-stream',
+              file_size: entry.file.size,
+              file_hash: 'error'
+            });
+          }
+        } catch (err: any) {
+          if (axios.isCancel(err)) {
+            updateUploadTaskStatus(taskId, 'error', '已取消');
+          } else {
+            updateUploadTaskStatus(taskId, 'error', err?.message || '上传失败');
+          }
+          throw err;
+        }
       })
     );
-    // 上传成功后，显示成功状态，等待用户主动关闭
-    showUploadProgressDialog({
-      percent: 100,
-      fileName: '',
-      error: '',
-      cancelTokenSource: null
-    });
-    // 不自动关闭弹窗
-    uploadCancelTokenSource = null;
   } catch (err: any) {
-    if (axios.isCancel(err)) {
-      showUploadProgressDialog({
-        percent: uploadProgressPercent.value,
-        fileName: '',
-        error: '上传已取消',
-        cancelTokenSource: null
-      });
-    } else {
-      showUploadProgressDialog({
-        percent: uploadProgressPercent.value,
-        fileName: '',
-        error: err?.message || '上传失败',
-        cancelTokenSource: null
-      });
-    }
-    // 不自动关闭弹窗
-    uploadCancelTokenSource = null;
-    throw err;
+    console.error('上传过程中出错:', err);
   }
 
-  // 回填路径信息
-  currentUploadUrls.forEach((u: any) => {
-    const stack: Array<{ obj: Record<string, any>; keyPath: string[] }> = [{ obj: dynamicForm, keyPath: [] }];
-    while (stack.length) {
-      const { obj, keyPath } = stack.pop()!;
-      Object.entries(obj).forEach(([k, v]) => {
-        const nextPath = [...keyPath, k];
-        if (k === u.field_name && v && typeof v === 'object') {
-          (v as any).path = u.s3_key;
-        }
-        if (v && typeof v === 'object' && !Array.isArray(v)) {
-          stack.push({ obj: v as Record<string, any>, keyPath: nextPath });
-        }
-      });
-    }
-  });
-
-  // 处理文件上传信息（如hash等）
-  const uploadedFiles: any[] = [];
-  const uploadPromises = currentUploadUrls.map(async (u: any) => {
-    let foundFile: File | null = null;
-    const stack: Array<Record<string, any>> = [dynamicForm];
-
-    while (stack.length && !foundFile) {
-      const node = stack.pop()!;
-      for (const [k, v] of Object.entries(node)) {
-        if (k === u.field_name && v && typeof v === 'object' && (v as any).file) {
-          foundFile = (v as any).file as File;
-          break;
-        } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-          stack.push(v as Record<string, any>);
-        }
-      }
-    }
-
-    if (!foundFile) return null;
-
-    try {
-      const sha256 = await hashFile(foundFile);
-      return {
-        field_name: u.field_name,
-        origin_filename: foundFile.name,
-        s3_key: u.s3_key,
-        file_type: foundFile.type || 'application/octet-stream',
-        file_size: foundFile.size,
-        file_hash: sha256
-      };
-    } catch {
-      console.log('计算文件哈希失败');
-      return {
-        field_name: u.field_name,
-        origin_filename: foundFile.name,
-        s3_key: u.s3_key,
-        file_type: foundFile.type || 'application/octet-stream',
-        file_size: foundFile.size,
-        file_hash: 'error'
-      };
-    }
-  });
-
-  const results = await Promise.all(uploadPromises);
-  uploadedFiles.push(...results.filter(Boolean));
   return uploadedFiles;
-}
-
-// 主动取消上传
-function handleCancelUpload() {
-  if (uploadCancelTokenSource) {
-    uploadCancelTokenSource.cancel('用户取消上传');
-  }
-  // 只重置cancelToken，不关闭弹窗，让用户主动点关闭
-  uploadCancelTokenSource = null;
-}
-
-function handleCloseProgressDialog() {
-  progressDialogVisible.value = false;
-  uploadProgressPercent.value = 0;
-  uploadingFileName.value = '';
-  uploadError.value = '';
-  uploadCancelTokenSource = null;
 }
 
 // 构建描述JSON
@@ -1108,6 +1085,7 @@ async function handleSubmit() {
     // 文件上传成功，提示并重置表单
     ElMessage.success('文件上传成功');
     resetForm();
+    fetchFileList(); // 刷新文件列表
   } catch (e: any) {
     ElMessage.error(`上传失败: ${e.message || '未知错误'}`);
   } finally {
@@ -2075,40 +2053,55 @@ onMounted(() => {
       </ElCard>
     </div>
 
-    <!-- 上传进度对话框 -->
-    <ElDialog
-      v-model="progressDialogVisible"
-      title="文件上传中"
-      width="400px"
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      :show-close="false"
-      align-center
-    >
-      <div style="margin-bottom: 12px">
-        <span>正在上传：</span>
-        <b>{{ uploadingFileName }}</b>
+    <!-- 上传任务面板 -->
+    <div class="upload-task-panel">
+      <div class="task-panel-header" @click="uploadTaskPanelCollapsed = !uploadTaskPanelCollapsed">
+        <div class="task-panel-title">
+          <ElIcon class="task-icon"><Upload /></ElIcon>
+          <span>正在上传任务数 ({{ uploadTaskList.length }})</span>
+        </div>
+        <ElIcon class="collapse-icon" :style="{ transform: uploadTaskPanelCollapsed ? 'rotate(180deg)' : 'rotate(0deg)' }">
+          <CaretTop />
+        </ElIcon>
       </div>
-      <ElProgress
-        :percentage="uploadProgressPercent"
-        :status="uploadError ? 'exception' : uploadProgressPercent === 100 ? 'success' : ''"
-      />
-      <div v-if="uploadError" style="margin-top: 10px; color: #f56c6c">
-        {{ uploadError }}
+      
+      <div v-show="!uploadTaskPanelCollapsed" class="task-panel-content">
+        <div v-for="task in uploadTaskList" :key="task.id" class="task-item">
+          <div class="task-info">
+            <span class="task-name">{{ task.fileName }}</span>
+            <span class="task-status" :class="task.status">
+              {{ task.status === 'uploading' ? '上传中' : task.status === 'success' ? '成功' : '失败' }}
+            </span>
+          </div>
+          <ElProgress 
+            :percentage="task.progress" 
+            :status="task.status === 'error' ? 'exception' : task.status === 'success' ? 'success' : ''"
+            :show-text="false"
+            class="task-progress"
+          />
+          <div v-if="task.error" class="task-error">{{ task.error }}</div>
+          <div class="task-actions">
+            <ElButton 
+              v-if="task.status === 'uploading'" 
+              size="small" 
+              type="danger" 
+              text
+              @click="cancelUploadTask(task.id)"
+            >
+              取消
+            </ElButton>
+            <ElButton 
+              size="small" 
+              type="primary" 
+              text
+              @click="removeUploadTask(task.id)"
+            >
+              移除
+            </ElButton>
+          </div>
+        </div>
       </div>
-      <div v-else-if="uploadProgressPercent < 100" style="margin-top: 10px; color: #888">
-        请勿关闭页面，正在上传文件...
-      </div>
-      <div v-else style="margin-top: 10px; color: #67c23a">上传成功，请点击关闭</div>
-      <template #footer>
-        <ElButton v-if="!uploadError && uploadProgressPercent < 100" type="danger" @click="handleCancelUpload">
-          取消上传
-        </ElButton>
-        <ElButton v-if="uploadError || uploadProgressPercent === 100" type="primary" @click="handleCloseProgressDialog">
-          关闭
-        </ElButton>
-      </template>
-    </ElDialog>
+    </div>
 
     <!-- 文件详情弹窗 -->
     <ElDialog
@@ -2232,6 +2225,7 @@ onMounted(() => {
 .stats-line .stats-gap {
   margin-left: clamp(12px, 2.2vw, 24px);
 }
+
 .main-card {
   flex: 1 1 380px;
   min-width: 320px;
@@ -2242,11 +2236,10 @@ onMounted(() => {
   flex-direction: column;
   justify-content: stretch;
   box-sizing: border-box;
-  flex: 0 1 40%;
+  flex: 0 1 45%;
 }
 
 .history-list-area {
-  flex: 1 1 380px;
   min-width: 320px;
   max-width: 100%;
   display: flex;
@@ -2254,7 +2247,7 @@ onMounted(() => {
   height: 100%;
   margin-left: 0;
   box-sizing: border-box;
-  flex: 0 1 59%;
+  flex: 0 1 54%;
 }
 
 .history-card {
@@ -2616,6 +2609,160 @@ onMounted(() => {
 
   .lineage-graph {
     min-height: 300px;
+  }
+}
+
+/* 上传任务面板样式 */
+.upload-task-panel {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 400px;
+  max-height: 500px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #ebeef5;
+  cursor: pointer;
+  user-select: none;
+  background: #f5f7fa;
+}
+
+.task-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.task-icon {
+  font-size: 16px;
+  color: #409eff;
+}
+
+.collapse-icon {
+  font-size: 14px;
+  transition: transform 0.3s;
+}
+
+.task-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 450px;
+}
+
+.task-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid #ebeef5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item:last-child {
+  border-bottom: none;
+}
+
+.task-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-name {
+  flex: 1;
+  font-size: 13px;
+  color: #606266;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.task-status.uploading {
+  background: #e6f7ff;
+  color: #0050b3;
+}
+
+.task-status.success {
+  background: #f6ffed;
+  color: #274e0f;
+}
+
+.task-status.error {
+  background: #fff1f0;
+  color: #820014;
+}
+
+.task-progress {
+  width: 100%;
+}
+
+.task-error {
+  font-size: 12px;
+  color: #f56c6c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .upload-task-panel {
+    width: 320px;
+    bottom: 10px;
+    right: 10px;
+  }
+
+  .task-panel-content {
+    max-height: 350px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .upload-task-panel {
+    background: var(--el-bg-color-overlay, #232324);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  }
+
+  .task-panel-header {
+    border-bottom-color: var(--el-border-color);
+    background: var(--el-bg-color);
+  }
+
+  .task-panel-title {
+    color: var(--el-text-color-primary);
+  }
+
+  .task-item {
+    border-bottom-color: var(--el-border-color);
+  }
+
+  .task-name {
+    color: var(--el-text-color-regular);
   }
 }
 </style>
