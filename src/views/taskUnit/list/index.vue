@@ -10,6 +10,7 @@ import {
   fetchTaskUnitList
 } from '@/service/api/task_unit';
 import type { TaskUnitDetail, TaskUnitListItem, TaskUnitListParams } from '@/service/api/task_unit';
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
 
 // --- 状态定义 ---
 
@@ -194,7 +195,14 @@ function onDialogClosed() {
 }
 
 // 挂载时加载列表
-onMounted(() => {
+onMounted(async () => {
+  // 检查任务单元管理权限
+  const { checkPermissionAndNotify } = usePermissionGuard();
+  const hasPermission = await checkPermissionAndNotify('task_unit');
+  if (!hasPermission) {
+    return;
+  }
+
   fetchTaskUnits();
 });
 </script>

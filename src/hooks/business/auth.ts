@@ -3,16 +3,23 @@ import { useAuthStore } from '@/store/modules/auth';
 export function useAuth() {
   const authStore = useAuthStore();
 
-  function hasAuth(codes: string | string[]) {
+  function hasAuth(permissionTypes: string | string[]) {
     if (!authStore.isLogin) {
       return false;
     }
 
-    if (typeof codes === 'string') {
-      return authStore.userInfo.buttons.includes(codes);
+    const permissions = authStore.userInfo.permissions;
+
+    // admin has all permissions
+    if (permissions.includes('admin')) {
+      return true;
     }
 
-    return codes.some(code => authStore.userInfo.buttons.includes(code));
+    if (typeof permissionTypes === 'string') {
+      return permissions.includes(permissionTypes);
+    }
+
+    return permissionTypes.some(type => permissions.includes(type));
   }
 
   return {

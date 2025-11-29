@@ -10,6 +10,7 @@ import {
   fetchTaskChainList // [导入] 引入检测接口
 } from '@/service/api/task_chain';
 import type { TaskChainDetail, TaskChainListItem, TaskChainListParams } from '@/service/api/task_chain';
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
 
 const router = useRouter();
 
@@ -193,7 +194,14 @@ function onDialogClosed() {
   isLoadingDetail.value = false;
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 检查任务链管理权限
+  const { checkPermissionAndNotify } = usePermissionGuard();
+  const hasPermission = await checkPermissionAndNotify('task_chain');
+  if (!hasPermission) {
+    return;
+  }
+
   fetchTaskChains();
 });
 </script>

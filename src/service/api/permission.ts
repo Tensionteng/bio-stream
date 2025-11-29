@@ -22,19 +22,6 @@ export function fetchMyPermissions() {
 }
 
 /**
- * 检查是否有指定权限
- *
- * @param permissionType 权限类型
- */
-export function fetchCheckPermission(permissionType: Api.Permission.PermissionType) {
-  return request<{ hasPermission: boolean; message?: string }>({
-    url: '/permission/check',
-    method: 'get',
-    params: { permissionType }
-  });
-}
-
-/**
  * 获取权限申请列表（管理员） GET /permission/request/list?page=1&page_size=10&request_type=PENDING&user=xxx
  *
  * @param params 筛选参数
@@ -92,23 +79,6 @@ export function fetchRevokePermission(permissionId: number) {
   return request<boolean>({
     url: `/permission/revoke/${permissionId}`,
     method: 'delete'
-  });
-}
-
-/** 获取用户当前激活的权限 GET /permission/active 返回: 权限详情数组（包含过期时间等信息） */
-export function fetchUserActivePermissions() {
-  return request<
-    Array<{
-      permission_id: number;
-      type: Api.Permission.PermissionType;
-      status: string;
-      days: number;
-      create_time: string;
-      expire_time: string;
-    }>
-  >({
-    url: '/permission/active',
-    method: 'get'
   });
 }
 

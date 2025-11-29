@@ -13,6 +13,7 @@ import {
   ElTableColumn
 } from 'element-plus';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
 // 响应式数据
 const loading = ref(false);
 const visualizationLoading = ref(false);
@@ -205,7 +206,14 @@ const openPdfInNewWindow = (url: string) => {
 };
 
 // 页面初始化
-onMounted(() => {
+onMounted(async () => {
+  // 检查任务管理权限（可视化页面需要 task 权限）
+  const { checkPermissionAndNotify } = usePermissionGuard();
+  const hasPermission = await checkPermissionAndNotify('task');
+  if (!hasPermission) {
+    return;
+  }
+
   fetchTasks();
 });
 </script>

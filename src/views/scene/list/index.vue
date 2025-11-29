@@ -23,6 +23,7 @@ import {
   fetchTotalFileSize
 } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
 // =======================
@@ -400,7 +401,14 @@ watch(visualizationResult, () => {
   }
 });
 
-onMounted(() => {
+onMounted(async () => {
+  // 检查场景管理权限
+  const { checkPermissionAndNotify } = usePermissionGuard();
+  const hasPermission = await checkPermissionAndNotify('scene');
+  if (!hasPermission) {
+    return;
+  }
+
   getTasks();
   getTaskSize(); // 获取总大小
 });

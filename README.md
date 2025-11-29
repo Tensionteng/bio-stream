@@ -363,7 +363,7 @@ const permissionStore = usePermissionStore();
 await permissionStore.addUserPermission('username', [
   {
     type: 'file',
-    days: -1  // -1表示永久
+    days: 0  // -1表示永久
   },
   {
     type: 'task',
@@ -399,17 +399,23 @@ await permissionStore.exportPermissions();
 
 ### 最佳实践
 
-1. **管理员权限**：
-   - 拥有 `admin` 权限的用户自动拥有所有权限，路由守卫会自动放行
-   - 管理员访问任何需要权限的页面都无需申请
+1. **权限检查机制**：
+   - 权限数据从登录接口 `/auth/user` 获取并存储在 store 中
+   - `hasPermission()` 函数直接从 store 读取权限，无需额外 API 调用
+   - 管理员拥有 `admin` 权限时，自动获得所有权限
+   - 权限变更后（审批/撤销/添加），会自动刷新用户信息
+
+2. **管理员权限**：
+   - 拥有 `admin` 权限的用户自动拥有所有权限，路由守卫会直接放行
+   - 访问任何需要权限的页面都无需申请
    - 访问 `/permission/apply`（申请权限页面）时会自动重定向到 `/permission/my`
    - "我的权限"页面会显示"您已是管理员，拥有所有权限"
-   - 申请权限入口会自动隐藏（按钮和菜单）
+   - 申请权限入口会自动隐藏（按钮和菜单不在界面显示）
 
-2. **前端导出**：权限导出功能在前端实现，使用 `xlsx` 库，无需后端支持
-3. **天数表示**：`-1` 或 `0` 表示永久权限，显示时为"永久"
-4. **字段映射**：后端使用 `days` 字段表示天数，前端统一使用 `days`（不是 `duration`）
-5. **理由长度**：申请理由最大500字，无最小字数限制
+3. **前端导出**：权限导出功能在前端实现，使用 `xlsx` 库，无需后端支持
+4. **天数表示**：`-1` 或 `0` 表示永久权限，显示时为"永久"
+5. **字段映射**：后端使用 `days` 字段表示天数，前端统一使用 `days`（不是 `duration`）
+6. **理由长度**：申请理由最大500字，无最小字数限制
 
 ### 权限数据流
 
@@ -427,4 +433,16 @@ await permissionStore.exportPermissions();
 - **权限API**：`src/service/api/permission.ts`
 - **权限类型**：`src/typings/api.d.ts` (namespace Api.Permission)
 - **权限页面**：`src/views/permission/apply/`, `src/views/permission/my/`, `src/views/permission/manage/`
+
+### 子路由权限控制
+
+所有子路由都会继承父级路由的权限控制，包括：
+- `task/list`, `task/create` - 需要 `task` 权限
+- `taskChain/list`, `taskChain/create` - 需要 `task_chain` 权限
+- `taskUnit/list`, `taskUnit/create` - 需要 `task_unit` 权限
+- `scene/list` - 需要 `scene` 权限
+- `file/index` - 需要 `file` 权限
+- `visualization/index` - 需要 `task` 权限（任务可视化）
+
+路由守卫会自动拦截所有无权限访问，管理员无需额外配置即可访问所有子路由。
 

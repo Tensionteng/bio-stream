@@ -4,12 +4,10 @@ import { useLoading } from '@sa/hooks';
 import {
   fetchAddUserPermission,
   fetchApplyPermission,
-  fetchCheckPermission,
   fetchPermissionRequestList,
   fetchReviewPermissionRequest,
   fetchRevokePermission,
   fetchUpdatePermission,
-  fetchUserActivePermissions,
   fetchUserPermissionHistory
 } from '@/service/api';
 import { SetupStoreId } from '@/enum';
@@ -24,12 +22,6 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     startLoading: startPermissionLoading,
     endLoading: endPermissionLoading
   } = useLoading();
-
-  /** 我的权限列表（旧） */
-  const myPermissions = ref<Api.Permission.UserPermission[]>([]);
-
-  /** 用户当前激活的权限 */
-  const userActivePermissions = ref<Api.Permission.UserPermission[]>([]);
 
   /** 用户权限申请历史 */
   const userPermissionHistory = ref<
@@ -88,63 +80,24 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     size: 10
   });
 
-  /** 获取我的权限 */
-  async function getMyPermissions() {
-    startPermissionLoading();
-    try {
-      // 检查是否已经有权限数据（从登录接口获取的）
-      if (myPermissions.value.length > 0) {
-        return true;
-      }
+  /** 判断用户是否有指定权限 - 直接从 auth store 读取权限数据 */
+  function hasPermission(permissionType: Api.Permission.PermissionType): boolean {
+    const authStore = useAuthStore();
+    const permissions = authStore.userInfo.permissions;
 
-      // 实际API调用（暂时注释掉）
-      // const { data, error } = await fetchMyPermissions();
-      // if (!error) {
-      //   myPermissions.value = data || [];
-      // }
-      // return !error;
-
-      // 如果没有数据，暂时返回 true（避免阻塞）
-      return true;
-    } finally {
-      endPermissionLoading();
-    }
-  }
-
-  /**
-   * 检查权限
-   *
-   * @param permissionType 权限类型
-   */
-  async function checkPermission(permissionType: Api.Permission.PermissionType) {
-    try {
-      const { data, error } = await fetchCheckPermission(permissionType);
-      if (!error && data) {
-        return data.hasPermission;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * 判断是否有指定权限
-   *
-   * @param permissionType 权限类型
-   */
-  function hasPermission(permissionType: Api.Permission.PermissionType) {
-    // 先检查是否有admin权限，admin拥有所有权限
-    const hasAdminPermission = myPermissions.value.some(
-      perm => perm.permissionType === 'admin' && perm.status !== 'EXPIRED'
-    );
-
-    if (hasAdminPermission) {
+    // admin 拥有所有权限
+    if (permissions.includes('admin')) {
       return true;
     }
 
-    // 检查是否有指定权限
-    return myPermissions.value.some(perm => perm.permissionType === permissionType && perm.status !== 'EXPIRED');
+    return permissions.includes(permissionType);
+  }
+
+  /** 在权限被管理员更新后，刷新用户权限信息 - 调用 auth store 的 initUserInfo */
+  async function refreshUserPermissions() {
+    const authModule = await import('@/store/modules/auth');
+    const authStore = authModule.useAuthStore();
+    await authStore.initUserInfo(); // 刷新用户信息，包含最新权限
   }
 
   /** 获取权限申请列表（管理员） */
@@ -268,11 +221,7 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     }
   }
 
-  /**
-   * 申请权限
-   *
-   * @param params 权限申请参数
-   */
+  /** 申请权限 */
   async function applyPermission(params: Api.Permission.PermissionApplyParams) {
     startApplyLoading();
     try {
@@ -283,11 +232,7 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     }
   }
 
-  /**
-   * 审批权限申请
-   *
-   * @param params 审批参数
-   */
+  /** 审批权限申请 */
   async function reviewPermissionRequest(params: Api.Permission.PermissionReviewParams) {
     startReviewLoading();
     try {
@@ -296,6 +241,8 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
         window.$message?.success(
           params.approve ? $t('page.permission.approveSuccess') : $t('page.permission.rejectSuccess')
         );
+        // 权限审批后刷新用户信息
+        await refreshUserPermissions();
       }
       return !error;
     } finally {
@@ -303,15 +250,13 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     }
   }
 
-  /**
-   * 撤销权限
-   *
-   * @param permissionId 权限ID
-   */
+  /** 撤销权限 */
   async function revokePermission(permissionId: number) {
     const { error } = await fetchRevokePermission(permissionId);
     if (!error) {
       window.$message?.success($t('page.permission.revokeSuccess'));
+      // 撤销权限后刷新用户信息
+      await refreshUserPermissions();
     }
     return !error;
   }
@@ -386,85 +331,7 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     Object.assign(permissionSearchParams.value, params);
   }
 
-  /**
-   * 从登录返回的权限数据设置我的权限
-   *
-   * @param permissions 权限列表（字符串数组）
-   */
-  function setPermissionsFromLogin(permissions: string[]) {
-    // 如果为 null 或 undefined 直接返回
-    if (!permissions) {
-      return;
-    }
-
-    // 获取当前用户信息
-    const authStore = useAuthStore();
-    const currentUserId = authStore.userInfo.userId;
-    const currentUserName = authStore.userInfo.userName;
-
-    // 将字符串数组转换为UserPermission数组（空数组时直接设置为空）
-    const currentTime = new Date().toISOString();
-    const permissionData: Api.Permission.UserPermission[] = permissions.map((perm, index) => ({
-      id: index + 1,
-      userId: currentUserId,
-      userName: currentUserName,
-      permissionType: perm as Api.Permission.PermissionType,
-      days: 99999, // 永久权限
-      grantedTime: currentTime,
-      expireTime: '9999-12-31 23:59:59',
-      status: 'ACTIVE',
-      createBy: 'system',
-      createTime: currentTime,
-      updateBy: 'system',
-      updateTime: currentTime
-    }));
-
-    myPermissions.value = permissionData;
-  }
-
-  /** 获取用户当前激活的权限 */
-  async function getUserActivePermissions() {
-    startPermissionLoading();
-    try {
-      const { data, error } = await fetchUserActivePermissions();
-      if (!error && data) {
-        // 转换API响应格式
-        userActivePermissions.value = data.map(
-          (item: {
-            permission_id: number;
-            type: Api.Permission.PermissionType;
-            status: string;
-            days: number;
-            create_time: string;
-            expire_time: string;
-          }) => ({
-            id: item.permission_id,
-            userId: '',
-            userName: '',
-            permissionType: item.type,
-            days: item.days,
-            createTime: item.create_time,
-            expireTime: item.expire_time,
-            grantedTime: item.create_time,
-            status: item.status as Api.Permission.PermissionStatus,
-            createBy: '',
-            updateBy: '',
-            updateTime: item.create_time
-          })
-        );
-      }
-      return !error;
-    } finally {
-      endPermissionLoading();
-    }
-  }
-
-  /**
-   * 获取用户权限申请历史
-   *
-   * @param page 页码
-   * @param pageSize 每页大小
-   */
+  /** 获取用户权限申请历史 */
   async function getUserPermissionHistory(page = 1, pageSize = 10) {
     startPermissionLoading();
     try {
@@ -485,13 +352,7 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     }
   }
 
-  /**
-   * 审批权限申请（使用新的update API）
-   *
-   * @param requestId 申请ID
-   * @param approve 是否通过
-   * @param comment 审批意见
-   */
+  /** 审批权限申请（使用新的update API） */
   async function reviewPermission(requestId: number, approve: boolean, comment?: string) {
     startReviewLoading();
     try {
@@ -510,12 +371,7 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     }
   }
 
-  /**
-   * 添加用户权限（管理员直接添加）
-   *
-   * @param user 用户名
-   * @param permissions 权限列表
-   */
+  /** 添加用户权限（管理员直接添加） */
   async function addUserPermission(
     user: string,
     permissions: Array<{ type: Api.Permission.PermissionType; days: number }>
@@ -529,6 +385,13 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
 
       if (!error && data) {
         window.$message?.success($t('page.permission.addSuccess'));
+        // 如果添加的是当前用户的权限，刷新用户信息和权限列表
+        const authStore = useAuthStore();
+        if (user === authStore.userInfo.userName) {
+          await refreshUserPermissions();
+        }
+        // 刷新权限列表视图
+        await getAllUserPermissions();
       }
       return !error;
     } catch {
@@ -539,8 +402,6 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
   }
 
   return {
-    myPermissions,
-    userActivePermissions,
     userPermissionHistory,
     historyPagination,
     permissionRequests,
@@ -552,8 +413,6 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     applyLoading,
     reviewLoading,
     permissionLoading,
-    getMyPermissions,
-    checkPermission,
     hasPermission,
     getPermissionRequests,
     getAllUserPermissions,
@@ -563,8 +422,6 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
     exportPermissions,
     updateRequestSearchParams,
     updatePermissionSearchParams,
-    setPermissionsFromLogin,
-    getUserActivePermissions,
     getUserPermissionHistory,
     reviewPermission,
     addUserPermission

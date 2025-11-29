@@ -4,7 +4,7 @@ import { useSvgIcon } from '@/hooks/common/icon';
 import { $t } from '@/locales';
 
 /**
- * Filter auth routes by roles
+ * Filter auth routes by roles (deprecated - use filterAuthRoutesByPermissions instead)
  *
  * @param routes Auth routes
  * @param roles Roles
@@ -14,7 +14,7 @@ export function filterAuthRoutesByRoles(routes: ElegantConstRoute[], roles: stri
 }
 
 /**
- * Filter auth route by roles
+ * Filter auth route by roles (deprecated - use filterAuthRouteByPermission instead)
  *
  * @param route Auth route
  * @param roles Roles
@@ -40,6 +40,49 @@ function filterAuthRouteByRoles(route: ElegantConstRoute, roles: string[]): Eleg
   }
 
   return hasPermission || isEmptyRoles ? [filterRoute] : [];
+}
+
+/**
+ * Filter auth routes by permissions
+ *
+ * @param routes Auth routes
+ * @param permissions User permissions
+ */
+export function filterAuthRoutesByPermissions(routes: ElegantConstRoute[], permissions: string[]) {
+  return routes.flatMap(route => filterAuthRouteByPermission(route, permissions));
+}
+
+/**
+ * Filter auth route by permission
+ *
+ * @param route Auth route
+ * @param permissions User permissions
+ */
+function filterAuthRouteByPermission(route: ElegantConstRoute, permissions: string[]): ElegantConstRoute[] {
+  const routePermission: string | undefined | null =
+    route.meta && route.meta.requiredPermission ? String(route.meta.requiredPermission) : null;
+
+  // if the route's "requiredPermission" is empty, then it is allowed to access
+  const isEmptyPermission = !routePermission;
+
+  // admin has all permissions
+  const isAdmin = permissions.includes('admin');
+
+  // if the user has the route's required permission, then it is allowed to access
+  const hasPermission = isAdmin || (routePermission ? permissions.includes(routePermission) : false);
+
+  const filterRoute = { ...route };
+
+  if (filterRoute.children?.length) {
+    filterRoute.children = filterRoute.children.flatMap(item => filterAuthRouteByPermission(item, permissions));
+  }
+
+  // Exclude the route if it has no children after filtering
+  if (filterRoute.children?.length === 0) {
+    return [];
+  }
+
+  return hasPermission || isEmptyPermission ? [filterRoute] : [];
 }
 
 /**

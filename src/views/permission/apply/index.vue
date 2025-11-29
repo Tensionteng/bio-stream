@@ -72,8 +72,6 @@ const rules = {
 };
 
 onMounted(() => {
-  permissionStore.getMyPermissions();
-
   // 检查是否是管理员，如果是则跳转到我的权限页面
   if (hasAdminPermission.value) {
     window.$message?.warning('您已是管理员，无需申请权限');
