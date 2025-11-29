@@ -30,12 +30,15 @@ const lastUploadTime = ref('');
 const searchKeyword = ref('');
 const filteredSchemas = ref<any[]>([]);
 
-// 历史上传记录（示例数据，可替换为实际接口数据）
+// 文件列表
 const fileList = ref<any[]>([]);
 const fileListLoading = ref(false);
 const fileListPage = ref(1);
 const fileListPageSize = ref(20); // 每页展示20个数据
 const fileListTotal = ref(0);
+const fileListFileId = ref(0);
+const fileListFileName = ref('');
+const fileListFileType = ref('');
 
 // 进度条相关
 const progressDialogVisible = ref(false);
@@ -1113,14 +1116,18 @@ async function handleSubmit() {
 }
 
 // 获取分页文件列表
-async function fetchFileList(page?: number, pageSize?: number) {
+async function fetchFileList(page?: number, pageSize?: number,
+  id?: number, name?: string, type?: string) {
   // 如果没有传递参数，使用当前状态中的值
   const currentPage = page ?? fileListPage.value;
   const currentPageSize = pageSize ?? fileListPageSize.value;
+  const currentId = id ?? fileListFileId.value;
+  const currentName = name ?? fileListFileName.value;
+  const currentType = type ?? fileListFileType.value;
 
   fileListLoading.value = true;
   try {
-    const res = await fetchFileListInfo(currentPage, currentPageSize);
+    const res = await fetchFileListInfo(currentPage, currentPageSize, currentId, currentName, currentType);
 
     if (Array.isArray(res.data?.results) && res.data?.results.length > 0) {
       fileList.value = res.data.results;
@@ -1204,6 +1211,19 @@ function getFileAcceptTypes(fileType: string): string {
 // 处理搜索
 function handleSearch() {
   // 重置到第一页
+  fileListPage.value = 1;
+  // 更新筛选条件变量
+  fileListFileName.value = fileListFileName.value;
+  fileListFileId.value = fileListFileId.value ? Number(fileListFileId.value) : 0;
+  fileListFileType.value = fileListFileType.value;
+  fetchFileList();
+}
+
+// 重置筛选条件
+function handleResetFilters() {
+  fileListFileId.value = 0;
+  fileListFileName.value = '';
+  fileListFileType.value = '';
   fileListPage.value = 1;
   fetchFileList();
 }
@@ -1302,7 +1322,23 @@ function transformLineageData(data: any[]) {
 
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
+  const fileTypeColorMap = new Map<string, string>();
+  const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];
+  let colorIndex = 0;
 
+  // 第一遍：收集所有文件类型
+  data.forEach((genealogy) => {
+    if (genealogy.file1 && !fileTypeColorMap.has(genealogy.file1.file_type)) {
+      fileTypeColorMap.set(genealogy.file1.file_type, colors[colorIndex % colors.length]);
+      colorIndex++;
+    }
+    if (genealogy.file2 && !fileTypeColorMap.has(genealogy.file2.file_type)) {
+      fileTypeColorMap.set(genealogy.file2.file_type, colors[colorIndex % colors.length]);
+      colorIndex++;
+    }
+  });
+
+  // 第二遍：创建节点和连接
   data.forEach((genealogy, index) => {
     console.log(`Processing genealogy ${index}:`, genealogy);
 
@@ -1311,6 +1347,9 @@ function transformLineageData(data: any[]) {
       return;
     }
 
+    const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0];
+    const color2 = fileTypeColorMap.get(genealogy.file2.file_type) || colors[1];
+
     // 添加file1节点
     if (!nodeMap.has(genealogy.file1.file_id)) {
       nodeMap.set(genealogy.file1.file_id, {
@@ -1318,20 +1357,32 @@ function transformLineageData(data: any[]) {
         name: genealogy.file1.file_name,
         value: genealogy.file1,
         category: 0,
-        symbolSize: 45,
+        symbolSize: 50,
         label: {
           show: true,
-          position: 'right',
-          formatter: genealogy.file1.file_name,
+          position: 'bottom',
+          formatter: (params: any) => {
+            const name = genealogy.file1.file_name;
+            return name.length > 30 ? `${name.substring(0, 30)}...` : name;
+          },
           fontSize: 12,
           color: '#333',
           fontWeight: 'bold',
-          distance: 8
+          distance: 8,
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          borderRadius: 3,
+          padding: [3, 6]
         },
         itemStyle: {
-          color: '#5470c6',
+          color: color1,
           borderColor: '#fff',
-          borderWidth: 2
+          borderWidth: 3,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.2)',
+          shadowOffsetY: 2
+        },
+        tooltip: {
+          show: true
         }
       });
     }
@@ -1343,51 +1394,75 @@ function transformLineageData(data: any[]) {
         name: genealogy.file2.file_name,
         value: genealogy.file2,
         category: 0,
-        symbolSize: 45,
+        symbolSize: 50,
         label: {
           show: true,
-          position: 'right',
-          formatter: genealogy.file2.file_name,
+          position: 'bottom',
+          formatter: (params: any) => {
+            const name = genealogy.file2.file_name;
+            return name.length > 30 ? `${name.substring(0, 30)}...` : name;
+          },
           fontSize: 12,
           color: '#333',
           fontWeight: 'bold',
-          distance: 8
+          distance: 8,
+          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          borderRadius: 3,
+          padding: [3, 6]
         },
         itemStyle: {
-          color: '#91cc75',
+          color: color2,
           borderColor: '#fff',
-          borderWidth: 2
+          borderWidth: 3,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.2)',
+          shadowOffsetY: 2
+        },
+        tooltip: {
+          show: true
         }
       });
     }
 
-    // 添加连接线
+    // 添加连接线（带箭头，从file1指向file2）
+    const taskCount = genealogy.task?.task_units?.length || 0;
     links.push({
       source: genealogy.file1.file_id,
       target: genealogy.file2.file_id,
       value: genealogy.task,
       label: {
-        show: false,
+        show: true,
         position: 'middle',
-        fontSize: 10,
-        color: '#666'
+        fontSize: 11,
+        color: '#333',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderColor: '#ccc',
+        borderWidth: 1,
+        borderRadius: 2,
+        padding: [4, 6],
+        fontWeight: 'bold'
       },
       lineStyle: {
-        width: 5,
-        color: '#5470c6',
-        opacity: 0.6,
+        width: 3,
+        color: '#999',
+        curveness: 0.2,
+        opacity: 0.7,
         type: 'solid'
-      }
+      },
+      symbolSize: [8, 15],
+      symbol: ['none', 'arrow']
     });
   });
 
   console.log('Transformed nodes:', Array.from(nodeMap.values()));
   console.log('Transformed links:', links);
+  console.log('File type color map:', fileTypeColorMap);
 
   return {
     nodes: Array.from(nodeMap.values()),
     links,
-    categories: [{ name: 'file' }]
+    categories: [{ name: 'file' }],
+    fileTypeColorMap
   };
 }
 
@@ -1424,19 +1499,19 @@ function renderLineageGraph(genealogyData: any[]) {
   // 计算合理的布局：按层级展示
   const levels = calculateNodeLevels(graphData);
 
-  // 计算节点位置
+  // 计算节点位置（横向布局：左往右）
   const nodePositions = new Map<string, [number, number]>();
-  const levelHeight = 120;
-  const nodeWidth = 200;
+  const levelWidth = 200;
+  const nodeHeight = 150;
 
   Object.entries(levels).forEach(([level, nodes]: [string, any[]]) => {
     const levelIndex = Number.parseInt(level, 10);
-    const y = levelIndex * levelHeight + 50;
-    const totalWidth = nodes.length * nodeWidth;
-    const startX = 100 - totalWidth / 2;
+    const x = levelIndex * levelWidth + 50;
+    const totalHeight = nodes.length * nodeHeight;
+    const startY = 50 - totalHeight / 2;
 
     nodes.forEach((node: any, index: number) => {
-      const x = startX + index * nodeWidth;
+      const y = startY + index * nodeHeight;
       nodePositions.set(node.id, [x, y]);
     });
   });
@@ -1452,20 +1527,11 @@ function renderLineageGraph(genealogyData: any[]) {
   });
 
   const option = {
-    title: {
-      text: '文件数据世系图',
-      left: 'center',
-      top: 10,
-      textStyle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333'
-      }
-    },
     tooltip: {
       trigger: 'item',
-      backgroundColor: 'rgba(50, 50, 50, 0.9)',
-      borderColor: '#555',
+      backgroundColor: 'rgba(50, 50, 50, 0.95)',
+      borderColor: '#5470c6',
+      borderWidth: 2,
       textStyle: {
         color: '#fff',
         fontSize: 12
@@ -1473,12 +1539,16 @@ function renderLineageGraph(genealogyData: any[]) {
       formatter: (params: any) => {
         if (params.dataType === 'node') {
           const nodeData = params.data.value;
+          const timestamp = new Date(nodeData.created_time).toLocaleString('zh-CN');
           return `
-            <div style="padding: 8px; max-width: 300px;">
-              <b style="font-size: 14px;">📄 文件信息</b><br/>
-              <span style="color: #ccc;">文件名:</span> ${nodeData.file_name}<br/>
-              <span style="color: #ccc;">类型:</span> ${nodeData.file_type}<br/>
-              <span style="color: #ccc;">用户:</span> ${nodeData.user}
+            <div style="padding: 10px; min-width: 280px;">
+              <b style="font-size: 14px; color: #ffd700;">📄 文件信息</b><br/>
+              <div style="margin-top: 6px; color: #e0e0e0;">
+                <span style="color: #87ceeb;">文件名:</span> <b>${nodeData.file_name}</b><br/>
+                <span style="color: #87ceeb;">文件类型:</span> <b style="color: #90ee90;">${nodeData.file_type}</b><br/>
+                <span style="color: #87ceeb;">文件编号:</span> ${nodeData.file_id}<br/>
+                <span style="color: #87ceeb;">上传用户:</span> ${nodeData.user || 'N/A'}
+              </div>
             </div>
           `;
         } else if (params.dataType === 'edge') {
@@ -1486,17 +1556,23 @@ function renderLineageGraph(genealogyData: any[]) {
           if (!taskData || !taskData.task_units) {
             return '<div style="padding: 8px;">任务信息加载中...</div>';
           }
-          const taskUnits = taskData.task_units.map((u: any) => `<li>${u.id}. ${u.task_unit_name}</li>`).join('');
+          const taskCount = taskData.task_units.length;
+          const taskUnits = taskData.task_units
+            .map((u: any) => `<li style="margin: 4px 0;">✓ ${u.task_unit_name}</li>`)
+            .join('');
+          const timestamp = new Date(taskData.time).toLocaleString('zh-CN');
           return `
-            <div style="padding: 8px; max-width: 350px;">
-              <b style="font-size: 14px;">⚙️ 任务信息</b><br/>
-              <span style="color: #ccc;">任务数:</span> ${taskData.task_units.length}<br/>
-              <span style="color: #ccc;">执行用户:</span> ${taskData.user}<br/>
-              <span style="color: #ccc;">时间:</span> ${new Date(taskData.time).toLocaleString('zh-CN')}<br/>
-              <b style="color: #ffd700;">任务单元列表:</b>
-              <ul style="margin: 4px 0; padding-left: 20px;">
-                ${taskUnits}
-              </ul>
+            <div style="padding: 10px; min-width: 300px;">
+              <b style="font-size: 14px; color: #ffd700;">⚙️ 任务信息</b><br/>
+              <div style="margin-top: 6px; color: #e0e0e0;">
+                <span style="color: #87ceeb;">任务数:</span> <b style="color: #90ee90;">${taskCount}</b><br/>
+                <span style="color: #87ceeb;">执行用户:</span> ${taskData.user || 'N/A'}<br/>
+                <span style="color: #87ceeb;">执行时间:</span> ${timestamp}<br/>
+                <b style="color: #90ee90; margin-top: 6px;">📋 任务单元列表:</b>
+                <ul style="margin: 6px 0; padding-left: 20px; list-style: none;">
+                  ${taskUnits}
+                </ul>
+              </div>
             </div>
           `;
         }
@@ -1524,58 +1600,74 @@ function renderLineageGraph(genealogyData: any[]) {
         links: graphData.links,
         categories: graphData.categories,
         roam: 'scale',
-        focusNodeAdjacency: false,
+        focusNodeAdjacency: true,
         draggable: true,
         label: {
           show: true,
-          position: 'bottom',
+          position: 'right',
           fontSize: 12,
           color: '#333',
           fontWeight: 'bold',
-          distance: 5,
+          distance: 12,
           formatter: (params: any) => {
-            const name = params.data.name || params.data.id;
-            // 限制标签长度
-            return name.length > 15 ? `${name.substring(0, 12)}...` : name;
+            return params.data.name || params.data.id;
           }
         },
         edgeLabel: {
-          show: false
+          show: true,
+          position: 'middle',
+          fontSize: 11,
+          color: '#333',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          padding: [4, 6],
+          borderRadius: 2,
+          formatter: (params: any) => {
+            const taskData = params.data.value;
+            if (taskData && taskData.task_units) {
+              return `任务数: ${taskData.task_units.length}`;
+            }
+            return '0';
+          }
         },
         lineStyle: {
-          width: 2,
-          color: '#5470c6',
-          curveness: 0.3,
-          opacity: 0.6
+          width: 3,
+          color: '#999',
+          curveness: 0.2,
+          opacity: 0.7
         },
         itemStyle: {
           color: '#5470c6',
           borderColor: '#fff',
-          borderWidth: 2,
-          shadowBlur: 8,
-          shadowColor: 'rgba(0, 0, 0, 0.3)'
+          borderWidth: 3,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.2)',
+          shadowOffsetY: 2
         },
         emphasis: {
           focus: 'series',
           itemStyle: {
             color: '#f0816d',
             borderColor: '#fff',
-            borderWidth: 3,
-            shadowBlur: 12,
-            shadowColor: 'rgba(0, 0, 0, 0.5)'
+            borderWidth: 4,
+            shadowBlur: 15,
+            shadowColor: 'rgba(240, 129, 109, 0.5)'
           },
           label: {
             fontSize: 13,
             fontWeight: 'bold',
             color: '#000',
-            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
             borderRadius: 3,
-            padding: 3
+            padding: 4,
+            shadowColor: 'rgba(0, 0, 0, 0.2)',
+            shadowBlur: 4
           },
           lineStyle: {
-            width: 3,
+            width: 4,
             color: '#f0816d',
-            opacity: 1
+            opacity: 0.9,
+            shadowColor: 'rgba(0, 0, 0, 0.3)',
+            shadowBlur: 8
           }
         }
       }
@@ -1607,7 +1699,6 @@ function renderLineageGraph(genealogyData: any[]) {
   lineageChart.value.on('mouseover', (params: any) => {
     if (!params.data) return;
 
-    // 只处理节点高亮
     if (params.dataType === 'node') {
       lineageChart.value?.dispatchAction({
         type: 'highlight',
@@ -1628,11 +1719,13 @@ function renderLineageGraph(genealogyData: any[]) {
   lineageChart.value.on('click', (params: any) => {
     if (params.dataType === 'node') {
       const nodeData = params.data.value;
-      ElMessage.info(`${nodeData.file_name} (${nodeData.file_type})`);
+      ElMessage.info(`📄 ${nodeData.file_name} (${nodeData.file_type})`);
     } else if (params.dataType === 'edge') {
       const taskData = params.data.value;
-      const taskNames = taskData.task_units.map((u: any) => u.task_unit_name).join(', ');
-      ElMessage.info(`任务: ${taskNames}`);
+      if (taskData && taskData.task_units) {
+        const taskNames = taskData.task_units.map((u: any) => u.task_unit_name).join(', ');
+        ElMessage.info(`⚙️ 任务数: ${taskData.task_units.length} | 任务: ${taskNames}`);
+      }
     }
   });
 
@@ -1886,21 +1979,63 @@ onMounted(() => {
     <div class="history-list-area">
       <ElCard shadow="hover" class="history-card">
         <div style="font-weight: bold; font-size: large; color: #409eff; margin-bottom: 10px">文件列表</div>
-        <!-- 搜索区域 -->
-        <div class="search-area" style="margin-bottom: 10px">
-          <ElInput
-            v-model="searchKeyword"
-            placeholder="搜索文件名或样本名称"
-            class="search-input"
-            clearable
-            @input="handleSearch"
-            @clear="handleSearch"
-          >
-            <template #prefix>
-              <ElIcon><Search /></ElIcon>
-            </template>
-          </ElInput>
-        </div>
+        <!-- 搜索和筛选区域 -->
+        <div class="filter-area">
+          <div class="filter-row">
+            <ElInput
+              v-model="fileListFileName"
+              placeholder="文件名"
+              clearable
+              style="flex: 1; min-width: 180px; max-width: 300px;"
+            >
+              <template #prefix>
+                <ElIcon><Search /></ElIcon>
+              </template>
+            </ElInput>
+            
+            <ElInput
+              :value="fileListFileId === 0 ? '' : fileListFileId"
+              v-model.number="fileListFileId"
+              placeholder="文件ID"
+              type="number"
+              clearable
+              :min="1"
+              style="flex: 1; min-width: 120px; max-width: 180px; margin: 0 10px;"
+            />
+            
+            <ElSelect
+              v-model="fileListFileType"
+              placeholder="文件类型"
+              clearable
+              style="flex: 1; min-width: 150px; max-width: 200px;"
+            >
+              <ElOption label="所有类型" value="" />
+              <ElOption label="JSON" value="json" />
+              <ElOption label="BAM" value="bam" />
+              <ElOption label="FASTQ" value="fastq" />
+              <ElOption label="VCF" value="vcf" />
+              <ElOption label="Count" value="count" />
+              <ElOption label="TPM" value="tpm" />
+              <ElOption label="FPKM" value="fpkm" />
+              <ElOption label="其他" value="other" />
+            </ElSelect>
+            
+            <ElButton
+              type="primary"
+              @click="handleSearch"
+              style="margin: 0 5px;"
+            >
+              查询
+            </ElButton>
+            
+            <ElButton
+              type="default"
+              @click="handleResetFilters"
+            >
+              重置
+            </ElButton>
+          </div>
+        </div>        
         <ElEmpty v-if="!fileList.length && !fileListLoading" description="暂无上传记录" :image-size="60" />
         <div class="history-table-scroll">
           <ElTable :data="fileList" :style="{ width: '100%' }" size="small" border stripe>
@@ -1924,7 +2059,7 @@ onMounted(() => {
             </ElTableColumn>
           </ElTable>
         </div>
-        <div class="history-pagination" style="padding-top: 1%; padding-bottom: 1%">
+        <div class="history-pagination" style="padding-top: 2%; padding-bottom: 1%">
           <ElPagination
             v-if="fileListTotal > 0"
             background
@@ -2037,7 +2172,7 @@ onMounted(() => {
     <!-- 数据世系展示弹窗 -->
     <ElDialog
       v-model="lineageDialogVisible"
-      title="文件数据世系展示"
+      title="📊 文件数据世系图"
       width="90%"
       :close-on-click-modal="false"
       :close-on-press-escape="true"
@@ -2107,6 +2242,7 @@ onMounted(() => {
   flex-direction: column;
   justify-content: stretch;
   box-sizing: border-box;
+  flex: 0 1 40%;
 }
 
 .history-list-area {
@@ -2118,6 +2254,7 @@ onMounted(() => {
   height: 100%;
   margin-left: 0;
   box-sizing: border-box;
+  flex: 0 1 59%;
 }
 
 .history-card {
@@ -2402,6 +2539,67 @@ onMounted(() => {
   animation: spin 1s linear infinite;
 }
 
+.filter-area {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.filter-row > :deep(.el-input) {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.filter-row > :deep(.el-select) {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.filter-row > .el-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 1400px) {
+  .filter-row {
+    flex-wrap: wrap;
+  }
+  
+  .filter-row > :deep(.el-input),
+  .filter-row > :deep(.el-select) {
+    flex: 0 1 calc(50% - 6px) !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .filter-row > :deep(.el-input),
+  .filter-row > :deep(.el-select) {
+    flex: 1 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 5px 0 !important;
+  }
+  
+  .filter-row > .el-button {
+    width: 100%;
+    margin: 5px 0 !important;
+  }
+}
 @keyframes spin {
   0% {
     transform: rotate(0deg);

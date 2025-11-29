@@ -14,13 +14,17 @@ export function fetchFileStatistics() {
   });
 }
 
-export function fetchFileListInfo(page: number, pageSize: number) {
+export function fetchFileListInfo(page: number, pageSize: number,
+   file_id: number, file_name: string, file_type: string) {
   return request<Api.Files.FileList>({
     url: '/files/list',
     method: 'get',
     params: {
       page,
-      page_size: pageSize
+      page_size: pageSize,
+      file_id: file_id,
+      file_name: file_name,
+      file_type: file_type
     }
   });
 }
@@ -61,7 +65,7 @@ export function fetchFileDetail(file_id: number) {
 
 export function fetchFileGenealogy(file_id: number) {
   return request<Api.Files.FileGenealogy>({
-    url: `/genealogy/${file_id}/`,
+    url: `/genealogy/${file_id}`,
     method: 'get',
     data: {
       file_id
