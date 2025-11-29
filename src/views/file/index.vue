@@ -534,8 +534,8 @@ watch(selectedSchemaId, async () => {
   }
 });
 
-// 处理文件变更
-function handleFileChange(field: string, file: File, key?: string | number) {
+// 处理文件变更（支持多文件）
+function handleFileChange(field: string, files: File[], key?: string | number) {
   // 确保 dynamicForm[field] 已初始化为对象
   if (!dynamicForm[field] || typeof dynamicForm[field] !== 'object') {
     dynamicForm[field] = {};
@@ -543,100 +543,34 @@ function handleFileChange(field: string, file: File, key?: string | number) {
   console.log('dynamicform after selected:', dynamicForm);
   // 动态对象子项
   if (key !== undefined) {
-    handleDynamicObjectFileChange(field, file, key);
+    // 动态对象不支持多文件，只取第一个
+    if (files && files.length > 0) {
+      handleDynamicObjectFileChange(field, files[0], key);
+    }
     return;
   }
-
-  const fileField = fileFields.value.find(f => f.name === field);
-  if (!fileField) {
+  console.log('files received:', files);
+  
+  // 先在 fileFields 中查找
+  let fieldConfig = fileFields.value.find(f => f.name === field);
+  
+  // 如果没找到，再在 textFields 中查找动态对象字段
+  if (!fieldConfig) {
+    fieldConfig = textFields.value.find(f => f.name === field && f.type === 'dynamic-object');
+  }
+  
+  if (!fieldConfig) {
     ElMessage.error('字段配置错误');
     return;
   }
 
-  // 验证文件格式
-  if (!validateFileFormat(fileField, file.name)) return;
+  // 验证所有文件格式
+  for (const file of files) {
+    if (!validateFileFormat(fieldConfig, file.name)) return;
+  }
 
-  // 更新文件字段
-  updateFileField(fileField, file);
-}
-
-// 动态对象处理函数
-function addDynamicObjectItem(fieldName: string) {
-  if (!dynamicForm[fieldName]) {
-    dynamicForm[fieldName] = {};
-  }
-  // 优先复用 hidden 的项
-  const hiddenKey = Object.entries(dynamicForm[fieldName]).find(
-    ([, v]) => v && typeof v === 'object' && 'hidden' in v && (v as { hidden?: boolean }).hidden
-  )?.[0];
-  if (hiddenKey) {
-    dynamicForm[fieldName][hiddenKey] = {
-      path: '',
-      file_type: '',
-      hidden: false
-    };
-    return;
-  }
-  // 没有 hidden 的项则新建
-  const existingKeys = Object.keys(dynamicForm[fieldName]);
-  let nextIndex = 1;
-  while (existingKeys.includes(`${nextIndex}`)) {
-    nextIndex += 1;
-  }
-  const key = `${nextIndex}`;
-  dynamicForm[fieldName][key] = {
-    path: '',
-    file_type: '',
-    hidden: false
-  };
-}
-
-function removeDynamicObjectItem(fieldName: string, key: string | number) {
-  if (dynamicForm[fieldName] && dynamicForm[fieldName][key]) {
-    // 使用隐藏标记而不是删除，避免 lint 检查问题
-    dynamicForm[fieldName][key] = {
-      path: '',
-      file_type: '',
-      hidden: true // 添加隐藏标记
-    };
-
-    // 如果该字段下没有任何项目了，清理整个字段
-    if (Object.keys(dynamicForm[fieldName]).length === 0) {
-      // 重置为空对象
-      dynamicForm[fieldName] = {};
-    }
-  }
-}
-
-function handleAddDynamicObjectFile(fieldName: string, file: File) {
-  if (!file) return;
-  if (!dynamicForm[fieldName]) dynamicForm[fieldName] = {};
-  // 优先复用 hidden 的项
-  const hiddenKey = Object.entries(dynamicForm[fieldName]).find(
-    ([, v]) => v && typeof v === 'object' && 'hidden' in v && (v as { hidden?: boolean }).hidden
-  )?.[0];
-  if (hiddenKey) {
-    dynamicForm[fieldName][hiddenKey] = {
-      path: file.name,
-      file_type: getFileTypeFromExtension(file.name),
-      file,
-      hidden: false
-    };
-    return;
-  }
-  // 没有 hidden 的项则新建
-  const existingKeys = Object.keys(dynamicForm[fieldName]);
-  let nextIndex = 1;
-  while (existingKeys.includes(`${nextIndex}`)) {
-    nextIndex += 1;
-  }
-  const key = `${nextIndex}`;
-  dynamicForm[fieldName][key] = {
-    path: file.name,
-    file_type: getFileTypeFromExtension(file.name),
-    file,
-    hidden: false
-  };
+  // 更新文件字段（支持多文件）
+  updateFileFieldMultiple(fieldConfig, files);
 }
 
 // 从文件名获取文件类型
@@ -697,12 +631,34 @@ function collectFileEntries(
 
   Object.entries(obj).forEach(([k, v]) => {
     const currentPath = [...basePath, k];
-    if (v && typeof v === 'object' && 'file' in v && v.file && !(v as any).hidden) {
-      // 只用当前 key 作为 field_name，避免重复拼接
-      const fieldName = k; // 只用叶子节点 key
-      results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
-    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-      results.push(...collectFileEntries(v as Record<string, any>, currentPath));
+    if (v && typeof v === 'object') {
+      // 检查是否是单文件模式（含有 file 属性但不是嵌套对象）
+      if ('file' in v && v.file && !(v as any).hidden) {
+        const fieldName = k;
+        results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
+      } else if (!Array.isArray(v)) {
+        // 检查是否是多文件模式（对象中的每个值都可能含有 file）
+        let hasMultipleFiles = false;
+        const multiFiles: Array<{ path: string[]; field_name: string; file: File }> = [];
+        
+        Object.entries(v).forEach(([subKey, subValue]) => {
+          if (subValue && typeof subValue === 'object' && 'file' in subValue && subValue.file && !(subValue as any).hidden) {
+            hasMultipleFiles = true;
+            multiFiles.push({
+              path: [...currentPath, subKey],
+              field_name: k,
+              file: subValue.file as File
+            });
+          }
+        });
+        
+        if (hasMultipleFiles) {
+          results.push(...multiFiles);
+        } else {
+          // 继续递归
+          results.push(...collectFileEntries(v as Record<string, any>, currentPath));
+        }
+      }
     }
   });
   return results;
@@ -783,9 +739,27 @@ function handleDynamicObjectFileChange(field: string, file: File, key: string | 
 function validateFileFormat(fileField: any, fileName: string): boolean {
   if (!fileField.pattern || !fileField.pattern.trim()) return true;
 
+  console.log('Validating file:', fileName, 'against pattern:', fileField.pattern);
+  
   const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
-  const patternMatch = fileField.pattern.match(/\\([^.]+)\$?/);
-  const expectedExtension = patternMatch ? patternMatch[1].toLowerCase() : '';
+  
+  // 先尝试从 pattern 中提取扩展名（支持 *.ext 格式）
+  let expectedExtension = '';
+  if (fileField.pattern.startsWith('*')) {
+    // 处理 *.ext 格式
+    const match = fileField.pattern.match(/\*\.([a-zA-Z0-9]+)$/);
+    if (match) {
+      expectedExtension = match[1].toLowerCase();
+    }
+  } else {
+    // 处理 \\.ext$ 格式
+    const match = fileField.pattern.match(/\\\.([^$]+)\$?/);
+    if (match) {
+      expectedExtension = match[1].toLowerCase();
+    }
+  }
+
+  console.log('File extension:', fileExtension, 'Expected extension:', expectedExtension);
 
   let isValidFormat = false;
   if (expectedExtension && fileExtension === expectedExtension) {
@@ -794,19 +768,26 @@ function validateFileFormat(fileField: any, fileName: string): boolean {
 
   if (!isValidFormat) {
     try {
-      const patternRegex = new RegExp(fileField.pattern);
+      // 将 glob 模式转换为正则表达式
+      let regexPattern = fileField.pattern;
+      if (regexPattern.startsWith('*')) {
+        // *.ext 转换为正则
+        regexPattern = '^.*\\' + regexPattern.replace(/\*/g, '.*') + '$';
+      }
+      const patternRegex = new RegExp(regexPattern);
+      console.log('Testing against regex:', patternRegex);
       if (patternRegex.test(fileName)) {
         isValidFormat = true;
       }
-    } catch {
-      console.warn('Invalid regex pattern:', fileField.pattern);
+    } catch (e) {
+      console.warn('Invalid regex pattern:', fileField.pattern, 'Error:', e);
     }
   }
 
   if (!isValidFormat) {
     const expectedFormat = expectedExtension
       ? `.${expectedExtension}`
-      : fileField.pattern.replace(/\\\./g, '.').replace(/\$/g, '');
+      : fileField.pattern.replace(/\\\./g, '.').replace(/\$/g, '').replace(/\*/g, '*');
     ElMessage.error(`文件格式不正确，请上传 ${expectedFormat} 格式的文件`);
     return false;
   }
@@ -814,29 +795,114 @@ function validateFileFormat(fileField: any, fileName: string): boolean {
   return true;
 }
 
-// 更新文件字段
-function updateFileField(fileField: any, file: File) {
-  // 先清理旧的文件信息
-  clearFileField(fileField.originalName || fileField.name, fileField.parentField);
+// 更新文件字段（多文件）
+function updateFileFieldMultiple(fileField: any, files: File[]) {
+  // 获取当前字段的数据
+  let currentData = fileField.parentField
+    ? dynamicForm[fileField.parentField]?.[fileField.originalName]
+    : dynamicForm[fileField.name];
 
-  // 重新创建完整的文件对象
-  const fileInfo = {
-    path: file.name,
-    file_type: getFileTypeFromExtension(file.name),
-    file
-  };
+  // 如果不存在或不是多文件模式，初始化为空对象
+  if (!currentData || typeof currentData !== 'object' || 'file' in currentData) {
+    currentData = {};
+  }
 
-  // 确保 dynamicForm 结构存在
+  // 找出下一个可用的 key（从已有的最大 key 开始）
+  const existingKeys = Object.keys(currentData)
+    .map(k => parseInt(k, 10))
+    .filter(k => !Number.isNaN(k));
+  let nextKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
+
+  // 追加新文件到现有的文件列表
+  files.forEach(file => {
+    currentData[nextKey] = {
+      path: file.name,
+      file_type: getFileTypeFromExtension(file.name),
+      file,
+      hidden: false
+    };
+    nextKey++;
+  });
+
+  // 确保 dynamicForm 结构存在并更新
   if (fileField.parentField) {
     if (!dynamicForm[fileField.parentField] || typeof dynamicForm[fileField.parentField] !== 'object') {
       dynamicForm[fileField.parentField] = {};
     }
-    dynamicForm[fileField.parentField][fileField.originalName] = { ...fileInfo };
+    dynamicForm[fileField.parentField][fileField.originalName] = currentData;
   } else {
     if (!dynamicForm[fileField.name] || typeof dynamicForm[fileField.name] !== 'object') {
       dynamicForm[fileField.name] = {};
     }
-    dynamicForm[fileField.name] = { ...fileInfo };
+    dynamicForm[fileField.name] = currentData;
+  }
+}
+
+// 获取字段已上传的文件数
+function getUploadedFileCount(field: any): number {
+  const fieldData = field.parentField
+    ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
+    : (dynamicForm[field.name] || {});
+  
+  if (typeof fieldData !== 'object') return 0;
+  
+  // 如果是含有 file 属性的对象（单文件模式），返回 1
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    return (fieldData as any).file ? 1 : 0;
+  }
+  
+  // 如果是对象数组（多文件模式），统计不隐藏的文件
+  const count = Object.values(fieldData).filter(
+    (f: any) => f && typeof f === 'object' && 'file' in f && !(f as any).hidden
+  ).length;
+  return count;
+}
+
+// 获取字段已上传的文件列表
+function getUploadedFilesForField(field: any): Array<{ path: string; hidden?: boolean }> {
+  const fieldData = field.parentField
+    ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
+    : (dynamicForm[field.name] || {});
+  
+  if (typeof fieldData !== 'object') return [];
+  
+  // 如果是含有 file 属性的对象（单文件模式），返回该文件
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    return (fieldData as any).file && !(fieldData as any).hidden ? [fieldData as any] : [];
+  }
+  
+  // 如果是对象数组（多文件模式），返回不隐藏的文件
+  return Object.values(fieldData).filter(
+    (f: any) => f && typeof f === 'object' && 'file' in f && !(f as any).hidden
+  ) as Array<{ path: string; hidden?: boolean }>;
+}
+
+// 从字段中移除文件
+function removeFileFromField(field: any, fileIndex: number) {
+  const fieldData = field.parentField
+    ? dynamicForm[field.parentField]?.[field.originalName]
+    : dynamicForm[field.name];
+  
+  if (!fieldData || typeof fieldData !== 'object') return;
+  
+  // 如果是单文件模式
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    clearFileField(field.originalName || field.name, field.parentField);
+    return;
+  }
+  
+  // 如果是多文件模式，找到对应的文件并标记为隐藏或删除
+  const files = Object.entries(fieldData);
+  let count = 0;
+  for (const [key, file] of files) {
+    if (file && typeof file === 'object' && 'file' in file && !(file as any).hidden) {
+      if (count === fileIndex) {
+        // 标记为隐藏或删除
+        delete fieldData[key];
+        return;
+      }
+      count++;
+    }
   }
 }
 
@@ -846,7 +912,21 @@ function validateFileFields(): boolean {
     const value = field.parentField
       ? ((dynamicForm[field.parentField] || {}) as any)[field.originalName] || {}
       : dynamicForm[field.name] || ({} as any);
-    const hasFile = Boolean(value && value.file);
+    
+    // 检查是否有文件被选择（支持单文件和多文件模式）
+    let hasFile = false;
+    if (typeof value === 'object') {
+      if ('file' in value && !value.hidden) {
+        // 单文件模式
+        hasFile = Boolean(value.file);
+      } else if (!('file' in value)) {
+        // 多文件模式：检查是否有任何包含 file 的项
+        hasFile = Object.values(value).some(
+          (v: any) => v && typeof v === 'object' && 'file' in v && !v.hidden
+        );
+      }
+    }
+    
     if (field.required && !hasFile) {
       ElMessage.warning(`请上传${field.label}`);
       return false;
@@ -1144,6 +1224,16 @@ function getShortLabel(label: string): string {
   };
 
   return labelMap[label] || `${label.substring(0, 8)}...`;
+}
+
+// 获取字段的文件类型限制
+function getFieldFileAccept(field: any): string {
+  // 如果是普通文件字段，使用其 fileType
+  if (field.fileType) {
+    return getFileAcceptTypes(field.fileType);
+  }
+  // 如果是动态对象字段（如 Reference_data 的 filePaths），默认不限制
+  return getFileAcceptTypes('*');
 }
 
 // 获取文件接受类型
@@ -1818,47 +1908,50 @@ onMounted(() => {
               <template v-else-if="field.type === 'boolean'">
                 <ElSwitch v-model="dynamicForm[field.name]" :class="{ 'required-field': field.required }" />
               </template>
-              <!-- 动态对象类型（如 Reference_data 的 filePaths） -->
+              <!-- 动态对象类型（如 Reference_data 的 filePaths）- 使用统一的多文件上传模板 -->
               <template v-else-if="field.type === 'dynamic-object'">
-                <div class="dynamic-object-container">
-                  <div
-                    v-for="[k] in Object.entries(dynamicForm[field.name]).filter(([k, v]) => !(v as any).hidden)"
-                    :key="k"
-                    class="dynamic-object-item"
-                  >
-                    <div class="dynamic-object-row">
+                <ElFormItem :required="field.required">
+                  <div class="upload-container">
+                    <div class="upload-row">
                       <ElUpload
+                        :multiple="true"
                         :auto-upload="false"
                         :show-file-list="false"
-                        :accept="getFileAcceptTypes('*')"
-                        @change="uploadFile => uploadFile.raw && handleFileChange(field.name, uploadFile.raw, k)"
+                        :accept="getFieldFileAccept(field)"
+                        @change="files => {
+                          const rawFiles = Array.isArray(files) ? files.map(f => f.raw) : files.raw ? [files.raw] : [];
+                          handleFileChange(field.name, rawFiles);
+                        }"
                       >
-                        <ElButton size="small" type="primary">选择文件</ElButton>
+                        <ElButton type="primary">选择文件</ElButton>
                       </ElUpload>
-                      <span v-if="dynamicForm[field.name][k].path" class="file-name">
-                        {{ getFileName(dynamicForm[field.name][k].path) }}
-                      </span>
-                      <ElButton type="danger" size="small" @click="removeDynamicObjectItem(field.name, k)">
-                        删除
-                      </ElButton>
+                      
+                      <div class="upload-tip">
+                        <ElIcon><Upload /></ElIcon>
+                        <span>{{ field.description }}</span>
+                      </div>
+                    </div>
+                    
+                    <!-- 已上传文件列表 -->
+                    <div v-if="getUploadedFileCount(field) > 0" class="uploaded-files-list">
+                      <div
+                        v-for="(fileInfo, idx) in getUploadedFilesForField(field)"
+                        :key="idx"
+                        class="uploaded-file-item"
+                      >
+                        <span class="file-name">{{ getFileName(fileInfo.path) }}</span>
+                        <ElButton
+                          type="danger"
+                          size="small"
+                          link
+                          @click="removeFileFromField(field, idx)"
+                        >
+                          移除
+                        </ElButton>
+                      </div>
                     </div>
                   </div>
-                  <template v-if="field.type === 'dynamic-object'">
-                    <ElUpload
-                      :auto-upload="false"
-                      :show-file-list="false"
-                      :accept="getFileAcceptTypes('*')"
-                      @change="uploadFile => uploadFile.raw && handleAddDynamicObjectFile(field.name, uploadFile.raw)"
-                    >
-                      <ElButton type="primary" size="small">添加文件路径</ElButton>
-                    </ElUpload>
-                  </template>
-                  <template v-else>
-                    <ElButton type="primary" size="small" @click="addDynamicObjectItem(field.name)">
-                      添加文件路径
-                    </ElButton>
-                  </template>
-                </div>
+                </ElFormItem>
               </template>
               <!-- 数字输入 -->
               <template v-else-if="field.type === 'number'">
@@ -1890,40 +1983,46 @@ onMounted(() => {
             </ElFormItem>
           </template>
 
-          <!-- 文件上传字段 -->
+          <!-- 文件上传字段（多文件） -->
           <template v-for="field in fileFields" :key="field.name">
             <ElFormItem :label="getShortLabel(field.displayLabel || field.label)" :required="field.required">
               <div class="upload-container">
                 <div class="upload-row">
                   <ElUpload
+                    :multiple="true"
                     :auto-upload="false"
                     :show-file-list="false"
-                    :accept="getFileAcceptTypes(field.fileType)"
-                    @change="uploadFile => uploadFile.raw && handleFileChange(field.name, uploadFile.raw)"
+                    :accept="getFieldFileAccept(field)"
+                    @change="files => {
+                      const rawFiles = Array.isArray(files) ? files.map(f => f.raw) : files.raw ? [files.raw] : [];
+                      handleFileChange(field.name, rawFiles);
+                    }"
                   >
                     <ElButton type="primary">选择文件</ElButton>
-                    <span
-                      v-if="
-                        field.parentField
-                          ? dynamicForm[field.parentField] &&
-                            dynamicForm[field.parentField][field.originalName] &&
-                            dynamicForm[field.parentField][field.originalName].path
-                          : dynamicForm[field.name] && dynamicForm[field.name].path
-                      "
-                      style="margin-left: 10px; color: #409eff"
-                    >
-                      {{
-                        getFileName(
-                          field.parentField
-                            ? dynamicForm[field.parentField][field.originalName].path
-                            : dynamicForm[field.name].path
-                        )
-                      }}
-                    </span>
                   </ElUpload>
+                  
                   <div class="upload-tip">
                     <ElIcon><Upload /></ElIcon>
                     <span>{{ field.description }}</span>
+                  </div>
+                </div>
+                
+                <!-- 已上传文件列表 -->
+                <div v-if="getUploadedFileCount(field) > 0" class="uploaded-files-list">
+                  <div
+                    v-for="(fileInfo, idx) in getUploadedFilesForField(field)"
+                    :key="idx"
+                    class="uploaded-file-item"
+                  >
+                    <span class="file-name">{{ getFileName(fileInfo.path) }}</span>
+                    <ElButton
+                      type="danger"
+                      size="small"
+                      link
+                      @click="removeFileFromField(field, idx)"
+                    >
+                      移除
+                    </ElButton>
                   </div>
                 </div>
               </div>
@@ -2020,7 +2119,7 @@ onMounted(() => {
             </ElTableColumn>
           </ElTable>
         </div>
-        <div class="history-pagination" style="padding-top: 2%; padding-bottom: 1%">
+        <div class="history-pagination">
           <ElPagination
             v-if="fileListTotal > 0"
             background
@@ -2247,10 +2346,17 @@ onMounted(() => {
 
 .history-table-scroll {
   flex: 1 1 0;
-  min-height: 0%;
-  max-height: 83%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+}
+
+.history-pagination {
+  flex-shrink: 0;
+  padding-top: 12px;
+  padding-bottom: 8px;
+  border-top: 1px solid #ebeef5;
+  background: #fafcff;
 }
 
 /* 主卡片美化 */
@@ -2334,6 +2440,39 @@ onMounted(() => {
 .upload-tip .el-icon {
   font-size: 14px;
   color: #409eff;
+}
+
+/* 已上传文件列表样式 */
+.uploaded-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  border: 1px solid #f0f0f0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background-color: #fff;
+  border-radius: 3px;
+  border: 1px solid #e8e8e8;
+  font-size: 12px;
+}
+
+.uploaded-file-item .file-name {
+  flex: 1;
+  color: #409eff;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 表单标签优化 */
