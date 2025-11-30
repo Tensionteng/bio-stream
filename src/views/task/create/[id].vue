@@ -117,7 +117,7 @@ const currentMetaIds = ref<string[]>([]);
 const availableFiles = ref<FileInfo[]>([]);
 const loadingFiles = ref(false);
 const searchKeyword = ref('');
-const pagination = ref({ page: 1, pageSize: 20, total: 0, hasNextPage: true });
+const pagination = ref({ page: 1, pageSize: 10, total: 0, hasNextPage: true });
 const tempSelection = ref<FileInfo[]>([]);
 const dialogTableRef = ref();
 
@@ -185,7 +185,8 @@ const openFileDialog = (inputName: string) => {
   currentActiveInputName.value = inputName;
   searchKeyword.value = '';
   availableFiles.value = [];
-  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+  // 重置分页状态
+  pagination.value = { page: 1, pageSize: 10, total: 0, hasNextPage: true };
   tempSelection.value = [...(formModel.filesMap[inputName] || [])];
 
   const def = chainInputDefs.value.find(i => i.file_name === inputName);
@@ -199,8 +200,9 @@ const openFileDialog = (inputName: string) => {
   fileDialogVisible.value = true;
 };
 
+// 【修复核心】：加载文件列表逻辑修改
 async function loadFilesPage() {
-  if (loadingFiles.value || !pagination.value.hasNextPage) return;
+  if (loadingFiles.value) return;
   loadingFiles.value = true;
   try {
     const res = await fetchFileList({
@@ -210,12 +212,16 @@ async function loadFilesPage() {
       meta_ids: currentMetaIds.value
     });
     if (res?.data?.results) {
-      availableFiles.value.push(...res.data.results);
+      // 1. 传统翻页是替换数据，不是追加(push)
+      availableFiles.value = res.data.results;
+
       pagination.value.total = res.data.count;
-      pagination.value.hasNextPage = availableFiles.value.length < res.data.count;
-      if (pagination.value.hasNextPage) {
-        pagination.value.page += 1;
-      }
+
+      // 2. 重新计算是否有下一页
+      const currentLoadedCount = pagination.value.page * pagination.value.pageSize;
+      pagination.value.hasNextPage = currentLoadedCount < res.data.count;
+
+      // 3. 【已删除】 pagination.value.page += 1;  <-- 这里之前是导致显示第2页的原因
     }
   } catch {
     ElMessage.error('加载文件失败');
