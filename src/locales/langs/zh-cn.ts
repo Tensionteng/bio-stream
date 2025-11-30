@@ -198,8 +198,8 @@ const local: App.I18n.Schema = {
     visualization: '可视化',
     permission: '权限管理',
     permission_apply: '申请权限',
-    permission_my: '我的权限',
-    permission_manage: '权限审批'
+    permission_my: '权限申请记录',
+    permission_manage: '权限审批（管理员）'
   },
   page: {
     login: {

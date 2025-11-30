@@ -438,7 +438,7 @@ declare namespace Api {
 
     /** 权限申请 */
     interface PermissionRequest {
-      id: number;
+      request_id: number;
       userId: string;
       userName: string;
       permissionType: PermissionType;

@@ -95,7 +95,7 @@ async function handleSubmit() {
       try {
         // 构建提交参数
         const submitData = {
-          permissionType: applyForm.permissionType!,
+          type: applyForm.permissionType!,
           days: applyForm.forever ? 0 : applyForm.days, // 0表示永久
           reason: applyForm.reason
         };

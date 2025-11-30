@@ -90,6 +90,7 @@ async function fetchData() {
       return opts;
     });
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('获取文件类型统计失败:', error);
     // 使用空数据
     updateOptions(opts => {
@@ -130,7 +131,7 @@ init();
 
 <template>
   <ElCard class="card-wrapper">
-    <div ref="domRef" class="h-500px overflow-hidden pb-2"></div>
+    <div ref="domRef" class="h-600px overflow-hidden pb-2"></div>
   </ElCard>
 </template>
 
