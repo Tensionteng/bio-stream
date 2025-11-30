@@ -40,25 +40,10 @@ const fileListFileId = ref(0);
 const fileListFileName = ref('');
 const fileListFileType = ref('');
 
-// 进度条相关
-const progressDialogVisible = ref(false);
-const uploadProgressPercent = ref(0);
-const uploadingFileName = ref('');
-const uploadError = ref('');
-let uploadCancelTokenSource: ReturnType<typeof axios.CancelToken.source> | null = null;
 
 // 上传任务列表相关
 const uploadTaskList = ref<any[]>([]);
 const uploadTaskPanelCollapsed = ref(false);
-
-interface UploadTask {
-  id: string;
-  fileName: string;
-  progress: number;
-  status: 'uploading' | 'success' | 'error';
-  error?: string;
-  cancelTokenSource?: ReturnType<typeof axios.CancelToken.source>;
-}
 
 // 添加上传任务到列表
 function addUploadTask(fileName: string): string {
@@ -94,10 +79,19 @@ function updateUploadTaskStatus(taskId: string, status: 'uploading' | 'success' 
 // 取消单个上传任务
 function cancelUploadTask(taskId: string) {
   const task = uploadTaskList.value.find(t => t.id === taskId);
-  if (task && task.cancelTokenSource) {
-    task.cancelTokenSource.cancel('用户取消上传');
-    task.status = 'error';
-    task.error = '已取消';
+  if (task) {
+    task.canceling = true;
+    if (task.cancelTokenSource) {
+      task.cancelTokenSource.cancel('用户取消上传');
+    }
+    // 延迟更新状态，确保UI能显示取消中的状态
+    setTimeout(() => {
+      if (task.status === 'uploading') {
+        task.status = 'error';
+        task.error = '已取消';
+      }
+      task.canceling = false;
+    }, 300);
   }
 }
 
@@ -107,26 +101,7 @@ function removeUploadTask(taskId: string) {
   if (index > -1) {
     uploadTaskList.value.splice(index, 1);
   }
-}
-
-// 封装上传进度弹窗控制函数
-function showUploadProgressDialog({
-  percent = 0,
-  fileName = '',
-  error = '',
-  cancelTokenSource = null
-}: {
-  percent?: number;
-  fileName?: string;
-  error?: string;
-  cancelTokenSource?: ReturnType<typeof axios.CancelToken.source> | null;
-} = {}) {
-  uploadProgressPercent.value = percent;
-  uploadingFileName.value = fileName;
-  uploadError.value = error;
-  progressDialogVisible.value = true;
-  uploadCancelTokenSource = cancelTokenSource || null;
-}
+} 
 
 // 1. 获取 schema 列表
 async function fetchSchemas() {
@@ -559,8 +534,8 @@ watch(selectedSchemaId, async () => {
   }
 });
 
-// 处理文件变更
-function handleFileChange(field: string, file: File, key?: string | number) {
+// 处理文件变更（支持多文件）
+function handleFileChange(field: string, files: File[], key?: string | number) {
   // 确保 dynamicForm[field] 已初始化为对象
   if (!dynamicForm[field] || typeof dynamicForm[field] !== 'object') {
     dynamicForm[field] = {};
@@ -568,100 +543,34 @@ function handleFileChange(field: string, file: File, key?: string | number) {
   console.log('dynamicform after selected:', dynamicForm);
   // 动态对象子项
   if (key !== undefined) {
-    handleDynamicObjectFileChange(field, file, key);
+    // 动态对象不支持多文件，只取第一个
+    if (files && files.length > 0) {
+      handleDynamicObjectFileChange(field, files[0], key);
+    }
     return;
   }
-
-  const fileField = fileFields.value.find(f => f.name === field);
-  if (!fileField) {
+  console.log('files received:', files);
+  
+  // 先在 fileFields 中查找
+  let fieldConfig = fileFields.value.find(f => f.name === field);
+  
+  // 如果没找到，再在 textFields 中查找动态对象字段
+  if (!fieldConfig) {
+    fieldConfig = textFields.value.find(f => f.name === field && f.type === 'dynamic-object');
+  }
+  
+  if (!fieldConfig) {
     ElMessage.error('字段配置错误');
     return;
   }
 
-  // 验证文件格式
-  if (!validateFileFormat(fileField, file.name)) return;
+  // 验证所有文件格式
+  for (const file of files) {
+    if (!validateFileFormat(fieldConfig, file.name)) return;
+  }
 
-  // 更新文件字段
-  updateFileField(fileField, file);
-}
-
-// 动态对象处理函数
-function addDynamicObjectItem(fieldName: string) {
-  if (!dynamicForm[fieldName]) {
-    dynamicForm[fieldName] = {};
-  }
-  // 优先复用 hidden 的项
-  const hiddenKey = Object.entries(dynamicForm[fieldName]).find(
-    ([, v]) => v && typeof v === 'object' && 'hidden' in v && (v as { hidden?: boolean }).hidden
-  )?.[0];
-  if (hiddenKey) {
-    dynamicForm[fieldName][hiddenKey] = {
-      path: '',
-      file_type: '',
-      hidden: false
-    };
-    return;
-  }
-  // 没有 hidden 的项则新建
-  const existingKeys = Object.keys(dynamicForm[fieldName]);
-  let nextIndex = 1;
-  while (existingKeys.includes(`${nextIndex}`)) {
-    nextIndex += 1;
-  }
-  const key = `${nextIndex}`;
-  dynamicForm[fieldName][key] = {
-    path: '',
-    file_type: '',
-    hidden: false
-  };
-}
-
-function removeDynamicObjectItem(fieldName: string, key: string | number) {
-  if (dynamicForm[fieldName] && dynamicForm[fieldName][key]) {
-    // 使用隐藏标记而不是删除，避免 lint 检查问题
-    dynamicForm[fieldName][key] = {
-      path: '',
-      file_type: '',
-      hidden: true // 添加隐藏标记
-    };
-
-    // 如果该字段下没有任何项目了，清理整个字段
-    if (Object.keys(dynamicForm[fieldName]).length === 0) {
-      // 重置为空对象
-      dynamicForm[fieldName] = {};
-    }
-  }
-}
-
-function handleAddDynamicObjectFile(fieldName: string, file: File) {
-  if (!file) return;
-  if (!dynamicForm[fieldName]) dynamicForm[fieldName] = {};
-  // 优先复用 hidden 的项
-  const hiddenKey = Object.entries(dynamicForm[fieldName]).find(
-    ([, v]) => v && typeof v === 'object' && 'hidden' in v && (v as { hidden?: boolean }).hidden
-  )?.[0];
-  if (hiddenKey) {
-    dynamicForm[fieldName][hiddenKey] = {
-      path: file.name,
-      file_type: getFileTypeFromExtension(file.name),
-      file,
-      hidden: false
-    };
-    return;
-  }
-  // 没有 hidden 的项则新建
-  const existingKeys = Object.keys(dynamicForm[fieldName]);
-  let nextIndex = 1;
-  while (existingKeys.includes(`${nextIndex}`)) {
-    nextIndex += 1;
-  }
-  const key = `${nextIndex}`;
-  dynamicForm[fieldName][key] = {
-    path: file.name,
-    file_type: getFileTypeFromExtension(file.name),
-    file,
-    hidden: false
-  };
+  // 更新文件字段（支持多文件）
+  updateFileFieldMultiple(fieldConfig, files);
 }
 
 // 从文件名获取文件类型
@@ -722,12 +631,34 @@ function collectFileEntries(
 
   Object.entries(obj).forEach(([k, v]) => {
     const currentPath = [...basePath, k];
-    if (v && typeof v === 'object' && 'file' in v && v.file && !(v as any).hidden) {
-      // 只用当前 key 作为 field_name，避免重复拼接
-      const fieldName = k; // 只用叶子节点 key
-      results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
-    } else if (v && typeof v === 'object' && !Array.isArray(v)) {
-      results.push(...collectFileEntries(v as Record<string, any>, currentPath));
+    if (v && typeof v === 'object') {
+      // 检查是否是单文件模式（含有 file 属性但不是嵌套对象）
+      if ('file' in v && v.file && !(v as any).hidden) {
+        const fieldName = k;
+        results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
+      } else if (!Array.isArray(v)) {
+        // 检查是否是多文件模式（对象中的每个值都可能含有 file）
+        let hasMultipleFiles = false;
+        const multiFiles: Array<{ path: string[]; field_name: string; file: File }> = [];
+        
+        Object.entries(v).forEach(([subKey, subValue]) => {
+          if (subValue && typeof subValue === 'object' && 'file' in subValue && subValue.file && !(subValue as any).hidden) {
+            hasMultipleFiles = true;
+            multiFiles.push({
+              path: [...currentPath, subKey],
+              field_name: k,
+              file: subValue.file as File
+            });
+          }
+        });
+        
+        if (hasMultipleFiles) {
+          results.push(...multiFiles);
+        } else {
+          // 继续递归
+          results.push(...collectFileEntries(v as Record<string, any>, currentPath));
+        }
+      }
     }
   });
   return results;
@@ -808,9 +739,27 @@ function handleDynamicObjectFileChange(field: string, file: File, key: string | 
 function validateFileFormat(fileField: any, fileName: string): boolean {
   if (!fileField.pattern || !fileField.pattern.trim()) return true;
 
+  console.log('Validating file:', fileName, 'against pattern:', fileField.pattern);
+  
   const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
-  const patternMatch = fileField.pattern.match(/\\([^.]+)\$?/);
-  const expectedExtension = patternMatch ? patternMatch[1].toLowerCase() : '';
+  
+  // 先尝试从 pattern 中提取扩展名（支持 *.ext 格式）
+  let expectedExtension = '';
+  if (fileField.pattern.startsWith('*')) {
+    // 处理 *.ext 格式
+    const match = fileField.pattern.match(/\*\.([a-zA-Z0-9]+)$/);
+    if (match) {
+      expectedExtension = match[1].toLowerCase();
+    }
+  } else {
+    // 处理 \\.ext$ 格式
+    const match = fileField.pattern.match(/\\\.([^$]+)\$?/);
+    if (match) {
+      expectedExtension = match[1].toLowerCase();
+    }
+  }
+
+  console.log('File extension:', fileExtension, 'Expected extension:', expectedExtension);
 
   let isValidFormat = false;
   if (expectedExtension && fileExtension === expectedExtension) {
@@ -819,19 +768,26 @@ function validateFileFormat(fileField: any, fileName: string): boolean {
 
   if (!isValidFormat) {
     try {
-      const patternRegex = new RegExp(fileField.pattern);
+      // 将 glob 模式转换为正则表达式
+      let regexPattern = fileField.pattern;
+      if (regexPattern.startsWith('*')) {
+        // *.ext 转换为正则
+        regexPattern = '^.*\\' + regexPattern.replace(/\*/g, '.*') + '$';
+      }
+      const patternRegex = new RegExp(regexPattern);
+      console.log('Testing against regex:', patternRegex);
       if (patternRegex.test(fileName)) {
         isValidFormat = true;
       }
-    } catch {
-      console.warn('Invalid regex pattern:', fileField.pattern);
+    } catch (e) {
+      console.warn('Invalid regex pattern:', fileField.pattern, 'Error:', e);
     }
   }
 
   if (!isValidFormat) {
     const expectedFormat = expectedExtension
       ? `.${expectedExtension}`
-      : fileField.pattern.replace(/\\\./g, '.').replace(/\$/g, '');
+      : fileField.pattern.replace(/\\\./g, '.').replace(/\$/g, '').replace(/\*/g, '*');
     ElMessage.error(`文件格式不正确，请上传 ${expectedFormat} 格式的文件`);
     return false;
   }
@@ -839,29 +795,114 @@ function validateFileFormat(fileField: any, fileName: string): boolean {
   return true;
 }
 
-// 更新文件字段
-function updateFileField(fileField: any, file: File) {
-  // 先清理旧的文件信息
-  clearFileField(fileField.originalName || fileField.name, fileField.parentField);
+// 更新文件字段（多文件）
+function updateFileFieldMultiple(fileField: any, files: File[]) {
+  // 获取当前字段的数据
+  let currentData = fileField.parentField
+    ? dynamicForm[fileField.parentField]?.[fileField.originalName]
+    : dynamicForm[fileField.name];
 
-  // 重新创建完整的文件对象
-  const fileInfo = {
-    path: file.name,
-    file_type: getFileTypeFromExtension(file.name),
-    file
-  };
+  // 如果不存在或不是多文件模式，初始化为空对象
+  if (!currentData || typeof currentData !== 'object' || 'file' in currentData) {
+    currentData = {};
+  }
 
-  // 确保 dynamicForm 结构存在
+  // 找出下一个可用的 key（从已有的最大 key 开始）
+  const existingKeys = Object.keys(currentData)
+    .map(k => parseInt(k, 10))
+    .filter(k => !Number.isNaN(k));
+  let nextKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
+
+  // 追加新文件到现有的文件列表
+  files.forEach(file => {
+    currentData[nextKey] = {
+      path: file.name,
+      file_type: getFileTypeFromExtension(file.name),
+      file,
+      hidden: false
+    };
+    nextKey++;
+  });
+
+  // 确保 dynamicForm 结构存在并更新
   if (fileField.parentField) {
     if (!dynamicForm[fileField.parentField] || typeof dynamicForm[fileField.parentField] !== 'object') {
       dynamicForm[fileField.parentField] = {};
     }
-    dynamicForm[fileField.parentField][fileField.originalName] = { ...fileInfo };
+    dynamicForm[fileField.parentField][fileField.originalName] = currentData;
   } else {
     if (!dynamicForm[fileField.name] || typeof dynamicForm[fileField.name] !== 'object') {
       dynamicForm[fileField.name] = {};
     }
-    dynamicForm[fileField.name] = { ...fileInfo };
+    dynamicForm[fileField.name] = currentData;
+  }
+}
+
+// 获取字段已上传的文件数
+function getUploadedFileCount(field: any): number {
+  const fieldData = field.parentField
+    ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
+    : (dynamicForm[field.name] || {});
+  
+  if (typeof fieldData !== 'object') return 0;
+  
+  // 如果是含有 file 属性的对象（单文件模式），返回 1
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    return (fieldData as any).file ? 1 : 0;
+  }
+  
+  // 如果是对象数组（多文件模式），统计不隐藏的文件
+  const count = Object.values(fieldData).filter(
+    (f: any) => f && typeof f === 'object' && 'file' in f && !(f as any).hidden
+  ).length;
+  return count;
+}
+
+// 获取字段已上传的文件列表
+function getUploadedFilesForField(field: any): Array<{ path: string; hidden?: boolean }> {
+  const fieldData = field.parentField
+    ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
+    : (dynamicForm[field.name] || {});
+  
+  if (typeof fieldData !== 'object') return [];
+  
+  // 如果是含有 file 属性的对象（单文件模式），返回该文件
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    return (fieldData as any).file && !(fieldData as any).hidden ? [fieldData as any] : [];
+  }
+  
+  // 如果是对象数组（多文件模式），返回不隐藏的文件
+  return Object.values(fieldData).filter(
+    (f: any) => f && typeof f === 'object' && 'file' in f && !(f as any).hidden
+  ) as Array<{ path: string; hidden?: boolean }>;
+}
+
+// 从字段中移除文件
+function removeFileFromField(field: any, fileIndex: number) {
+  const fieldData = field.parentField
+    ? dynamicForm[field.parentField]?.[field.originalName]
+    : dynamicForm[field.name];
+  
+  if (!fieldData || typeof fieldData !== 'object') return;
+  
+  // 如果是单文件模式
+  if ('file' in fieldData && !Array.isArray(fieldData)) {
+    clearFileField(field.originalName || field.name, field.parentField);
+    return;
+  }
+  
+  // 如果是多文件模式，找到对应的文件并标记为隐藏或删除
+  const files = Object.entries(fieldData);
+  let count = 0;
+  for (const [key, file] of files) {
+    if (file && typeof file === 'object' && 'file' in file && !(file as any).hidden) {
+      if (count === fileIndex) {
+        // 标记为隐藏或删除
+        delete fieldData[key];
+        return;
+      }
+      count++;
+    }
   }
 }
 
@@ -871,7 +912,21 @@ function validateFileFields(): boolean {
     const value = field.parentField
       ? ((dynamicForm[field.parentField] || {}) as any)[field.originalName] || {}
       : dynamicForm[field.name] || ({} as any);
-    const hasFile = Boolean(value && value.file);
+    
+    // 检查是否有文件被选择（支持单文件和多文件模式）
+    let hasFile = false;
+    if (typeof value === 'object') {
+      if ('file' in value && !value.hidden) {
+        // 单文件模式
+        hasFile = Boolean(value.file);
+      } else if (!('file' in value)) {
+        // 多文件模式：检查是否有任何包含 file 的项
+        hasFile = Object.values(value).some(
+          (v: any) => v && typeof v === 'object' && 'file' in v && !v.hidden
+        );
+      }
+    }
+    
     if (field.required && !hasFile) {
       ElMessage.warning(`请上传${field.label}`);
       return false;
@@ -932,10 +987,11 @@ async function processFileUploads(): Promise<any[]> {
   const currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response.data?.upload_urls || []) as any[];
 
   const uploadedFiles: any[] = [];
+  const uploadPromises: Promise<void>[] = [];
   
   try {
-    await Promise.all(
-      currentUploadUrls.map(async (u: any) => {
+    currentUploadUrls.forEach((u: any) => {
+      const promise = (async () => {
         const entry = fileEntries.find(e => e.field_name === u.field_name);
         if (!entry) {
           throw new Error(`上传时未找到对应的文件字段: ${u.field_name}`);
@@ -948,6 +1004,7 @@ async function processFileUploads(): Promise<any[]> {
         const task = uploadTaskList.value.find(t => t.id === taskId);
         if (task) {
           task.cancelTokenSource = cancelTokenSource;
+          task.cancelable = true;
         }
 
         try {
@@ -1007,14 +1064,20 @@ async function processFileUploads(): Promise<any[]> {
           }
         } catch (err: any) {
           if (axios.isCancel(err)) {
+            console.log(`任务 ${taskId} 已被用户取消`);
             updateUploadTaskStatus(taskId, 'error', '已取消');
           } else {
+            console.error(`任务 ${taskId} 上传失败:`, err?.message);
             updateUploadTaskStatus(taskId, 'error', err?.message || '上传失败');
           }
-          throw err;
+          // 不再向上抛出错误，允许其他文件继续上传
         }
-      })
-    );
+      })();
+      uploadPromises.push(promise);
+    });
+
+    // 等待所有上传完成
+    await Promise.all(uploadPromises);
   } catch (err: any) {
     console.error('上传过程中出错:', err);
   }
@@ -1163,6 +1226,16 @@ function getShortLabel(label: string): string {
   return labelMap[label] || `${label.substring(0, 8)}...`;
 }
 
+// 获取字段的文件类型限制
+function getFieldFileAccept(field: any): string {
+  // 如果是普通文件字段，使用其 fileType
+  if (field.fileType) {
+    return getFileAcceptTypes(field.fileType);
+  }
+  // 如果是动态对象字段（如 Reference_data 的 filePaths），默认不限制
+  return getFileAcceptTypes('*');
+}
+
 // 获取文件接受类型
 function getFileAcceptTypes(fileType: string): string {
   // 根据文件类型返回对应的MIME类型和扩展名
@@ -1301,17 +1374,28 @@ function transformLineageData(data: any[]) {
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
   const fileTypeColorMap = new Map<string, string>();
-  const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];
+  
+  // 专业配色方案：使用现代渐变色和谐配色
+  const colors = [
+    { primary: '#4A90E2', light: 'rgba(74, 144, 226, 0.15)' },    // 蓝
+    { primary: '#7ED321', light: 'rgba(126, 211, 33, 0.15)' },    // 绿
+    { primary: '#F5A623', light: 'rgba(245, 166, 35, 0.15)' },    // 橙
+    { primary: '#E94B3C', light: 'rgba(233, 75, 60, 0.15)' },     // 红
+    { primary: '#50E3C2', light: 'rgba(80, 227, 194, 0.15)' },    // 青
+    { primary: '#BD10E0', light: 'rgba(189, 16, 224, 0.15)' },    // 紫
+    { primary: '#FF6B6B', light: 'rgba(255, 107, 107, 0.15)' },   // 珊瑚红
+    { primary: '#4ECDC4', light: 'rgba(78, 205, 196, 0.15)' }     // 绿松石
+  ];
   let colorIndex = 0;
 
   // 第一遍：收集所有文件类型
   data.forEach((genealogy) => {
     if (genealogy.file1 && !fileTypeColorMap.has(genealogy.file1.file_type)) {
-      fileTypeColorMap.set(genealogy.file1.file_type, colors[colorIndex % colors.length]);
+      fileTypeColorMap.set(genealogy.file1.file_type, colors[colorIndex % colors.length].primary);
       colorIndex++;
     }
     if (genealogy.file2 && !fileTypeColorMap.has(genealogy.file2.file_type)) {
-      fileTypeColorMap.set(genealogy.file2.file_type, colors[colorIndex % colors.length]);
+      fileTypeColorMap.set(genealogy.file2.file_type, colors[colorIndex % colors.length].primary);
       colorIndex++;
     }
   });
@@ -1325,8 +1409,8 @@ function transformLineageData(data: any[]) {
       return;
     }
 
-    const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0];
-    const color2 = fileTypeColorMap.get(genealogy.file2.file_type) || colors[1];
+    const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0].primary;
+    const color2 = fileTypeColorMap.get(genealogy.file2.file_type) || colors[1].primary;
 
     // 添加file1节点
     if (!nodeMap.has(genealogy.file1.file_id)) {
@@ -1335,29 +1419,54 @@ function transformLineageData(data: any[]) {
         name: genealogy.file1.file_name,
         value: genealogy.file1,
         category: 0,
-        symbolSize: 50,
+        symbolSize: 55,
         label: {
           show: true,
           position: 'bottom',
           formatter: (params: any) => {
             const name = genealogy.file1.file_name;
-            return name.length > 30 ? `${name.substring(0, 30)}...` : name;
+            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
           },
-          fontSize: 12,
+          fontSize: 11,
           color: '#333',
           fontWeight: 'bold',
-          distance: 8,
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          distance: 10,
+          backgroundColor: 'rgba(255, 255, 255, 0.85)',
           borderRadius: 3,
-          padding: [3, 6]
+          borderColor: '#e0e0e0',
+          borderWidth: 0.5,
+          padding: [4, 7],
+          shadowColor: 'rgba(0, 0, 0, 0.1)',
+          shadowBlur: 3
         },
         itemStyle: {
           color: color1,
-          borderColor: '#fff',
-          borderWidth: 3,
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.2)',
-          shadowOffsetY: 2
+          borderColor: '#ffffff',
+          borderWidth: 3.5,
+          shadowBlur: 16,
+          shadowColor: color1 + '40',
+          shadowOffsetY: 4,
+          opacity: 0.95
+        },
+        emphasis: {
+          itemStyle: {
+            color: color1,
+            borderColor: '#fff',
+            borderWidth: 4,
+            shadowBlur: 24,
+            shadowColor: color1 + '60',
+            shadowOffsetY: 6
+          },
+          label: {
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: '#fff',
+            backgroundColor: color1,
+            borderRadius: 4,
+            padding: 5,
+            shadowColor: 'rgba(0, 0, 0, 0.2)',
+            shadowBlur: 6
+          }
         },
         tooltip: {
           show: true
@@ -1372,29 +1481,54 @@ function transformLineageData(data: any[]) {
         name: genealogy.file2.file_name,
         value: genealogy.file2,
         category: 0,
-        symbolSize: 50,
+        symbolSize: 55,
         label: {
           show: true,
           position: 'bottom',
           formatter: (params: any) => {
             const name = genealogy.file2.file_name;
-            return name.length > 30 ? `${name.substring(0, 30)}...` : name;
+            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
           },
-          fontSize: 12,
+          fontSize: 11,
           color: '#333',
           fontWeight: 'bold',
-          distance: 8,
-          backgroundColor: 'rgba(255, 255, 255, 0.8)',
+          distance: 10,
+          backgroundColor: 'rgba(255, 255, 255, 0.85)',
           borderRadius: 3,
-          padding: [3, 6]
+          borderColor: '#e0e0e0',
+          borderWidth: 0.5,
+          padding: [4, 7],
+          shadowColor: 'rgba(0, 0, 0, 0.1)',
+          shadowBlur: 3
         },
         itemStyle: {
           color: color2,
-          borderColor: '#fff',
-          borderWidth: 3,
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.2)',
-          shadowOffsetY: 2
+          borderColor: '#ffffff',
+          borderWidth: 3.5,
+          shadowBlur: 16,
+          shadowColor: color2 + '40',
+          shadowOffsetY: 4,
+          opacity: 0.95
+        },
+        emphasis: {
+          itemStyle: {
+            color: color2,
+            borderColor: '#fff',
+            borderWidth: 4,
+            shadowBlur: 24,
+            shadowColor: color2 + '60',
+            shadowOffsetY: 6
+          },
+          label: {
+            fontSize: 12,
+            fontWeight: 'bold',
+            color: '#fff',
+            backgroundColor: color2,
+            borderRadius: 4,
+            padding: 5,
+            shadowColor: 'rgba(0, 0, 0, 0.2)',
+            shadowBlur: 6
+          }
         },
         tooltip: {
           show: true
@@ -1411,24 +1545,27 @@ function transformLineageData(data: any[]) {
       label: {
         show: true,
         position: 'middle',
-        fontSize: 11,
-        color: '#333',
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        borderColor: '#ccc',
+        fontSize: 10,
+        color: '#555',
+        backgroundColor: 'rgba(255, 255, 255, 0.98)',
+        borderColor: '#d0d0d0',
         borderWidth: 1,
-        borderRadius: 2,
-        padding: [4, 6],
-        fontWeight: 'bold'
+        borderRadius: 3,
+        padding: [5, 8],
+        fontWeight: 'bold',
+        shadowColor: 'rgba(0, 0, 0, 0.08)',
+        shadowBlur: 4
       },
       lineStyle: {
-        width: 3,
-        color: '#999',
-        curveness: 0.2,
-        opacity: 0.7,
+        width: 2.8,
+        color: 'rgba(180, 180, 180, 0.7)',
+        curveness: 0.15,
+        opacity: 0.75,
         type: 'solid'
       },
-      symbolSize: [8, 15],
-      symbol: ['none', 'arrow']
+      symbolSize: [10, 18],
+      symbol: ['circle', 'arrow'],
+      smooth: true
     });
   });
 
@@ -1507,47 +1644,49 @@ function renderLineageGraph(genealogyData: any[]) {
   const option = {
     tooltip: {
       trigger: 'item',
-      backgroundColor: 'rgba(50, 50, 50, 0.95)',
+      backgroundColor: 'rgba(30, 30, 40, 0.98)',
       borderColor: '#5470c6',
-      borderWidth: 2,
+      borderWidth: 1.5,
       textStyle: {
         color: '#fff',
-        fontSize: 12
+        fontSize: 13,
+        fontFamily: "'Segoe UI', 'Microsoft YaHei', sans-serif"
       },
+      padding: [12, 16],
       formatter: (params: any) => {
         if (params.dataType === 'node') {
           const nodeData = params.data.value;
           const timestamp = new Date(nodeData.created_time).toLocaleString('zh-CN');
           return `
-            <div style="padding: 10px; min-width: 280px;">
-              <b style="font-size: 14px; color: #ffd700;">📄 文件信息</b><br/>
-              <div style="margin-top: 6px; color: #e0e0e0;">
-                <span style="color: #87ceeb;">文件名:</span> <b>${nodeData.file_name}</b><br/>
-                <span style="color: #87ceeb;">文件类型:</span> <b style="color: #90ee90;">${nodeData.file_type}</b><br/>
-                <span style="color: #87ceeb;">文件编号:</span> ${nodeData.file_id}<br/>
-                <span style="color: #87ceeb;">上传用户:</span> ${nodeData.user || 'N/A'}
+            <div style="line-height: 1.8;">
+              <div style="font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 8px;">📄 文件信息</div>
+              <div style="color: #e0e0e0; font-size: 12px;">
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件名:</span> <span style="color: #fff; font-weight: 500;">${nodeData.file_name}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件类型:</span> <span style="color: #90ee90; font-weight: 500;">${nodeData.file_type}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件ID:</span> <span style="color: #fff;">${nodeData.file_id}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 用户:</span> <span style="color: #fff;">${nodeData.user || 'N/A'}</span></div>
               </div>
             </div>
           `;
         } else if (params.dataType === 'edge') {
           const taskData = params.data.value;
           if (!taskData || !taskData.task_units) {
-            return '<div style="padding: 8px;">任务信息加载中...</div>';
+            return '<div style="padding: 8px;">加载中...</div>';
           }
           const taskCount = taskData.task_units.length;
           const taskUnits = taskData.task_units
-            .map((u: any) => `<li style="margin: 4px 0;">✓ ${u.task_unit_name}</li>`)
+            .map((u: any) => `<li style="margin: 3px 0; color: #90ee90;">✓ ${u.task_unit_name}</li>`)
             .join('');
           const timestamp = new Date(taskData.time).toLocaleString('zh-CN');
           return `
-            <div style="padding: 10px; min-width: 300px;">
-              <b style="font-size: 14px; color: #ffd700;">⚙️ 任务信息</b><br/>
-              <div style="margin-top: 6px; color: #e0e0e0;">
-                <span style="color: #87ceeb;">任务数:</span> <b style="color: #90ee90;">${taskCount}</b><br/>
-                <span style="color: #87ceeb;">执行用户:</span> ${taskData.user || 'N/A'}<br/>
-                <span style="color: #87ceeb;">执行时间:</span> ${timestamp}<br/>
-                <b style="color: #90ee90; margin-top: 6px;">📋 任务单元列表:</b>
-                <ul style="margin: 6px 0; padding-left: 20px; list-style: none;">
+            <div style="line-height: 1.8;">
+              <div style="font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 8px;">⚙️ 任务信息</div>
+              <div style="color: #e0e0e0; font-size: 12px;">
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 任务数:</span> <span style="color: #90ee90; font-weight: bold;">${taskCount}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 执行用户:</span> <span style="color: #fff;">${taskData.user || 'N/A'}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 执行时间:</span> <span style="color: #bbb; font-size: 11px;">${timestamp}</span></div>
+                <div style="margin-top: 8px;"><span style="color: #87ceeb;">▸ 任务单元:</span></div>
+                <ul style="margin: 4px 0 0 16px; padding: 0; list-style: none;">
                   ${taskUnits}
                 </ul>
               </div>
@@ -1560,14 +1699,17 @@ function renderLineageGraph(genealogyData: any[]) {
     legend: [
       {
         data: ['file'],
-        left: 'left',
-        top: 50,
+        left: '5%',
+        top: '5%',
         textStyle: {
-          color: '#333'
-        }
+          color: '#666',
+          fontSize: 12,
+          fontWeight: 500
+        },
+        itemGap: 20
       }
     ],
-    animationDuration: 300,
+    animationDuration: 500,
     animationEasingUpdate: 'cubicInOut' as const,
     series: [
       {
@@ -1582,77 +1724,82 @@ function renderLineageGraph(genealogyData: any[]) {
         draggable: true,
         label: {
           show: true,
-          position: 'right',
-          fontSize: 12,
+          position: 'bottom',
+          fontSize: 11,
           color: '#333',
           fontWeight: 'bold',
-          distance: 12,
+          distance: 8,
           formatter: (params: any) => {
-            return params.data.name || params.data.id;
-          }
+            const name = params.data.name || params.data.id;
+            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
+          },
+          backgroundColor: 'rgba(255, 255, 255, 0.7)',
+          borderRadius: 2,
+          padding: [3, 6],
+          borderColor: '#ddd',
+          borderWidth: 0.5
         },
         edgeLabel: {
           show: true,
           position: 'middle',
-          fontSize: 11,
-          color: '#333',
+          fontSize: 10,
+          color: '#555',
           backgroundColor: 'rgba(255, 255, 255, 0.95)',
-          padding: [4, 6],
+          padding: [3, 5],
           borderRadius: 2,
           formatter: (params: any) => {
             const taskData = params.data.value;
             if (taskData && taskData.task_units) {
-              return `任务数: ${taskData.task_units.length}`;
+              return `📋 ${taskData.task_units.length} 个任务`;
             }
-            return '0';
+            return '';
           }
         },
         lineStyle: {
-          width: 3,
-          color: '#999',
+          width: 2.5,
+          color: '#bbb',
           curveness: 0.2,
-          opacity: 0.7
+          opacity: 0.6,
+          type: 'solid'
         },
         itemStyle: {
           color: '#5470c6',
           borderColor: '#fff',
-          borderWidth: 3,
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.2)',
-          shadowOffsetY: 2
+          borderWidth: 2.5,
+          shadowBlur: 12,
+          shadowColor: 'rgba(84, 112, 198, 0.3)',
+          shadowOffsetY: 3
         },
         emphasis: {
-          focus: 'series',
+          focus: 'adjacency',
           itemStyle: {
-            color: '#f0816d',
+            color: '#ffa726',
             borderColor: '#fff',
-            borderWidth: 4,
-            shadowBlur: 15,
-            shadowColor: 'rgba(240, 129, 109, 0.5)'
+            borderWidth: 3.5,
+            shadowBlur: 20,
+            shadowColor: 'rgba(255, 167, 38, 0.5)',
+            shadowOffsetY: 4
           },
           label: {
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 'bold',
             color: '#000',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
             borderRadius: 3,
             padding: 4,
-            shadowColor: 'rgba(0, 0, 0, 0.2)',
-            shadowBlur: 4
+            shadowColor: 'rgba(0, 0, 0, 0.15)',
+            shadowBlur: 5
           },
           lineStyle: {
-            width: 4,
-            color: '#f0816d',
+            width: 3.5,
+            color: '#ffa726',
             opacity: 0.9,
-            shadowColor: 'rgba(0, 0, 0, 0.3)',
-            shadowBlur: 8
+            shadowColor: 'rgba(255, 167, 38, 0.3)',
+            shadowBlur: 10
           }
         }
       }
-    ],
-    grid: {
-      containLabel: true
-    }
+    ]
   };
 
   console.log('Setting option:', option);
@@ -1835,47 +1982,50 @@ onMounted(() => {
               <template v-else-if="field.type === 'boolean'">
                 <ElSwitch v-model="dynamicForm[field.name]" :class="{ 'required-field': field.required }" />
               </template>
-              <!-- 动态对象类型（如 Reference_data 的 filePaths） -->
+              <!-- 动态对象类型（如 Reference_data 的 filePaths）- 使用统一的多文件上传模板 -->
               <template v-else-if="field.type === 'dynamic-object'">
-                <div class="dynamic-object-container">
-                  <div
-                    v-for="[k] in Object.entries(dynamicForm[field.name]).filter(([k, v]) => !(v as any).hidden)"
-                    :key="k"
-                    class="dynamic-object-item"
-                  >
-                    <div class="dynamic-object-row">
+                <ElFormItem :required="field.required">
+                  <div class="upload-container">
+                    <div class="upload-row">
                       <ElUpload
+                        :multiple="true"
                         :auto-upload="false"
                         :show-file-list="false"
-                        :accept="getFileAcceptTypes('*')"
-                        @change="uploadFile => uploadFile.raw && handleFileChange(field.name, uploadFile.raw, k)"
+                        :accept="getFieldFileAccept(field)"
+                        @change="files => {
+                          const rawFiles = Array.isArray(files) ? files.map(f => f.raw) : files.raw ? [files.raw] : [];
+                          handleFileChange(field.name, rawFiles);
+                        }"
                       >
-                        <ElButton size="small" type="primary">选择文件</ElButton>
+                        <ElButton type="primary">选择文件</ElButton>
                       </ElUpload>
-                      <span v-if="dynamicForm[field.name][k].path" class="file-name">
-                        {{ getFileName(dynamicForm[field.name][k].path) }}
-                      </span>
-                      <ElButton type="danger" size="small" @click="removeDynamicObjectItem(field.name, k)">
-                        删除
-                      </ElButton>
+                      
+                      <div class="upload-tip">
+                        <ElIcon><Upload /></ElIcon>
+                        <span>{{ field.description }}</span>
+                      </div>
+                    </div>
+                    
+                    <!-- 已上传文件列表 -->
+                    <div v-if="getUploadedFileCount(field) > 0" class="uploaded-files-list">
+                      <div
+                        v-for="(fileInfo, idx) in getUploadedFilesForField(field)"
+                        :key="idx"
+                        class="uploaded-file-item"
+                      >
+                        <span class="file-name">{{ getFileName(fileInfo.path) }}</span>
+                        <ElButton
+                          type="danger"
+                          size="small"
+                          link
+                          @click="removeFileFromField(field, idx)"
+                        >
+                          移除
+                        </ElButton>
+                      </div>
                     </div>
                   </div>
-                  <template v-if="field.type === 'dynamic-object'">
-                    <ElUpload
-                      :auto-upload="false"
-                      :show-file-list="false"
-                      :accept="getFileAcceptTypes('*')"
-                      @change="uploadFile => uploadFile.raw && handleAddDynamicObjectFile(field.name, uploadFile.raw)"
-                    >
-                      <ElButton type="primary" size="small">添加文件路径</ElButton>
-                    </ElUpload>
-                  </template>
-                  <template v-else>
-                    <ElButton type="primary" size="small" @click="addDynamicObjectItem(field.name)">
-                      添加文件路径
-                    </ElButton>
-                  </template>
-                </div>
+                </ElFormItem>
               </template>
               <!-- 数字输入 -->
               <template v-else-if="field.type === 'number'">
@@ -1907,40 +2057,46 @@ onMounted(() => {
             </ElFormItem>
           </template>
 
-          <!-- 文件上传字段 -->
+          <!-- 文件上传字段（多文件） -->
           <template v-for="field in fileFields" :key="field.name">
             <ElFormItem :label="getShortLabel(field.displayLabel || field.label)" :required="field.required">
               <div class="upload-container">
                 <div class="upload-row">
                   <ElUpload
+                    :multiple="true"
                     :auto-upload="false"
                     :show-file-list="false"
-                    :accept="getFileAcceptTypes(field.fileType)"
-                    @change="uploadFile => uploadFile.raw && handleFileChange(field.name, uploadFile.raw)"
+                    :accept="getFieldFileAccept(field)"
+                    @change="files => {
+                      const rawFiles = Array.isArray(files) ? files.map(f => f.raw) : files.raw ? [files.raw] : [];
+                      handleFileChange(field.name, rawFiles);
+                    }"
                   >
                     <ElButton type="primary">选择文件</ElButton>
-                    <span
-                      v-if="
-                        field.parentField
-                          ? dynamicForm[field.parentField] &&
-                            dynamicForm[field.parentField][field.originalName] &&
-                            dynamicForm[field.parentField][field.originalName].path
-                          : dynamicForm[field.name] && dynamicForm[field.name].path
-                      "
-                      style="margin-left: 10px; color: #409eff"
-                    >
-                      {{
-                        getFileName(
-                          field.parentField
-                            ? dynamicForm[field.parentField][field.originalName].path
-                            : dynamicForm[field.name].path
-                        )
-                      }}
-                    </span>
                   </ElUpload>
+                  
                   <div class="upload-tip">
                     <ElIcon><Upload /></ElIcon>
                     <span>{{ field.description }}</span>
+                  </div>
+                </div>
+                
+                <!-- 已上传文件列表 -->
+                <div v-if="getUploadedFileCount(field) > 0" class="uploaded-files-list">
+                  <div
+                    v-for="(fileInfo, idx) in getUploadedFilesForField(field)"
+                    :key="idx"
+                    class="uploaded-file-item"
+                  >
+                    <span class="file-name">{{ getFileName(fileInfo.path) }}</span>
+                    <ElButton
+                      type="danger"
+                      size="small"
+                      link
+                      @click="removeFileFromField(field, idx)"
+                    >
+                      移除
+                    </ElButton>
                   </div>
                 </div>
               </div>
@@ -2037,7 +2193,7 @@ onMounted(() => {
             </ElTableColumn>
           </ElTable>
         </div>
-        <div class="history-pagination" style="padding-top: 2%; padding-bottom: 1%">
+        <div class="history-pagination">
           <ElPagination
             v-if="fileListTotal > 0"
             background
@@ -2054,11 +2210,11 @@ onMounted(() => {
     </div>
 
     <!-- 上传任务面板 -->
-    <div class="upload-task-panel">
+    <div class="upload-task-panel" v-if="uploadTaskList.length > 0">
       <div class="task-panel-header" @click="uploadTaskPanelCollapsed = !uploadTaskPanelCollapsed">
         <div class="task-panel-title">
           <ElIcon class="task-icon"><Upload /></ElIcon>
-          <span>正在上传任务数 ({{ uploadTaskList.length }})</span>
+          <span>正在上传文件数 ({{ uploadTaskList.filter(t => t.status === 'uploading').length }})</span>
         </div>
         <ElIcon class="collapse-icon" :style="{ transform: uploadTaskPanelCollapsed ? 'rotate(180deg)' : 'rotate(0deg)' }">
           <CaretTop />
@@ -2070,7 +2226,7 @@ onMounted(() => {
           <div class="task-info">
             <span class="task-name">{{ task.fileName }}</span>
             <span class="task-status" :class="task.status">
-              {{ task.status === 'uploading' ? '上传中' : task.status === 'success' ? '成功' : '失败' }}
+              {{ task.status === 'uploading' ? (task.canceling ? '取消中...' : '上传中') : task.status === 'success' ? '成功' : '失败' }}
             </span>
           </div>
           <ElProgress 
@@ -2084,13 +2240,15 @@ onMounted(() => {
             <ElButton 
               v-if="task.status === 'uploading'" 
               size="small" 
-              type="danger" 
+              type="danger"
+              :disabled="task.canceling"
               text
               @click="cancelUploadTask(task.id)"
             >
-              取消
+              {{ task.canceling ? '取消中...' : '取消' }}
             </ElButton>
             <ElButton 
+              v-if="task.status !== 'uploading'"
               size="small" 
               type="primary" 
               text
@@ -2262,10 +2420,17 @@ onMounted(() => {
 
 .history-table-scroll {
   flex: 1 1 0;
-  min-height: 0%;
-  max-height: 83%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+}
+
+.history-pagination {
+  flex-shrink: 0;
+  padding-top: 12px;
+  padding-bottom: 8px;
+  border-top: 1px solid #ebeef5;
+  background: #fafcff;
 }
 
 /* 主卡片美化 */
@@ -2349,6 +2514,39 @@ onMounted(() => {
 .upload-tip .el-icon {
   font-size: 14px;
   color: #409eff;
+}
+
+/* 已上传文件列表样式 */
+.uploaded-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  border: 1px solid #f0f0f0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background-color: #fff;
+  border-radius: 3px;
+  border: 1px solid #e8e8e8;
+  font-size: 12px;
+}
+
+.uploaded-file-item .file-name {
+  flex: 1;
+  color: #409eff;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 表单标签优化 */
@@ -2616,7 +2814,7 @@ onMounted(() => {
 .upload-task-panel {
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  left: 20px;
   width: 400px;
   max-height: 500px;
   background: #fff;
@@ -2624,7 +2822,7 @@ onMounted(() => {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
   z-index: 999;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
 }
 
 .task-panel-header {
@@ -2632,10 +2830,12 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid #ebeef5;
+  border-top: 1px solid #ebeef5;
   cursor: pointer;
   user-select: none;
   background: #f5f7fa;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
 }
 
 .task-panel-title {
@@ -2660,18 +2860,21 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   max-height: 450px;
+  display: flex;
+  flex-direction: column-reverse;
 }
 
 .task-item {
   padding: 12px 16px;
-  border-bottom: 1px solid #ebeef5;
+  border-top: 1px solid #ebeef5;
+  border-bottom: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.task-item:last-child {
-  border-bottom: none;
+.task-item:first-child {
+  border-top: none;
 }
 
 .task-info {
@@ -2734,7 +2937,7 @@ onMounted(() => {
   .upload-task-panel {
     width: 320px;
     bottom: 10px;
-    right: 10px;
+    left: 10px;
   }
 
   .task-panel-content {
@@ -2749,7 +2952,7 @@ onMounted(() => {
   }
 
   .task-panel-header {
-    border-bottom-color: var(--el-border-color);
+    border-top-color: var(--el-border-color);
     background: var(--el-bg-color);
   }
 
@@ -2758,7 +2961,7 @@ onMounted(() => {
   }
 
   .task-item {
-    border-bottom-color: var(--el-border-color);
+    border-top-color: var(--el-border-color);
   }
 
   .task-name {
