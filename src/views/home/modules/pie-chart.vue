@@ -30,16 +30,6 @@ const { domRef, updateOptions } = useEcharts(() => ({
     trigger: 'item',
     formatter: '{a} <br/>{b} : {c} ({d}%)'
   },
-  legend: {
-    bottom: '10px',
-    left: 'center',
-    itemStyle: {
-      borderWidth: 0
-    },
-    textStyle: {
-      fontSize: 12
-    }
-  },
   series: [
     {
       color: ['#5da8ff', '#8e9dff', '#fedc69', '#26deca', '#ff7875', '#52c41a', '#fa8c16', '#722ed1'],
@@ -131,7 +121,7 @@ init();
 
 <template>
   <ElCard class="card-wrapper">
-    <div ref="domRef" class="h-600px overflow-hidden pb-2"></div>
+    <div ref="domRef" class="h-500px overflow-hidden pb-2"></div>
   </ElCard>
 </template>
 

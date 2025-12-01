@@ -12,8 +12,12 @@ import {
   ElTable,
   ElTableColumn
 } from 'element-plus';
+import axios from 'axios';
+import { Download } from '@element-plus/icons-vue';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
+import { getServiceBaseURL } from '@/utils/service';
+import { localStg } from '@/utils/storage';
 // 响应式数据
 const loading = ref(false);
 const visualizationLoading = ref(false);
@@ -175,6 +179,75 @@ const handleFileTypeClick = (fileType: Api.Visualization.FileType) => {
   fetchVisualizationData(fileType);
 };
 
+// 处理下载
+const handleDownload = async () => {
+  if (!selectedTaskId.value || !selectedFileType.value) {
+    ElMessage.warning('请先选择任务和文件类型');
+    return;
+  }
+
+  try {
+    const token = localStg.get('token');
+    const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
+    const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
+
+    const response = await axios({
+      url: `${baseURL}/visualization/tasks/download/${selectedTaskId.value}`,
+      method: 'GET',
+      params: { type: selectedFileType.value },
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: '*/*'
+      },
+      responseType: 'blob'
+    });
+
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition'];
+    let fileName = '';
+
+    if (contentDisposition) {
+      const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (fileNameMatch && fileNameMatch.length === 2) {
+        fileName = decodeURIComponent(fileNameMatch[1]);
+      }
+    }
+
+    // 如果没有在header中找到文件名，则使用默认名称
+    if (!fileName) {
+      const type = selectedFileType.value;
+      fileName = `task_${selectedTaskId.value}_${type}_${Date.now()}`;
+      // 根据类型添加扩展名
+      const extensions: Record<Api.Visualization.FileType, string> = {
+        txt: '.txt',
+        pdf: '.pdf',
+        vcf: '.vcf',
+        csv: '.csv',
+        image: '.zip'
+      };
+      fileName += (extensions as any)[type] || '';
+    }
+
+    // 创建下载链接
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+
+    // 清理
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success('文件下载成功');
+  } catch (error) {
+    console.error('文件下载失败:', error);
+    ElMessage.error('文件下载失败');
+  }
+};
+
 // 获取文件类型显示名称
 const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
   const labels = {
@@ -219,7 +292,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div v-loading="loading" class="visualization-container">
+  <div v-loading="loading" class="h-full flex flex-col gap-4">
     <!-- 空状态页面 -->
     <template v-if="!loading && !hasData">
       <ExceptionBase type="111" />
@@ -228,17 +301,17 @@ onMounted(async () => {
     <!-- 有数据时的正常页面 -->
     <template v-else>
       <!-- 上部分：选择区域 -->
-      <ElCard class="selection-card" shadow="never">
-        <div class="selection-content">
-          <div class="selection-item">
-            <label class="selection-label">任务ID:</label>
+      <ElCard class="flex-shrink-0" shadow="never">
+        <div class="flex flex-wrap items-center gap-6">
+          <div class="flex items-center gap-2">
+            <label class="whitespace-nowrap text-gray-600 font-medium">任务ID:</label>
             <ElSelect v-model="selectedTaskId" placeholder="请选择任务" style="width: 240px">
               <ElOption v-for="option in taskOptions" :key="option.value" :label="option.label" :value="option.value" />
             </ElSelect>
           </div>
 
-          <div v-if="availableFileTypes.length > 0" class="selection-item">
-            <label class="selection-label">可视化类型:</label>
+          <div v-if="availableFileTypes.length > 0" class="flex items-center gap-2">
+            <label class="whitespace-nowrap text-gray-600 font-medium">可视化类型:</label>
             <ElButtonGroup>
               <ElButton
                 v-for="fileType in availableFileTypes"
@@ -252,8 +325,8 @@ onMounted(async () => {
           </div>
 
           <!-- CSV表格类型选择 - 只在选择CSV类型且有结果时显示 -->
-          <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="selection-item">
-            <label class="selection-label">CSV表格类型:</label>
+          <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="flex items-center gap-2">
+            <label class="whitespace-nowrap text-gray-600 font-medium">CSV表格类型:</label>
             <ElSelect v-model="selectedCsvTable" placeholder="请选择表格类型" style="width: 150px">
               <ElOption
                 v-for="option in csvTableOptions"
@@ -263,25 +336,32 @@ onMounted(async () => {
               />
             </ElSelect>
           </div>
+
+          <!-- 下载按钮 - 在选择了任务和文件类型后显示 -->
+          <div v-if="selectedTaskId && selectedFileType" class="flex items-center gap-2">
+            <ElButton type="primary" :icon="Download" @click="handleDownload">下载文件</ElButton>
+          </div>
         </div>
       </ElCard>
 
       <!-- 下部分：可视化内容 -->
-      <ElCard class="content-card" shadow="never">
-        <div v-loading="visualizationLoading" class="visualization-content">
+      <ElCard class="min-h-0 flex-1" shadow="never">
+        <div v-loading="visualizationLoading" class="min-h-96">
           <!-- 有可视化结果时展示 -->
           <div v-if="!visualizationLoading && visualizationResult">
             <!-- TXT 文件展示 -->
             <template v-if="visualizationResult.type === 'txt'">
-              <div class="txt-content">
-                <pre>{{ visualizationResult.data }}</pre>
+              <div class="max-h-screen overflow-auto rounded bg-gray-50 p-4">
+                <pre class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed font-mono">{{
+                  visualizationResult.data
+                }}</pre>
               </div>
             </template>
 
             <!-- PDF 文件展示 - 改回iframe -->
             <template v-else-if="visualizationResult.type === 'pdf'">
-              <div class="pdf-content">
-                <div class="pdf-header">
+              <div class="overflow-hidden rounded">
+                <div class="mb-4">
                   <ElAlert type="info" :closable="false" show-icon>
                     <template #title>
                       <span>PDF文件预览</span>
@@ -298,7 +378,7 @@ onMounted(async () => {
                 </div>
 
                 <!-- iframe显示PDF -->
-                <div class="pdf-iframe-container">
+                <div class="overflow-hidden border border-gray-300 rounded bg-gray-50">
                   <iframe :src="visualizationResult.data" frameborder="0" width="100%" height="600px" />
                 </div>
               </div>
@@ -320,8 +400,8 @@ onMounted(async () => {
 
             <!-- CSV 表格展示 -->
             <template v-else-if="visualizationResult.type === 'csv'">
-              <div class="csv-container">
-                <ElTable :data="currentCsvData" border stripe class="max-h[600px] w-full">
+              <div class="flex flex-col">
+                <ElTable :data="currentCsvData" border stripe class="max-h-[600px] w-full">
                   <ElTableColumn
                     v-for="column in getTableColumns(currentCsvData)"
                     :key="column"
@@ -336,11 +416,15 @@ onMounted(async () => {
 
             <!-- 图片展示 -->
             <template v-else-if="visualizationResult.type === 'image'">
-              <div v-if="imageList.length" class="image-grid">
-                <div v-for="(image, index) in imageList" :key="image.url || index" class="image-item">
-                  <div class="image-thumb-wrapper">
+              <div v-if="imageList.length" class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
+                <div
+                  v-for="(image, index) in imageList"
+                  :key="image.url || index"
+                  class="overflow-hidden border border-gray-200 rounded-lg bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
+                >
+                  <div class="relative w-full bg-gray-50 pt-full">
                     <ElImage
-                      class="image-thumb"
+                      class="absolute inset-0 h-full w-full"
                       :src="image.url"
                       :preview-src-list="imagePreviewUrls"
                       :initial-index="index"
@@ -349,30 +433,35 @@ onMounted(async () => {
                       :lazy="true"
                     />
                   </div>
-                  <p v-if="image.name" class="image-caption">{{ image.name }}</p>
+                  <p v-if="image.name" class="mx-3 my-2 text-center text-sm text-gray-600 leading-snug">
+                    {{ image.name }}
+                  </p>
                 </div>
               </div>
-              <div v-else class="no-image-hint">
+              <div v-else class="min-h-48 flex items-center justify-center">
                 <ElAlert title="当前没有可展示的图片" type="info" :closable="false" show-icon />
               </div>
             </template>
           </div>
 
           <!-- 未选择任务时的提示 -->
-          <div v-else-if="!visualizationLoading && !selectedTaskId" class="select-hint">
+          <div v-else-if="!visualizationLoading && !selectedTaskId" class="min-h-48 flex items-center justify-center">
             <ElAlert title="请先选择一个任务" type="info" :closable="false" show-icon />
           </div>
 
           <!-- 未选择可视化类型时的提示 -->
           <div
             v-else-if="!visualizationLoading && selectedTaskId && !selectedFileType && availableFileTypes.length > 0"
-            class="select-hint"
+            class="min-h-48 flex items-center justify-center"
           >
             <ElAlert title="请选择可视化类型来查看内容" type="info" :closable="false" show-icon />
           </div>
 
           <!-- 无可用的可视化类型 -->
-          <div v-else-if="!visualizationLoading && selectedTaskId && availableFileTypes.length === 0" class="no-types">
+          <div
+            v-else-if="!visualizationLoading && selectedTaskId && availableFileTypes.length === 0"
+            class="min-h-48 flex items-center justify-center"
+          >
             <ElAlert title="当前任务暂无可视化类型" type="warning" :closable="false" show-icon />
           </div>
         </div>
@@ -380,173 +469,3 @@ onMounted(async () => {
     </template>
   </div>
 </template>
-
-<style scoped>
-.visualization-container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.selection-card {
-  flex-shrink: 0;
-}
-
-.selection-content {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-.selection-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.selection-label {
-  font-weight: 500;
-  color: #606266;
-  white-space: nowrap;
-}
-
-.content-card {
-  flex: 1;
-  min-height: 0;
-}
-
-.visualization-content {
-  min-height: 400px;
-}
-
-.txt-content {
-  background-color: #f5f7fa;
-  border-radius: 4px;
-  padding: 16px;
-  max-height: 600px;
-  overflow: auto;
-}
-
-.txt-content pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-family: 'Courier New', monospace;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.pdf-content {
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.pdf-header {
-  margin-bottom: 16px;
-}
-
-.pdf-iframe-container {
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  overflow: hidden;
-  background-color: #f8f9fa;
-}
-
-.pdf-info {
-  text-align: center;
-  margin-bottom: 32px;
-}
-
-.pdf-info h3 {
-  margin: 0 0 16px 0;
-  font-size: 24px;
-  color: #303133;
-  font-weight: 600;
-}
-
-.pdf-info p {
-  margin: 0;
-  color: #606266;
-  font-size: 16px;
-}
-
-.pdf-actions {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.csv-container {
-  display: flex;
-  flex-direction: column;
-}
-
-.image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 16px;
-}
-
-.image-item {
-  border: 1px solid #ebeef5;
-  border-radius: 8px;
-  background-color: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 0.2s ease;
-  overflow: hidden;
-}
-
-.image-item:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-}
-
-.image-thumb-wrapper {
-  position: relative;
-  width: 100%;
-  padding-top: 100%;
-  background-color: #f5f7fa;
-}
-
-.image-thumb {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.image-thumb :deep(img) {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.image-caption {
-  margin: 8px 12px 12px;
-  font-size: 14px;
-  color: #606266;
-  text-align: center;
-  line-height: 1.4;
-}
-
-.no-image-hint {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 200px;
-}
-
-.select-hint,
-.no-types {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 200px;
-}
-
-.el-button-group .el-button {
-  margin: 0;
-}
-</style>
