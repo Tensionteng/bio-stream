@@ -1,0 +1,493 @@
+<script lang="ts" setup>
+import { ref, nextTick } from 'vue';
+import { ElMessage, ElDialog, ElIcon, ElButton } from 'element-plus';
+import * as echarts from 'echarts';
+import { fetchFileGenealogy } from '@/service/api/file';
+
+// Props
+const props = defineProps<{
+  modelValue: boolean;
+  row?: any;
+}>();
+
+// Emits
+const emit = defineEmits<{
+  'update:modelValue': [value: boolean];
+}>();
+
+// 本地状态
+const lineageLoading = ref(false);
+const lineageChartRef = ref<HTMLElement>();
+const lineageChart = ref<echarts.ECharts>();
+const currentFileGenealogy = ref<any>(null);
+
+// 处理世系图对话框关闭
+function handleLineageDialogClose() {
+  emit('update:modelValue', false);
+  lineageChart.value?.dispose();
+  lineageChart.value = undefined;
+}
+
+// 数据世系相关
+async function showLineage(row: any) {
+  lineageLoading.value = true;
+  currentFileGenealogy.value = null;
+
+  try {
+    const res = await fetchFileGenealogy(row.file_id);
+    console.log('genealogy response:', res);
+
+    const genealogyData = res.response?.data || res.data;
+    console.log('genealogyData:', genealogyData);
+
+    if (genealogyData && Array.isArray(genealogyData.data) && genealogyData.data.length > 0) {
+      currentFileGenealogy.value = genealogyData;
+      await nextTick();
+      setTimeout(() => {
+        renderLineageGraph(genealogyData.data as any[]);
+      }, 100);
+    } else {
+      ElMessage.warning('暂无世系数据');
+      emit('update:modelValue', false);
+    }
+  } catch (e: any) {
+    ElMessage.error(`获取世系数据失败: ${e.message || '未知错误'}`);
+    emit('update:modelValue', false);
+  } finally {
+    lineageLoading.value = false;
+  }
+}
+
+// 转换世系数据为ECharts格式
+function transformLineageData(data: any[]) {
+  if (!Array.isArray(data) || data.length === 0) {
+    console.warn('No lineage data provided');
+    return { nodes: [], links: [], categories: [{ name: 'file' }] };
+  }
+
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+  const fileTypeColorMap = new Map<string, string>();
+  
+  // 专业配色方案
+  const colors = [
+    { primary: '#4A90E2', light: 'rgba(74, 144, 226, 0.15)' },
+    { primary: '#7ED321', light: 'rgba(126, 211, 33, 0.15)' },
+    { primary: '#F5A623', light: 'rgba(245, 166, 35, 0.15)' },
+    { primary: '#E94B3C', light: 'rgba(233, 75, 60, 0.15)' },
+    { primary: '#50E3C2', light: 'rgba(80, 227, 194, 0.15)' },
+    { primary: '#BD10E0', light: 'rgba(189, 16, 224, 0.15)' },
+    { primary: '#FF6B6B', light: 'rgba(255, 107, 107, 0.15)' },
+    { primary: '#4ECDC4', light: 'rgba(78, 205, 196, 0.15)' }
+  ];
+  let colorIndex = 0;
+
+  // 第一遍：收集所有文件类型
+  data.forEach((genealogy) => {
+    if (genealogy.file1 && !fileTypeColorMap.has(genealogy.file1.file_type)) {
+      fileTypeColorMap.set(genealogy.file1.file_type, colors[colorIndex % colors.length].primary);
+      colorIndex++;
+    }
+    if (genealogy.file2 && !fileTypeColorMap.has(genealogy.file2.file_type)) {
+      fileTypeColorMap.set(genealogy.file2.file_type, colors[colorIndex % colors.length].primary);
+      colorIndex++;
+    }
+  });
+
+  // 第二遍：创建节点和连接
+  data.forEach((genealogy) => {
+    if (!genealogy.file1 || !genealogy.file2) {
+      return;
+    }
+
+    const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0].primary;
+    const color2 = fileTypeColorMap.get(genealogy.file2.file_type) || colors[1].primary;
+
+    // 添加file1节点
+    if (!nodeMap.has(genealogy.file1.file_id)) {
+      nodeMap.set(genealogy.file1.file_id, {
+        id: genealogy.file1.file_id,
+        name: genealogy.file1.file_name,
+        value: genealogy.file1,
+        category: 0,
+        symbolSize: 55,
+        label: {
+          show: true,
+          position: 'bottom',
+          formatter: () => {
+            const name = genealogy.file1.file_name;
+            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
+          },
+          fontSize: 11,
+          color: '#333',
+          fontWeight: 'bold',
+          distance: 10,
+          backgroundColor: 'rgba(255, 255, 255, 0.85)',
+          borderRadius: 3,
+          borderColor: '#e0e0e0',
+          borderWidth: 0.5,
+          padding: [4, 7],
+          shadowColor: 'rgba(0, 0, 0, 0.1)',
+          shadowBlur: 3
+        },
+        itemStyle: {
+          color: color1,
+          borderColor: '#ffffff',
+          borderWidth: 3.5,
+          shadowBlur: 16,
+          shadowColor: color1 + '40',
+          shadowOffsetY: 4,
+          opacity: 0.95
+        }
+      });
+    }
+
+    // 添加file2节点
+    if (!nodeMap.has(genealogy.file2.file_id)) {
+      nodeMap.set(genealogy.file2.file_id, {
+        id: genealogy.file2.file_id,
+        name: genealogy.file2.file_name,
+        value: genealogy.file2,
+        category: 0,
+        symbolSize: 55,
+        label: {
+          show: true,
+          position: 'bottom',
+          formatter: () => {
+            const name = genealogy.file2.file_name;
+            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
+          },
+          fontSize: 11,
+          color: '#333',
+          fontWeight: 'bold',
+          distance: 10,
+          backgroundColor: 'rgba(255, 255, 255, 0.85)',
+          borderRadius: 3,
+          borderColor: '#e0e0e0',
+          borderWidth: 0.5,
+          padding: [4, 7],
+          shadowColor: 'rgba(0, 0, 0, 0.1)',
+          shadowBlur: 3
+        },
+        itemStyle: {
+          color: color2,
+          borderColor: '#ffffff',
+          borderWidth: 3.5,
+          shadowBlur: 16,
+          shadowColor: color2 + '40',
+          shadowOffsetY: 4,
+          opacity: 0.95
+        }
+      });
+    }
+
+    // 添加连接线
+    links.push({
+      source: genealogy.file1.file_id,
+      target: genealogy.file2.file_id,
+      value: genealogy.task,
+      label: {
+        show: true,
+        position: 'middle',
+        fontSize: 10,
+        color: '#555',
+        backgroundColor: 'rgba(255, 255, 255, 0.98)',
+        borderColor: '#d0d0d0',
+        borderWidth: 1,
+        borderRadius: 3,
+        padding: [5, 8],
+        fontWeight: 'bold',
+        shadowColor: 'rgba(0, 0, 0, 0.08)',
+        shadowBlur: 4
+      },
+      lineStyle: {
+        width: 2.8,
+        color: 'rgba(180, 180, 180, 0.7)',
+        curveness: 0.15,
+        opacity: 0.75,
+        type: 'solid'
+      },
+      symbolSize: [10, 18],
+      symbol: ['circle', 'arrow'],
+      smooth: true
+    });
+  });
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    links,
+    categories: [{ name: 'file' }],
+    fileTypeColorMap
+  };
+}
+
+// 计算节点层级
+function calculateNodeLevels(graphData: any): Record<number, any[]> {
+  const levels: Record<number, any[]> = {};
+  const visited = new Set<string>();
+  const nodeLevel: Record<string, number> = {};
+
+  const inDegree: Record<string, number> = {};
+  graphData.nodes.forEach((node: any) => {
+    inDegree[node.id] = 0;
+  });
+
+  graphData.links.forEach((link: any) => {
+    inDegree[link.target] = (inDegree[link.target] || 0) + 1;
+  });
+
+  const queue: any[] = [];
+  graphData.nodes.forEach((node: any) => {
+    if (inDegree[node.id] === 0) {
+      queue.push(node);
+      nodeLevel[node.id] = 0;
+      if (!levels[0]) levels[0] = [];
+      levels[0].push(node);
+    }
+  });
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    visited.add(node.id);
+
+    graphData.links.forEach((link: any) => {
+      if (link.source === node.id) {
+        const targetNode = graphData.nodes.find((n: any) => n.id === link.target);
+        if (targetNode && !visited.has(link.target)) {
+          const newLevel = (nodeLevel[node.id] || 0) + 1;
+          nodeLevel[link.target] = Math.max(nodeLevel[link.target] || 0, newLevel);
+
+          if (!levels[newLevel]) levels[newLevel] = [];
+          if (!levels[newLevel].includes(targetNode)) {
+            levels[newLevel].push(targetNode);
+          }
+
+          queue.push(targetNode);
+        }
+      }
+    });
+  }
+
+  return levels;
+}
+
+// 渲染世系图
+function renderLineageGraph(genealogyData: any[]) {
+  console.log('Starting renderLineageGraph with data:', genealogyData);
+
+  if (!lineageChartRef.value) {
+    console.error('lineageChartRef is not available');
+    return;
+  }
+
+  if (lineageChart.value) {
+    lineageChart.value.dispose();
+  }
+
+  lineageChart.value = echarts.init(lineageChartRef.value, 'light', {
+    renderer: 'canvas',
+    useDirtyRect: false
+  });
+
+  const graphData = transformLineageData(genealogyData);
+
+  if (graphData.nodes.length === 0) {
+    console.warn('No nodes in graph data');
+    ElMessage.warning('无法生成世系图：没有有效的数据');
+    return;
+  }
+
+  const levels = calculateNodeLevels(graphData);
+  const nodePositions = new Map<string, [number, number]>();
+  const levelWidth = 200;
+  const nodeHeight = 150;
+
+  Object.entries(levels).forEach(([level, nodes]: [string, any[]]) => {
+    const levelIndex = Number.parseInt(level, 10);
+    const x = levelIndex * levelWidth + 50;
+    const totalHeight = nodes.length * nodeHeight;
+    const startY = 50 - totalHeight / 2;
+
+    nodes.forEach((node: any, index: number) => {
+      const y = startY + index * nodeHeight;
+      nodePositions.set(node.id, [x, y]);
+    });
+  });
+
+  graphData.nodes.forEach((node: any) => {
+    const pos = nodePositions.get(node.id);
+    if (pos) {
+      node.x = pos[0];
+      node.y = pos[1];
+      node.fixed = true;
+    }
+  });
+
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(30, 30, 40, 0.98)',
+      borderColor: '#5470c6',
+      borderWidth: 1.5,
+      textStyle: {
+        color: '#fff',
+        fontSize: 13,
+        fontFamily: "'Segoe UI', 'Microsoft YaHei', sans-serif"
+      },
+      padding: [12, 16],
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          const nodeData = params.data.value;
+          const timestamp = new Date(nodeData.created_time).toLocaleString('zh-CN');
+          return `
+            <div style="line-height: 1.8;">
+              <div style="font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 8px;">📄 文件信息</div>
+              <div style="color: #e0e0e0; font-size: 12px;">
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件名:</span> <span style="color: #fff; font-weight: 500;">${nodeData.file_name}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件类型:</span> <span style="color: #90ee90; font-weight: 500;">${nodeData.file_type}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件ID:</span> <span style="color: #fff;">${nodeData.file_id}</span></div>
+              </div>
+            </div>
+          `;
+        }
+        return '';
+      }
+    },
+    series: [
+      {
+        name: 'file',
+        type: 'graph',
+        layout: 'none',
+        data: graphData.nodes,
+        links: graphData.links,
+        categories: graphData.categories,
+        roam: 'scale',
+        focusNodeAdjacency: true,
+        draggable: true,
+        lineStyle: {
+          width: 2.5,
+          color: '#bbb',
+          curveness: 0.2,
+          opacity: 0.6,
+          type: 'solid'
+        }
+      }
+    ]
+  };
+
+  lineageChart.value.setOption(option);
+
+  setTimeout(() => {
+    if (lineageChart.value) {
+      lineageChart.value.dispatchAction({
+        type: 'restore',
+        seriesIndex: 0
+      });
+    }
+  }, 100);
+}
+
+// 暴露给父组件
+defineExpose({
+  showLineage,
+  handleLineageDialogClose
+});
+</script>
+
+<template>
+  <ElDialog
+    :model-value="props.modelValue"
+    title="📊 文件数据世系图"
+    width="90%"
+    :close-on-click-modal="false"
+    :close-on-press-escape="true"
+    :show-close="true"
+    align-center
+    @close="handleLineageDialogClose"
+    @update:model-value="(val) => !val && handleLineageDialogClose()"
+  >
+    <div v-if="lineageLoading" class="lineage-overlay">
+      <ElIcon class="is-loading"><i class="el-icon-loading"></i></ElIcon>
+      <span style="margin-left: 8px">加载中...</span>
+    </div>
+    <div v-else class="lineage-container">
+      <div ref="lineageChartRef" class="lineage-graph"></div>
+      <div v-if="!currentFileGenealogy || !currentFileGenealogy.data.length" class="lineage-overlay">
+        <span>暂无世系数据</span>
+      </div>
+    </div>
+    <template #footer>
+      <ElButton type="primary" @click="handleLineageDialogClose">关闭</ElButton>
+    </template>
+  </ElDialog>
+</template>
+
+<style scoped>
+.lineage-container {
+  width: 100%;
+  height: 70vh;
+  display: flex;
+  position: relative;
+  background: #fff;
+}
+
+.lineage-graph {
+  flex: 1;
+  height: 100%;
+  min-height: 400px;
+  position: relative;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fafcff 0%, #f5f8fd 100%);
+  overflow: hidden;
+}
+
+.lineage-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  z-index: 20;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.lineage-overlay .is-loading {
+  font-size: 24px;
+  color: #409eff;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .lineage-container {
+    height: 50vh;
+  }
+
+  .lineage-graph {
+    min-height: 300px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .lineage-container {
+    background: var(--el-bg-color);
+  }
+
+  .lineage-graph {
+    background: linear-gradient(135deg, #1a1a1a 0%, #232324 100%);
+  }
+}
+</style>
