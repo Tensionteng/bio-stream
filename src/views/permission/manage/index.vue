@@ -165,7 +165,7 @@ function formatDate(dateString: string | undefined | null) {
 
 function handleSearchRequests() {
   permissionStore.getAllPermissionRequests({
-    page: 1,
+    page: permissionStore.allRequestPagination.current,
     pageSize: permissionStore.allRequestPagination.size,
     requestType: requestSearchForm.value.permissionType || undefined,
     user: requestSearchForm.value.userName || undefined,
@@ -175,7 +175,7 @@ function handleSearchRequests() {
 
 function handleSearchPermissions() {
   permissionStore.getAllUserPermissions({
-    page: 1,
+    page: permissionStore.allUserPermissionPagination.current,
     pageSize: permissionStore.allUserPermissionPagination.size,
     user: permissionSearchForm.value.userName || undefined
   });
