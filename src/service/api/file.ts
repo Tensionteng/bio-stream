@@ -15,17 +15,21 @@ export function fetchFileStatistics() {
 }
 
 export function fetchFileListInfo(page: number, pageSize: number,
-   file_id: number, file_name: string, file_type: string) {
+   file_id?: number, file_name?: string, file_type?: string) {
+  const params: any = {
+    page,
+    page_size: pageSize
+  };
+  
+  // 只有在有值的时候才添加到 params
+  if (file_id) params.file_id = file_id;
+  if (file_name) params.file_name = file_name;
+  if (file_type) params.file_type = file_type;
+  
   return request<Api.Files.FileList>({
     url: '/files/list',
     method: 'get',
-    params: {
-      page,
-      page_size: pageSize,
-      file_id: file_id,
-      file_name: file_name,
-      file_type: file_type
-    }
+    params
   });
 }
 

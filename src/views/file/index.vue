@@ -2126,7 +2126,18 @@ onMounted(() => {
                 <ElIcon><Search /></ElIcon>
               </template>
             </ElInput>
-            
+
+            <ElInput
+              v-model="fileListFileType"
+              placeholder="文件类型"
+              clearable
+              style="flex: 1; min-width: 180px; max-width: 300px;"
+            >
+              <template #prefix>
+                <ElIcon><Search /></ElIcon>
+              </template>
+            </ElInput>
+
             <ElInput
               :value="fileListFileId === 0 ? '' : fileListFileId"
               v-model.number="fileListFileId"
@@ -2136,23 +2147,6 @@ onMounted(() => {
               :min="1"
               style="flex: 1; min-width: 120px; max-width: 180px; margin: 0 10px;"
             />
-            
-            <ElSelect
-              v-model="fileListFileType"
-              placeholder="文件类型"
-              clearable
-              style="flex: 1; min-width: 150px; max-width: 200px;"
-            >
-              <ElOption label="所有类型" value="" />
-              <ElOption label="JSON" value="json" />
-              <ElOption label="BAM" value="bam" />
-              <ElOption label="FASTQ" value="fastq" />
-              <ElOption label="VCF" value="vcf" />
-              <ElOption label="Count" value="count" />
-              <ElOption label="TPM" value="tpm" />
-              <ElOption label="FPKM" value="fpkm" />
-              <ElOption label="其他" value="other" />
-            </ElSelect>
             
             <ElButton
               type="primary"
