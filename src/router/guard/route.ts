@@ -18,115 +18,173 @@ import { getRouteName } from '@/router/elegant/transform';
  *
  * @param router router instance
  */
+/** 检查用户是否登录 */
+function checkUserLogin(): boolean {
+  return Boolean(localStg.get('token'));
+}
+
+/** 检查用户是否有路由角色权限 */
+function checkRouteRoleAuth(to: RouteLocationNormalized): boolean {
+  const authStore = useAuthStore();
+  const routeRoles = to.meta.roles || [];
+
+  if (!routeRoles.length) return true;
+
+  const hasRole = authStore.userInfo.permissions.some(role => routeRoles.includes(role));
+  return authStore.isStaticSuper || hasRole;
+}
+
+/** 检查路由权限 */
+async function checkRoutePermission(to: RouteLocationNormalized): Promise<boolean> {
+  const requiredPermission = to.meta?.requiredPermission as Api.Permission.PermissionType | undefined;
+
+  if (!requiredPermission) return true;
+
+  // 动态导入permission store和auth store
+  const [permissionModule, authModule] = await Promise.all([
+    import('@/store/modules/permission'),
+    import('@/store/modules/auth')
+  ]);
+  const permissionStore = permissionModule.usePermissionStore();
+  const currentAuthStore = authModule.useAuthStore();
+
+  // 检查是否是管理员（管理员拥有所有权限）
+  const isAdmin = currentAuthStore.userInfo.permissions.includes('admin');
+
+  // 检查是否有权限（管理员直接通过）
+  return isAdmin || permissionStore.hasPermission(requiredPermission);
+}
+
+/** 处理权限申请引导 */
+async function handlePermissionApplyGuide(to: RouteLocationNormalized): Promise<RouteLocationRaw | null> {
+  const requiredPermission = to.meta?.requiredPermission as Api.Permission.PermissionType | undefined;
+
+  if (!requiredPermission) return null;
+
+  const hasPermission = await checkRoutePermission(to);
+
+  if (hasPermission) return null;
+
+  try {
+    // 将权限类型从 snake_case 转换为 camelCase（用于 i18n 键）
+    const permissionKey = getI18nPermissionKey(requiredPermission);
+
+    // 弹出确认框询问是否申请权限
+    await window.$messageBox?.confirm(
+      $t('page.permission.noPermissionGuide', {
+        name: $t(`page.permission.${permissionKey}` as any)
+      }),
+      $t('common.permissionDenied'),
+      {
+        confirmButtonText: $t('page.permission.applyPermission'),
+        cancelButtonText: $t('common.cancel'),
+        type: 'warning'
+      }
+    );
+
+    // 跳转到权限申请页面
+    return {
+      name: 'permission_apply',
+      query: { type: requiredPermission }
+    };
+  } catch {
+    // 用户取消，停留在原页面
+    return null;
+  }
+}
+
+/** 检查权限页面的角色访问控制 */
+async function checkPermissionPageAccess(to: RouteLocationNormalized): Promise<RouteLocationRaw | null> {
+  const permissionPages = ['permission_apply', 'permission_manage', 'permission_my'];
+
+  if (!to.name || !permissionPages.includes(to.name as string)) {
+    return null;
+  }
+
+  // 动态导入auth store和route store
+  const [authModule, routeModule] = await Promise.all([
+    import('@/store/modules/auth'),
+    import('@/store/modules/route')
+  ]);
+  const currentAuthStore = authModule.useAuthStore();
+  const routeStore = routeModule.useRouteStore();
+  const isAdmin = currentAuthStore.userInfo.permissions.includes('admin');
+
+  // 如果不是管理员，不允许访问权限审批页面
+  if (!isAdmin && to.name === 'permission_manage') {
+    window.$message?.error('您没有权限访问该页面');
+    return { name: routeStore.routeHome };
+  }
+
+  // 如果是管理员，不允许访问申请权限和权限申请记录页面
+  if (isAdmin && (to.name === 'permission_apply' || to.name === 'permission_my')) {
+    window.$message?.warning($t('page.permission.adminNoNeedApply'));
+    return { name: routeStore.routeHome };
+  }
+
+  return null;
+}
+
+/**
+ * create route guard
+ *
+ * @param router router instance
+ */
 export function createRouteGuard(router: Router) {
   router.beforeEach(async (to, from, next) => {
-    const location = await initRoute(to);
-
-    if (location) {
-      next(location);
+    // 初始化路由
+    const initLocation = await initRoute(to);
+    if (initLocation) {
+      next(initLocation);
       return;
     }
-
-    const authStore = useAuthStore();
 
     const rootRoute: RouteKey = 'root';
     const loginRoute: RouteKey = 'login';
     const noAuthorizationRoute: RouteKey = '403';
 
-    const isLogin = Boolean(localStg.get('token'));
+    const isLogin = checkUserLogin();
     const needLogin = !to.meta.constant;
-    const routeRoles = to.meta.roles || [];
 
-    const hasRole = authStore.userInfo.permissions.some(role => routeRoles.includes(role));
-    const hasAuth = authStore.isStaticSuper || !routeRoles.length || hasRole;
-
-    // if it is login route when logged in, then switch to the root page
+    // 登录页面重定向
     if (to.name === loginRoute && isLogin) {
       next({ name: rootRoute });
       return;
     }
 
-    // if the route does not need login, then it is allowed to access directly
+    // 无需登录的页面直接放行
     if (!needLogin) {
       handleRouteSwitch(to, from, next);
       return;
     }
 
-    // the route need login but the user is not logged in, then switch to the login page
+    // 需要登录但未登录
     if (!isLogin) {
       next({ name: loginRoute, query: { redirect: to.fullPath } });
       return;
     }
 
-    // if the user is logged in but does not have authorization, then switch to the 403 page
-    if (!hasAuth) {
+    // 检查角色权限
+    if (!checkRouteRoleAuth(to)) {
       next({ name: noAuthorizationRoute });
       return;
     }
 
-    // 检查路由权限
-    const requiredPermission = to.meta?.requiredPermission as Api.Permission.PermissionType | undefined;
-    if (requiredPermission) {
-      // 动态导入permission store和auth store
-      const [permissionModule, authModule] = await Promise.all([
-        import('@/store/modules/permission'),
-        import('@/store/modules/auth')
-      ]);
-      const permissionStore = permissionModule.usePermissionStore();
-      const currentAuthStore = authModule.useAuthStore();
-
-      // 检查是否是管理员（管理员拥有所有权限）
-      const isAdmin = currentAuthStore.userInfo.permissions.includes('admin');
-
-      // 检查是否有权限（管理员直接通过）
-      const hasPermission = isAdmin || permissionStore.hasPermission(requiredPermission);
-
-      if (!hasPermission) {
-        try {
-          // 将权限类型从 snake_case 转换为 camelCase（用于 i18n 键）
-          const permissionKey = getI18nPermissionKey(requiredPermission);
-
-          // 弹出确认框询问是否申请权限
-          await window.$messageBox?.confirm(
-            $t('page.permission.noPermissionGuide', {
-              name: $t(`page.permission.${permissionKey}` as any)
-            }),
-            $t('common.permissionDenied'),
-            {
-              confirmButtonText: $t('page.permission.applyPermission'),
-              cancelButtonText: $t('common.cancel'),
-              type: 'warning'
-            }
-          );
-
-          // 跳转到权限申请页面
-          next({
-            name: 'permission_apply',
-            query: { type: requiredPermission }
-          });
-          return;
-        } catch {
-          // 用户取消，停留在原页面
-          next(false);
-          return;
-        }
-      }
+    // 处理权限申请引导
+    const permissionLocation = await handlePermissionApplyGuide(to);
+    if (permissionLocation !== null) {
+      next(permissionLocation);
+      return;
     }
 
-    // 如果是管理员访问申请权限页面，跳转到我的权限页面
-    if (to.name === 'permission_apply') {
-      // 动态导入auth store以检查权限
-      const authModule = await import('@/store/modules/auth');
-      const currentAuthStore = authModule.useAuthStore();
-
-      if (currentAuthStore.userInfo.permissions.includes('admin')) {
-        window.$message?.warning($t('page.permission.adminNoNeedApply'));
-        next({ name: 'permission_my' });
-        return;
-      }
+    // 检查权限页面访问控制
+    const permissionPageLocation = await checkPermissionPageAccess(to);
+    if (permissionPageLocation !== null) {
+      next(permissionPageLocation);
+      return;
     }
 
-    // switch route normally
+    // 正常切换路由
     handleRouteSwitch(to, from, next);
   });
 }

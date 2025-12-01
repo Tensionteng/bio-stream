@@ -29,3 +29,18 @@ export function fetchVisualizationConfig() {
     method: 'get'
   });
 }
+
+/**
+ * Download task result file
+ *
+ * @param taskId - Task ID
+ * @param type - File type (txt, pdfpdf, vcf, csv, image)
+ * @returns Promise resolving to axios response
+ */
+export function downloadTaskResult(taskId: number | string, type: Api.Visualization.FileType) {
+  return request({
+    url: `/visualization/tasks/download/${taskId}`,
+    method: 'get',
+    params: { type }
+  });
+}
