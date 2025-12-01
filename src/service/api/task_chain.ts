@@ -91,6 +91,7 @@ export interface TaskChainDetail {
   units: TaskChainDetailUnit[];
   input: TaskChainDetailInput[];
   output: TaskChainDetailOutput[];
+  visual_types?: string[];
   parameters: TaskChainDetailParameter[];
 }
 
@@ -123,6 +124,7 @@ export interface TaskChainSubmitParams {
   task_units: TaskChainSubmitStep[];
   inputs: TaskChainSubmitInput[];
   outputs: TaskChainSubmitOutput[];
+  visual_types: string[];
 }
 
 // --- 响应结构 ---

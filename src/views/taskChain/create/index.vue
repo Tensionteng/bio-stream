@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElNotification } from 'element-plus';
-// 修改点3：将导入名改为 Draggable (大驼峰)，匹配组件命名规范
 import Draggable from 'vuedraggable';
 import {
   ArrowDown,
@@ -14,6 +13,7 @@ import {
   DArrowLeft,
   Delete,
   Files,
+  InfoFilled, // [新增] 引入提示图标
   Plus,
   Search,
   Setting,
@@ -59,6 +59,9 @@ const fileSchemas = ref<FileSchemaItem[]>([]);
 const chainName = ref('');
 const chainDesc = ref('');
 const chainType = ref('');
+// [新增] 可视化类型选择
+const chainVisuals = ref<string[]>([]);
+
 const chainInputs = ref<LocalInputConfig[]>([]);
 const chainOutputs = ref<LocalOutputConfig[]>([]);
 const chainSteps = ref<ChainStepItem[]>([]);
@@ -92,13 +95,7 @@ const getStatusType = (status: string) => {
   return 'info';
 };
 
-const getStatusColor = (status: string) => {
-  const type = getStatusType(status);
-  if (type === 'danger') return '#F56C6C';
-  if (type === 'warning') return '#E6A23C';
-  if (type === 'success') return '#67C23A';
-  return '#606266';
-};
+const getStatusMessageClass = (status: string) => `status-color-${getStatusType(status)}`;
 
 // --- Methods ---
 
@@ -119,7 +116,6 @@ async function loadTaskUnits() {
       availableTaskUnits.value = [];
     }
   } catch {
-    // 修改点4：移除 console.log
     ElMessage.error('获取任务单元列表失败');
   } finally {
     isLoadingUnits.value = false;
@@ -161,6 +157,9 @@ async function loadChainData(id: string) {
     chainName.value = data.name;
     chainDesc.value = data.description || '';
     chainType.value = data.type || '';
+
+    // 回显可视化类型字段，如果接口没返回则默认为空数组
+    chainVisuals.value = data.visual_types || [];
 
     if (data.units) {
       chainSteps.value = data.units.map(
@@ -214,6 +213,7 @@ function clearChain() {
   chainName.value = '';
   chainDesc.value = '';
   chainType.value = '';
+  chainVisuals.value = []; // [新增] 清空可视化
   isValidated.value = false;
 }
 
@@ -256,6 +256,7 @@ function constructPayload(): TaskChainSubmitParams | null {
     name: chainName.value,
     description: chainDesc.value,
     type: chainType.value,
+    visual_types: chainVisuals.value,
     task_units: chainSteps.value.map((step, index) => ({
       id: index + 1,
       unit_id: Number(step.id)
@@ -383,7 +384,7 @@ watch(
 );
 
 watch(
-  [chainName, chainDesc, chainType, chainInputs, chainOutputs, chainSteps],
+  [chainName, chainDesc, chainType, chainInputs, chainOutputs, chainSteps, chainVisuals], // [新增] 监听 chainVisuals 变化
   () => {
     if (isValidated.value) {
       isValidated.value = false;
@@ -475,7 +476,7 @@ watch(
                 v-else-if="!isLoadingUnits"
                 :image-size="60"
                 description="未找到相关单元"
-                style="padding: 20px 0"
+                class="unit-list-empty"
               />
             </div>
           </div>
@@ -488,7 +489,7 @@ watch(
                 link
                 type="danger"
                 size="small"
-                style="margin-left: auto"
+                class="clear-chain-btn"
                 :icon="Delete"
                 :disabled="chainSteps.length === 0"
                 @click="clearChain"
@@ -568,6 +569,26 @@ watch(
                         resize="none"
                       />
                     </ElFormItem>
+                  </div>
+
+                  <div class="config-section">
+                    <div class="section-header">
+                      <span>可视化类型 (Visualization)</span>
+                      <ElTag type="info" size="small" effect="plain" round>{{ chainVisuals.length }}</ElTag>
+                    </div>
+                    <div class="visual-config-wrapper">
+                      <ElCheckboxGroup v-model="chainVisuals" class="visual-checkbox-group">
+                        <ElCheckbox label="txt" border>TXT</ElCheckbox>
+                        <ElCheckbox label="pdf" border>PDF</ElCheckbox>
+                        <ElCheckbox label="vcf" border>VCF</ElCheckbox>
+                        <ElCheckbox label="csv" border>CSV</ElCheckbox>
+                        <ElCheckbox label="image" border>Image</ElCheckbox>
+                      </ElCheckboxGroup>
+                      <div class="visual-tip">
+                        <ElIcon><InfoFilled /></ElIcon>
+                        <span>勾选后，任务运行成功将支持对应可视化</span>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="config-section">
@@ -787,7 +808,7 @@ watch(
         type="error"
         :closable="false"
         show-icon
-        style="margin-bottom: 16px"
+        class="validation-alert"
       />
       <ElAlert
         v-else
@@ -795,32 +816,32 @@ watch(
         type="warning"
         :closable="false"
         show-icon
-        style="margin-bottom: 16px"
+        class="validation-alert"
       />
 
       <ElTable
         :data="validationResults"
         border
         stripe
-        :style="{ width: '100%' }"
+        class="validation-result-table"
         max-height="400"
         empty-text="暂无详细错误信息"
       >
         <ElTableColumn prop="id" label="步骤" width="100" align="center">
           <template #default="{ row }">
-            <span style="font-weight: bold; color: #606266">Step {{ row.id }}</span>
+            <span class="validation-step-label">Step {{ row.id }}</span>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="status" label="级别" width="120" align="center">
           <template #default="{ row }">
-            <ElTag :type="getStatusType(row.status)" effect="light" size="default" style="font-weight: bold">
+            <ElTag :type="getStatusType(row.status)" effect="light" size="default" class="validation-status-tag">
               {{ row.status }}
             </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="message" label="问题详情">
           <template #default="{ row }">
-            <span :style="{ color: getStatusColor(row.status) }">{{ row.message }}</span>
+            <span class="validation-message" :class="[getStatusMessageClass(row.status)]">{{ row.message }}</span>
           </template>
         </ElTableColumn>
       </ElTable>
@@ -957,6 +978,9 @@ watch(
   flex: 1;
   overflow-y: auto;
   padding: 10px;
+}
+.unit-list-empty {
+  padding: 20px 0;
 }
 .source-item {
   background: #fff;
@@ -1156,6 +1180,30 @@ watch(
   line-height: 1;
 }
 
+/* [新增] 可视化配置区域样式 */
+.visual-config-wrapper {
+  padding: 4px 0 0 4px;
+}
+.visual-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+/* 让 checkbox 稍微宽一点，好看 */
+:deep(.visual-checkbox-group .el-checkbox.is-bordered) {
+  margin-right: 0;
+  padding: 6px 16px;
+  height: auto;
+}
+.visual-tip {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #909399;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Modern Form Style Overrides */
 .modern-form :deep(.el-form-item__label) {
   font-weight: 500;
@@ -1248,6 +1296,9 @@ watch(
   border-color: #409eff;
   color: #409eff;
   background-color: #f0f9ff;
+}
+.clear-chain-btn {
+  margin-left: auto;
 }
 
 /* Checkbox Beautify */
@@ -1445,5 +1496,33 @@ watch(
 .dialog-footer {
   display: flex;
   justify-content: center;
+}
+.validation-alert {
+  margin-bottom: 16px;
+}
+.validation-result-table {
+  width: 100%;
+}
+.validation-step-label {
+  font-weight: bold;
+  color: #606266;
+}
+.validation-status-tag {
+  font-weight: bold;
+}
+.validation-message {
+  display: inline-block;
+}
+.status-color-success {
+  color: #67c23a;
+}
+.status-color-warning {
+  color: #e6a23c;
+}
+.status-color-danger {
+  color: #f56c6c;
+}
+.status-color-info {
+  color: #606266;
 }
 </style>

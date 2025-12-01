@@ -12,7 +12,7 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
-// 引入 API (请确保 fetchTaskFileSize 已添加到 api/task.ts)
+// === API 导入 ===
 import {
   type TaskListItem,
   type TaskListParams,
@@ -22,129 +22,36 @@ import {
   fetchTaskList,
   fetchTotalFileSize
 } from '@/service/api/task';
-import { usePermissionGuard } from '@/hooks/business/permission-guard';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
-// =======================
-// Part 1: 任务列表逻辑
-// =======================
+// ==========================================
+// Part 1: 任务列表 & 基础逻辑
+// ==========================================
 
 const loading = ref(false);
 const tasks = ref<TaskListItem[]>([]);
 const totalSize = ref(0);
 
-// 筛选状态
+// 筛选表单
 const filterParams = reactive({
   id: undefined as number | undefined,
   name: '',
   status: '' as TaskStatus | ''
 });
 
-// 对话框控制 (详情)
+// 详情弹窗控制
 const isDetailDialogVisible = ref(false);
 const selectedDetailTaskId = ref<number | null>(null);
 
-// =======================
-// Part 1.5: 清理文件逻辑
-// =======================
-const isDeleteDialogVisible = ref(false);
-const deleteLoading = ref(false);
-const currentDeleteTaskId = ref<number | null>(null);
-const deleteLevel = ref<number>(3);
+// 分页
+const pagination = reactive({
+  page: 1,
+  pageSize: 10,
+  itemCount: 0
+});
 
-// [新增] 存储当前选中任务的预览大小数据
-const deletePreviewSizes = ref<Record<string, number>>({});
-
-// 清理选项配置
-const deleteOptions = [
-  { value: 2, label: '保留最终文件+可视化' },
-  { value: 3, label: '清理中间文件（保留init、final、visual三个文件夹的文件）' },
-  { value: 1, label: '仅保留可视化文件' },
-  { value: 0, label: '彻底清理 (全部删除)' }
-];
-
-// 格式化字节大小
-function formatBytes(bytes: number, decimals = 2) {
-  if (Number(bytes) === 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
-}
-
-// [新增] 获取对应级别的预览大小文本
-const getPreviewSizeText = (level: number) => {
-  const key = `size_${level}`;
-  const size = deletePreviewSizes.value[key];
-  if (size === undefined || size === null) return ''; // 数据还没回来时不显示
-  return `(预计释放 ${formatBytes(size)})`;
-};
-
-// 打开清理弹窗
-function openDeleteDialog(row: TaskListItem) {
-  currentDeleteTaskId.value = row.id;
-  deleteLevel.value = 2; // 重置为默认推荐值
-  isDeleteDialogVisible.value = true;
-
-  // [新增] 重置并获取该任务的文件大小预览
-  deletePreviewSizes.value = {};
-  fetchTaskFileSize(row.id)
-    .then(res => {
-      if (res.data) {
-        deletePreviewSizes.value = res.data;
-      }
-    })
-    .catch(() => {
-      // 忽略错误或记录日志
-      // console.warn('获取清理预览大小失败', err);
-    });
-}
-
-// 获取总占用空间
-async function getTaskSize() {
-  try {
-    const res = await fetchTotalFileSize();
-    if (res) {
-      totalSize.value = res.data && res.data.total_size ? res.data.total_size : 0;
-    }
-  } catch {
-    // 修复：移除未使用的 _error 变量
-    ElMessage.error('获取空间统计失败');
-  }
-}
-
-// 执行清理
-async function handleDeleteSubmit() {
-  if (!currentDeleteTaskId.value) return;
-
-  deleteLoading.value = true;
-  try {
-    const res = await cleanTaskFiles(currentDeleteTaskId.value, deleteLevel.value);
-
-    if (res) {
-      const freedSpace =
-        res.data && res.data.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
-      ElMessage.success({
-        message: `清理成功！已释放空间：${freedSpace}`,
-        duration: 3000
-      });
-      isDeleteDialogVisible.value = false;
-
-      // 清理成功后，刷新总空间显示
-      getTaskSize();
-    }
-  } catch (error: any) {
-    // eslint-disable-next-line no-console
-    console.error(error);
-    ElMessage.error(error.message || '请求异常，请稍后重试');
-  } finally {
-    deleteLoading.value = false;
-  }
-}
-
-// 筛选选项
+// 状态枚举
 const statusOptions = [
   { label: '运行中', value: 'RUNNING' },
   { label: '成功', value: 'SUCCESS' },
@@ -153,49 +60,7 @@ const statusOptions = [
   { label: '等待中', value: 'PENDING' }
 ];
 
-function formatDateTime(isoString: string | null | undefined): string {
-  if (!isoString) return '-';
-  try {
-    const date = new Date(isoString);
-    if (Number.isNaN(date.getTime())) return isoString;
-    const year = date.getFullYear();
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-  } catch {
-    // 修复：移除未使用的 _error
-    return isoString;
-  }
-}
-
-const statusTagType = (status: string | TaskStatus | undefined | null) => {
-  if (!status) return 'info';
-  const upperStatus = status.toString().toUpperCase();
-  switch (upperStatus) {
-    case 'SUCCESS':
-      return 'success';
-    case 'RUNNING':
-      return 'primary';
-    case 'FAILED':
-      return 'danger';
-    case 'CANCELLED':
-      return 'info';
-    case 'PENDING':
-      return 'warning';
-    default:
-      return 'info';
-  }
-};
-
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  itemCount: 0
-});
-
+// 获取任务列表
 async function getTasks() {
   loading.value = true;
   try {
@@ -214,19 +79,59 @@ async function getTasks() {
       pagination.itemCount = data.count || 0;
     }
   } catch {
-    // 修复：移除未使用的 _error
     ElMessage.error('获取任务列表失败');
   } finally {
     loading.value = false;
   }
 }
 
-function handlePageChange(currentPage: number) {
-  pagination.page = currentPage;
+// 获取总空间
+async function getTaskSize() {
+  try {
+    const res = await fetchTotalFileSize();
+    if (res) totalSize.value = res.data?.total_size ?? 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+// 格式化工具
+function formatBytes(bytes: number, decimals = 2) {
+  if (Number(bytes) === 0) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
+}
+
+function formatDateTime(isoString: string | null | undefined): string {
+  if (!isoString) return '-';
+  try {
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return isoString;
+    return date.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+  } catch {
+    return isoString;
+  }
+}
+
+const statusTagType = (status: string | TaskStatus | undefined | null) => {
+  const s = status?.toString().toUpperCase();
+  if (s === 'SUCCESS') return 'success';
+  if (s === 'RUNNING') return 'primary';
+  if (s === 'FAILED') return 'danger';
+  if (s === 'PENDING') return 'warning';
+  return 'info';
+};
+
+// 分页事件
+function handlePageChange(p: number) {
+  pagination.page = p;
   getTasks();
 }
-function handleSizeChange(pageSize: number) {
-  pagination.pageSize = pageSize;
+function handleSizeChange(s: number) {
+  pagination.pageSize = s;
   pagination.page = 1;
   getTasks();
 }
@@ -241,19 +146,193 @@ function handleReset() {
   handleSearch();
 }
 
-function showDetailsDialog(taskId: number) {
-  selectedDetailTaskId.value = taskId;
+// 详情与重启
+function showDetailsDialog(id: number) {
+  selectedDetailTaskId.value = id;
   isDetailDialogVisible.value = true;
 }
-
 function handleTaskRestarted() {
   isDetailDialogVisible.value = false;
   getTasks();
 }
 
+// ==========================================
+// Part 2: 可视化逻辑 (Visualization)
+// ==========================================
+
+// 状态
+const visSectionRef = ref<HTMLElement | null>(null);
+const currentVisTaskId = ref<number | null>(null);
+const currentVisProcessName = ref('');
+const visualizationLoading = ref(false);
+const visualizationResult = ref<any>(null);
+const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
+const selectedFileType = ref<Api.Visualization.FileType | ''>('');
+const selectedCsvTable = ref('count_csv'); // CSV 子类型
+
+// CSV 选项
+const csvTableOptions = [
+  { label: 'Count CSV', value: 'count_csv' },
+  { label: 'FPK CSV', value: 'fpk_csv' },
+  { label: 'TPM CSV', value: 'tpm_csv' }
+];
+
+// 计算属性：处理数据显示
+const currentCsvData = computed(() => {
+  if (visualizationResult.value?.type === 'csv') {
+    return visualizationResult.value.data[selectedCsvTable.value] || [];
+  }
+  return [];
+});
+
+const imageList = computed(() => {
+  if (visualizationResult.value?.type === 'image') {
+    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
+  }
+  return [];
+});
+const imagePreviewUrls = computed(() => imageList.value.map((img: any) => img.url));
+
+// 工具：获取类型标签
+const getFileTypeLabel = (type: string) => {
+  const map: Record<string, string> = {
+    txt: 'TXT文本',
+    pdf: 'PDF报告',
+    vcf: 'VCF变异',
+    csv: 'CSV表格',
+    image: '结果图片'
+  };
+  return map[type] || type.toUpperCase();
+};
+
+// 核心：点击“可视化”按钮
+async function handleVisualize(row: TaskListItem) {
+  if (currentVisTaskId.value === row.id) return;
+
+  currentVisTaskId.value = row.id;
+  currentVisProcessName.value = row.name;
+  visualizationResult.value = null;
+  selectedFileType.value = '';
+
+  // 显式指定类型
+  const ALL_TYPES: Api.Visualization.FileType[] = ['txt', 'vcf', 'pdf', 'csv', 'image'];
+  availableFileTypes.value = ALL_TYPES;
+
+  visualizationLoading.value = true;
+
+  try {
+    const { data } = await fetchTaskInfo();
+    const targetTask = data?.find((t: any) => t.task_id === row.id);
+
+    if (targetTask && targetTask.file_type && targetTask.file_type.length > 0) {
+      // 这里也要断言一下，或者确保后端返回类型一致
+      loadVisData(targetTask.file_type[0] as Api.Visualization.FileType);
+    } else {
+      loadVisData(ALL_TYPES[0]);
+    }
+
+    nextTick(() => {
+      visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  } catch {
+    ElMessage.error('获取可视化信息失败');
+    visualizationLoading.value = false;
+  }
+}
+
+// 加载具体数据
+async function loadVisData(fileType: Api.Visualization.FileType) {
+  if (!currentVisTaskId.value) return;
+  visualizationLoading.value = true;
+  selectedFileType.value = fileType;
+
+  try {
+    const { data } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
+    visualizationResult.value = data;
+  } catch {
+    ElMessage.error('加载数据失败');
+  } finally {
+    visualizationLoading.value = false;
+  }
+}
+
+// 切换 CSV 类型时提示
+watch(selectedCsvTable, val => {
+  if (visualizationResult.value?.type === 'csv') {
+    // 仅做提示，数据通过 computed 自动更新
+    const label = csvTableOptions.find(o => o.value === val)?.label;
+    ElMessage.success(`切换至: ${label}`);
+  }
+});
+
+// 通用：表格列获取
+const getTableColumns = (data: any[]) => {
+  if (!data || !data.length) return [];
+  return Object.keys(data[0]);
+};
+// 通用：PDF打开
+const openPdfInNewWindow = (url: string) => {
+  window.open(url, '_blank');
+};
+// 关闭面板
+const closeVisPanel = () => {
+  currentVisTaskId.value = null;
+  visualizationResult.value = null;
+};
+
+// ==========================================
+// Part 3: 清理文件逻辑 (保持不变)
+// ==========================================
+
+const isDeleteDialogVisible = ref(false);
+const deleteLoading = ref(false);
+const currentDeleteTaskId = ref<number | null>(null);
+const deleteLevel = ref<number>(3);
+const deletePreviewSizes = ref<Record<string, number>>({});
+
+const deleteOptions = [
+  { value: 2, label: '保留最终文件+可视化' },
+  { value: 3, label: '清理中间文件（保留init、final、visual三个文件夹的文件）' },
+  { value: 1, label: '仅保留可视化文件' },
+  { value: 0, label: '彻底清理 (全部删除)' }
+];
+
+function openDeleteDialog(row: TaskListItem) {
+  currentDeleteTaskId.value = row.id;
+  deleteLevel.value = 2;
+  isDeleteDialogVisible.value = true;
+  deletePreviewSizes.value = {};
+  fetchTaskFileSize(row.id)
+    .then(res => {
+      if (res.data) deletePreviewSizes.value = res.data;
+    })
+    .catch(() => {});
+}
+
+async function handleDeleteSubmit() {
+  if (!currentDeleteTaskId.value) return;
+  deleteLoading.value = true;
+  try {
+    const res = await cleanTaskFiles(currentDeleteTaskId.value, deleteLevel.value);
+    if (res) {
+      ElMessage.success('清理成功');
+      isDeleteDialogVisible.value = false;
+      getTaskSize();
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '清理失败');
+  } finally {
+    deleteLoading.value = false;
+  }
+}
+const getPreviewSizeText = (level: number) => {
+  const s = deletePreviewSizes.value[`size_${level}`];
+  return s !== undefined ? `(预计释放 ${formatBytes(s)})` : '';
+};
+
 onMounted(() => {
   getTasks();
-  getTaskSize(); // 获取总大小
+  getTaskSize();
 });
 </script>
 
@@ -270,7 +349,6 @@ onMounted(() => {
               <span class="stat-value">{{ formatBytes(totalSize) }}</span>
             </div>
           </div>
-
           <ElButton :icon="Refresh" circle size="small" title="刷新列表" @click="getTasks" />
         </div>
       </template>
@@ -280,7 +358,7 @@ onMounted(() => {
           <ElInput
             v-model.number="filterParams.id"
             class="filter-input"
-            placeholder="按ID搜索"
+            placeholder="ID"
             clearable
             @clear="handleSearch"
           />
@@ -289,7 +367,7 @@ onMounted(() => {
           <ElInput
             v-model="filterParams.name"
             class="filter-input"
-            placeholder="按名称搜索"
+            placeholder="名称"
             clearable
             @clear="handleSearch"
           />
@@ -298,7 +376,7 @@ onMounted(() => {
           <ElSelect
             v-model="filterParams.status"
             class="filter-input filter-select"
-            placeholder="选择状态"
+            placeholder="状态"
             clearable
             @change="handleSearch"
           >
@@ -320,15 +398,11 @@ onMounted(() => {
             <span class="text-mono">#{{ row.id }}</span>
           </template>
         </ElTableColumn>
-
         <ElTableColumn prop="name" label="流程名称" min-width="150">
           <template #default="{ row }">
-            <div class="flex flex-col">
-              <span class="text-gray-700 font-medium">{{ row.name }}</span>
-            </div>
+            <span class="text-gray-700 font-medium">{{ row.name }}</span>
           </template>
         </ElTableColumn>
-
         <ElTableColumn prop="file_ids" label="文件ID" min-width="120">
           <template #default="{ row }">
             <div v-if="Array.isArray(row.file_ids) && row.file_ids.length" class="file-info">
@@ -345,13 +419,11 @@ onMounted(() => {
         </ElTableColumn>
         <ElTableColumn prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <ElTag :type="statusTagType(row.status)" effect="plain" round size="small" class="status-tag">
-              {{ row.status }}
-            </ElTag>
+            <ElTag :type="statusTagType(row.status)" effect="plain" round size="small">{{ row.status }}</ElTag>
           </template>
         </ElTableColumn>
 
-        <ElTableColumn label="操作" width="220" fixed="right" align="center">
+        <ElTableColumn label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
               <ElButton link type="info" class="action-btn" @click="showDetailsDialog(row.id)">
@@ -360,18 +432,18 @@ onMounted(() => {
               </ElButton>
 
               <ElButton
-                v-if="row.status?.toUpperCase() === 'SUCCESS'"
+                v-if="row.status && row.status.toUpperCase() === 'SUCCESS'"
                 link
                 type="primary"
                 class="action-btn is-vis"
-                @click="handleVisualize(row.id)"
+                @click="handleVisualize(row)"
               >
                 <ElIcon><DataAnalysis /></ElIcon>
                 可视化
               </ElButton>
 
               <ElButton
-                v-if="row.status?.toUpperCase() !== 'RUNNING'"
+                v-if="row.status !== 'RUNNING'"
                 link
                 type="warning"
                 class="action-btn"
@@ -403,23 +475,23 @@ onMounted(() => {
         <template #header>
           <div class="card-header vis-header">
             <div class="header-left">
-              <span class="vis-title">任务 #{{ currentVisTaskId }} 结果分析</span>
-              <ElTag size="small" effect="dark" type="primary" class="ml-2">Visualization</ElTag>
+              <span class="vis-title">任务 #{{ currentVisTaskId }} 可视化结果</span>
+              <ElTag size="small" effect="dark" type="primary" class="ml-2">{{ currentVisProcessName }}</ElTag>
             </div>
-            <ElButton circle size="small" :icon="Close" title="关闭面板" @click="currentVisTaskId = null" />
+            <ElButton circle size="small" :icon="Close" title="关闭面板" @click="closeVisPanel" />
           </div>
         </template>
 
         <div v-loading="visualizationLoading" class="vis-body">
           <div v-if="availableFileTypes.length > 0" class="vis-tabs">
-            <div class="vis-tabs-label">查看类型：</div>
+            <div class="vis-tabs-label">选择查看内容：</div>
             <div class="vis-tabs-group">
               <div
                 v-for="type in availableFileTypes"
                 :key="type"
                 class="vis-tab-item"
                 :class="{ active: selectedFileType === type }"
-                @click="handleFileTypeClick(type)"
+                @click="loadVisData(type)"
               >
                 {{ getFileTypeLabel(type) }}
               </div>
@@ -427,9 +499,8 @@ onMounted(() => {
           </div>
 
           <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="vis-sub-filter">
-            <span class="sub-label">表格数据：</span>
-            <!-- 修复：移除行内样式，添加 class -->
-            <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
+            <span class="sub-label">数据视图：</span>
+            <ElSelect v-model="selectedCsvTable" size="small" style="width: 160px">
               <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </ElSelect>
           </div>
@@ -438,6 +509,7 @@ onMounted(() => {
             <div v-if="visualizationResult?.type === 'txt'" class="txt-viewer">
               <pre>{{ visualizationResult.data }}</pre>
             </div>
+
             <div v-else-if="visualizationResult?.type === 'pdf'" class="pdf-viewer">
               <div class="pdf-toolbar">
                 <ElButton type="primary" link @click="openPdfInNewWindow(visualizationResult.data)">
@@ -447,17 +519,17 @@ onMounted(() => {
               </div>
               <iframe :src="visualizationResult.data" class="pdf-iframe" />
             </div>
+
             <div
               v-else-if="visualizationResult?.type === 'vcf' || visualizationResult?.type === 'csv'"
               class="table-viewer"
             >
-              <!-- 修复：移除行内样式 :style -->
               <ElTable
                 :data="visualizationResult.type === 'csv' ? currentCsvData : visualizationResult.data"
                 border
                 stripe
                 height="500px"
-                class="full-width-table"
+                :style="{ width: '100%' }"
               >
                 <ElTableColumn
                   v-for="col in getTableColumns(
@@ -471,6 +543,7 @@ onMounted(() => {
                 />
               </ElTable>
             </div>
+
             <div v-else-if="visualizationResult?.type === 'image'" class="image-viewer">
               <div v-if="imageList.length" class="image-grid">
                 <div v-for="(img, idx) in imageList" :key="idx" class="image-card">
@@ -487,6 +560,7 @@ onMounted(() => {
               </div>
               <ElEmpty v-else description="暂无图片数据" />
             </div>
+
             <ElEmpty v-else-if="!visualizationLoading && !visualizationResult" description="请选择上方类型以查看数据" />
           </div>
         </div>
@@ -510,9 +584,7 @@ onMounted(() => {
             <p class="warning-desc">请仔细确认您需要保留的文件级别，清理后无法恢复。</p>
           </div>
         </div>
-
         <div class="section-title">选择清理级别</div>
-
         <div class="options-container">
           <div
             v-for="opt in deleteOptions"
@@ -521,18 +593,13 @@ onMounted(() => {
             :class="{ 'is-active': deleteLevel === opt.value }"
             @click="deleteLevel = opt.value"
           >
-            <div class="radio-indicator">
-              <div class="radio-inner"></div>
-            </div>
-
+            <div class="radio-indicator"><div class="radio-inner"></div></div>
             <div class="option-content">
               <div class="option-header">
                 <span class="option-title">{{ opt.label }}</span>
-
                 <span v-if="getPreviewSizeText(opt.value)" class="size-preview-text">
                   {{ getPreviewSizeText(opt.value) }}
                 </span>
-
                 <ElTag v-if="opt.value === 2" type="danger" size="small" effect="plain" round class="recommend-tag">
                   推荐
                 </ElTag>
@@ -541,13 +608,10 @@ onMounted(() => {
           </div>
         </div>
       </div>
-
       <template #footer>
         <div class="dialog-footer-actions">
-          <ElButton class="cancel-btn" @click="isDeleteDialogVisible = false">取消</ElButton>
-          <ElButton type="danger" :loading="deleteLoading" class="confirm-btn" @click="handleDeleteSubmit">
-            确认清理
-          </ElButton>
+          <ElButton @click="isDeleteDialogVisible = false">取消</ElButton>
+          <ElButton type="danger" :loading="deleteLoading" @click="handleDeleteSubmit">确认清理</ElButton>
         </div>
       </template>
     </ElDialog>
@@ -555,10 +619,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 基础样式 */
+/* 基础布局 */
 .page-container {
   padding: 24px;
-  background: #f5f7fb;
+  background: #f5f7fa;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -596,7 +660,7 @@ onMounted(() => {
   background: linear-gradient(180deg, #409eff, #66b1ff);
 }
 
-/* === 空间统计样式 === */
+/* 空间统计 */
 .size-stat-badge {
   display: inline-flex;
   align-items: center;
@@ -617,6 +681,7 @@ onMounted(() => {
   font-family: 'Consolas', monospace;
 }
 
+/* 筛选栏 */
 .filter-bar {
   margin-bottom: 16px;
   margin-top: 6px;
@@ -643,9 +708,11 @@ onMounted(() => {
   transform: translateY(-1px);
 }
 .filter-ghost-btn {
-  border-radius: 99px;
+  border-radius: 999px;
   margin-left: 10px;
 }
+
+/* 表格样式 */
 .text-mono {
   font-family: monospace;
   color: #909399;
@@ -682,8 +749,15 @@ onMounted(() => {
 .action-btn.is-vis:hover {
   color: #4e56de;
 }
+.pagination-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* === 可视化面板样式 === */
 .vis-section-wrapper {
-  animation: slideIn 0.4s ease-out;
+  animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes slideIn {
   from {
@@ -695,6 +769,7 @@ onMounted(() => {
     transform: translateY(0);
   }
 }
+
 .vis-header {
   border-bottom: none;
   padding-bottom: 0;
@@ -706,10 +781,13 @@ onMounted(() => {
 .vis-title {
   font-size: 18px;
   color: #1a1a1a;
+  font-weight: 600;
 }
 .vis-body {
   padding: 8px 0;
 }
+
+/* Tab 切换 */
 .vis-tabs {
   display: flex;
   align-items: center;
@@ -726,6 +804,7 @@ onMounted(() => {
 .vis-tabs-group {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .vis-tab-item {
   padding: 6px 16px;
@@ -755,6 +834,8 @@ onMounted(() => {
   color: #606266;
   margin-right: 8px;
 }
+
+/* 内容展示区 */
 .vis-content-area {
   min-height: 400px;
 }
@@ -767,6 +848,7 @@ onMounted(() => {
   font-size: 13px;
   max-height: 600px;
   overflow: auto;
+  margin: 0;
 }
 .pdf-viewer {
   border: 1px solid #e4e7ed;
@@ -787,7 +869,7 @@ onMounted(() => {
 }
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 20px;
 }
 .image-card {
@@ -804,10 +886,11 @@ onMounted(() => {
 }
 .image-entity {
   width: 100%;
-  height: 180px;
+  height: 200px;
   background: #f9f9f9;
   border-radius: 4px;
   margin-bottom: 8px;
+  display: block;
 }
 .image-name {
   font-size: 13px;
@@ -816,21 +899,8 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.text-xs {
-  font-size: 12px;
-}
-.text-gray-400 {
-  color: #9ca3af;
-}
-.mt-1 {
-  margin-top: 4px;
-}
-.flex-col {
-  flex-direction: column;
-  display: flex;
-}
 
-/* === 清理弹窗样式 (UI优化) === */
+/* 清理弹窗 */
 .cleanup-dialog :deep(.el-dialog__body) {
   padding-top: 10px;
   padding-bottom: 20px;
@@ -943,7 +1013,6 @@ onMounted(() => {
   color: #303133;
   margin-right: 8px;
 }
-/* 新增样式：文件大小预览文本 */
 .size-preview-text {
   font-size: 13px;
   color: #909399;
@@ -963,12 +1032,13 @@ onMounted(() => {
 .confirm-btn {
   padding: 8px 24px;
 }
-
-/* === 新增/修改的工具类样式 (解决 inline style warning) === */
-.csv-select-width {
-  width: 160px;
+.text-muted {
+  color: #c0c4cc;
 }
-.full-width-table {
-  width: 100%;
+.mr-1 {
+  margin-right: 4px;
+}
+.ml-2 {
+  margin-left: 8px;
 }
 </style>
