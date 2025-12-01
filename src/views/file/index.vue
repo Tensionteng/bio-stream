@@ -130,9 +130,7 @@ onMounted(() => {
 
       <!-- 提交按钮 -->
       <div class="submit-button-area">
-        <el-button type="primary" :loading="uploadLoading" @click="handleFormSubmit" size="large">
-          提交并上传
-        </el-button>
+        <ElButton type="primary" :loading="uploadLoading" size="large" @click="handleFormSubmit">提交并上传</ElButton>
       </div>
     </ElCard>
 
@@ -148,11 +146,7 @@ onMounted(() => {
     </div>
 
     <!-- 上传任务面板 -->
-    <UploadTaskPanel
-      :tasks="uploadTaskList"
-      @cancel-task="handleCancelTask"
-      @remove-task="handleRemoveTask"
-    />
+    <UploadTaskPanel :tasks="uploadTaskList" @cancel-task="handleCancelTask" @remove-task="handleRemoveTask" />
 
     <!-- 文件详情弹窗 -->
     <FileDetailDialog
