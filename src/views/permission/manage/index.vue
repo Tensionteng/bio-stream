@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import type { CheckboxValueType } from 'element-plus';
 import { usePermissionStore } from '@/store/modules/permission';
 import { useAuthStore } from '@/store/modules/auth';
 import { $t } from '@/locales';
@@ -14,6 +15,17 @@ const isAdmin = computed(() => {
   return authStore.userInfo.permissions.includes('admin');
 });
 
+// 筛选条件
+const requestSearchForm = ref<{
+  permissionType: Api.Permission.PermissionType | '';
+  userName: string;
+  status: Api.Permission.PermissionStatus | '';
+}>({
+  permissionType: '',
+  userName: '',
+  status: ''
+});
+
 // 如果不是管理员，跳转到我的权限页面
 onMounted(() => {
   if (!isAdmin.value) {
@@ -21,26 +33,56 @@ onMounted(() => {
     router.push('/permission/my');
     return;
   }
-  // 加载待审批申请（request_type=PENDING）
-  permissionStore.getPermissionRequests({ requestType: 'PENDING' });
-  // 加载所有权限（不传request_type）
-  permissionStore.getAllUserPermissions();
+  // 默认加载待审批申请
+  requestSearchForm.value.status = 'PENDING';
+  handleSearchRequests();
+  // 加载所有用户权限
+  handleSearchPermissions();
 });
 
 const activeTab = ref<'requests' | 'permissions'>('requests');
 const reviewDialogVisible = ref(false);
 const addPermissionDialogVisible = ref(false);
+const isEditMode = ref(false);
 const currentRequest = ref<Api.Permission.PermissionRequest | null>(null);
+const userDetailDialogVisible = ref(false);
+const currentUser = ref<{
+  user_id: number;
+  user_name: string;
+  permissions: Array<{
+    type: Api.Permission.PermissionType;
+    expire_time: string | null;
+  }>;
+} | null>(null);
+const originalUserPermissions = ref<
+  Array<{
+    type: Api.Permission.PermissionType;
+    expire_time: string | null;
+  }>
+>([]);
+const userPermissionsToUpdate = ref<
+  Array<{
+    type: Api.Permission.PermissionType;
+    action: 'APPROVE' | 'REJECT';
+    days: number;
+    currentExpireTime: string | null;
+    isNew?: boolean;
+  }>
+>([]);
+
 const reviewForm = ref({
   approve: true,
   comment: ''
 });
+
 interface PermissionItem {
   permissionType: Api.Permission.PermissionType | '';
   duration: number;
   permanent: boolean;
 }
+
 const addPermissionForm = ref({
+  userId: 0,
   userName: '',
   permissions: [
     {
@@ -49,15 +91,6 @@ const addPermissionForm = ref({
       permanent: false
     }
   ] as PermissionItem[]
-});
-
-// 筛选条件
-const requestSearchForm = ref<{
-  permissionType: Api.Permission.PermissionType | '';
-  userName: string;
-}>({
-  permissionType: '',
-  userName: ''
 });
 
 const permissionSearchForm = ref<{
@@ -79,25 +112,14 @@ const permissionTypeOptions = computed(() => [
   { value: 'admin', label: $t('page.permission.admin') }
 ]);
 
-const requestColumns = [
-  { label: $t('page.permission.applicant'), prop: 'userName' },
-  { label: $t('page.permission.permissionType'), prop: 'permissionType' },
-  { label: $t('page.permission.requestTime'), prop: 'requestTime' },
-  { label: $t('page.permission.duration'), prop: 'duration' },
-  { label: $t('page.permission.reason'), prop: 'reason', minWidth: 200 },
-  { label: $t('page.permission.reviewComment'), prop: 'reviewComment', minWidth: 200 },
-  { label: $t('page.permission.status'), prop: 'status' },
-  { label: $t('common.action'), prop: 'action', width: 150 }
-];
-
-const permissionColumns = [
-  { label: $t('page.permission.userName'), prop: 'userName' },
-  { label: $t('page.permission.permissionType'), prop: 'permissionType' },
-  { label: $t('page.permission.grantedTime'), prop: 'grantedTime' },
-  { label: $t('page.permission.expireTime'), prop: 'expireTime' },
-  { label: $t('page.permission.status'), prop: 'status' },
-  { label: $t('common.action'), prop: 'action', width: 100 }
-];
+const statusOptions = computed(() => [
+  { value: '', label: $t('common.all') },
+  { value: 'PENDING', label: '待审批' },
+  { value: 'ACTIVE', label: '已通过' },
+  { value: 'REJECTED', label: '已拒绝' },
+  { value: 'WITHDRAWN', label: '已撤回' },
+  { value: 'EXPIRED', label: '已过期' }
+]);
 
 const permissionTypeMap = computed(() => ({
   file: $t('page.permission.file'),
@@ -110,12 +132,12 @@ const permissionTypeMap = computed(() => ({
 }));
 
 const statusMap = computed(() => ({
-  PENDING: $t('page.permission.statusPending'),
-  ACTIVE: $t('page.permission.statusApproved'),
-  REJECTED: $t('page.permission.statusRejected'),
-  WITHDRAWN: $t('page.permission.statusWithdrawn'),
-  EXPIRED: $t('page.permission.statusExpired'),
-  ERROR: $t('page.permission.statusError')
+  PENDING: '待审批',
+  ACTIVE: '已通过',
+  REJECTED: '已拒绝',
+  WITHDRAWN: '已撤回',
+  EXPIRED: '已过期',
+  ERROR: '错误'
 }));
 
 const statusTypeMap = computed(
@@ -130,29 +152,33 @@ const statusTypeMap = computed(
     }) as Record<Api.Permission.PermissionStatus, 'success' | 'danger' | 'warning' | 'info'>
 );
 
-function handleSearchRequests() {
-  permissionStore.updateRequestSearchParams({
-    permissionType: requestSearchForm.value.permissionType || null,
-    userName: requestSearchForm.value.userName || null,
-    current: 1,
-    size: permissionStore.requestPagination.size
-  });
-  // 如果是待审批申请tab，添加request_type=PENDING条件
-  if (activeTab.value === 'requests') {
-    permissionStore.getPermissionRequests({ requestType: 'PENDING' });
-  } else {
-    permissionStore.getPermissionRequests();
+function formatDate(dateString: string | undefined | null) {
+  if (!dateString) return '永久';
+  try {
+    return new Date(dateString).toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai'
+    });
+  } catch {
+    return dateString;
   }
 }
 
-function handleSearchPermissions() {
-  permissionStore.updatePermissionSearchParams({
-    permissionType: permissionSearchForm.value.permissionType || null,
-    userName: permissionSearchForm.value.userName || null,
-    current: 1,
-    size: permissionStore.permissionPagination.size
+function handleSearchRequests() {
+  permissionStore.getAllPermissionRequests({
+    page: 1,
+    pageSize: permissionStore.allRequestPagination.size,
+    requestType: requestSearchForm.value.permissionType || undefined,
+    user: requestSearchForm.value.userName || undefined,
+    status: requestSearchForm.value.status || undefined
   });
-  permissionStore.getAllUserPermissions();
+}
+
+function handleSearchPermissions() {
+  permissionStore.getAllUserPermissions({
+    page: 1,
+    pageSize: permissionStore.allUserPermissionPagination.size,
+    user: permissionSearchForm.value.userName || undefined
+  });
 }
 
 function openReviewDialog(row: Api.Permission.PermissionRequest) {
@@ -167,34 +193,59 @@ function openReviewDialog(row: Api.Permission.PermissionRequest) {
 async function handleReview() {
   if (!currentRequest.value) return;
 
-  const success = await permissionStore.reviewPermission(
-    currentRequest.value.id,
-    reviewForm.value.approve,
+  const success = await permissionStore.reviewPermissionRequest(
+    currentRequest.value.request_id,
+    reviewForm.value.approve ? 'APPROVE' : 'REJECT',
     reviewForm.value.comment
   );
 
   if (success) {
     reviewDialogVisible.value = false;
-    if (activeTab.value === 'requests') {
-      permissionStore.getPermissionRequests({ requestType: 'PENDING' });
-    } else {
-      permissionStore.getPermissionRequests();
-    }
+    // 刷新列表
+    handleSearchRequests();
   }
 }
 
-function openAddPermissionDialog() {
-  addPermissionForm.value = {
-    userName: '',
-    permissions: [
-      {
-        permissionType: '' as Api.Permission.PermissionType | '',
-        duration: 30,
-        permanent: false
-      }
-    ]
-  };
-  addPermissionDialogVisible.value = true;
+function openUserDetailDialog(row: {
+  user_id: number;
+  user_name: string;
+  permissions: Array<{
+    type: Api.Permission.PermissionType;
+    expire_time: string | null;
+  }>;
+}) {
+  currentUser.value = row;
+  // 保存原始权限数据
+  originalUserPermissions.value = JSON.parse(JSON.stringify(row.permissions));
+  // 初始化权限更新列表
+  userPermissionsToUpdate.value = row.permissions.map(perm => ({
+    type: perm.type,
+    action: 'APPROVE' as const,
+    days: perm.expire_time ? 30 : 0,
+    currentExpireTime: perm.expire_time,
+    isNew: false
+  }));
+  userDetailDialogVisible.value = true;
+}
+
+function addUserPermissionItem() {
+  // 找出用户还没有的权限类型
+  const availableTypes = permissionTypeOptions.value
+    .filter(opt => opt.value !== '')
+    .filter(opt => !userPermissionsToUpdate.value.some(p => p.type === opt.value));
+
+  // 默认选择第一个可用的权限类型，如果没有可用的则选择第一个
+  const defaultType = (
+    availableTypes.length > 0 ? availableTypes[0].value : permissionTypeOptions.value[1].value
+  ) as Api.Permission.PermissionType;
+
+  userPermissionsToUpdate.value.push({
+    type: defaultType,
+    action: 'APPROVE' as const,
+    days: 30,
+    currentExpireTime: null,
+    isNew: true
+  });
 }
 
 function addPermissionItem() {
@@ -229,31 +280,249 @@ async function handleAddPermission() {
   // 转换数据格式
   const permissions = validPermissions.map(item => ({
     type: item.permissionType as Api.Permission.PermissionType,
-    days: item.permanent ? -1 : item.duration
+    action: 'APPROVE' as const,
+    days: item.permanent ? 0 : item.duration
   }));
 
-  const success = await permissionStore.addUserPermission(addPermissionForm.value.userName, permissions);
+  // 从用户列表中找到用户ID
+  const user = permissionStore.allUserPermissions.find(
+    (u: { user_name: string }) => u.user_name === addPermissionForm.value.userName
+  );
+
+  if (!user) {
+    // 如果用户不存在，使用特殊接口添加（需要后端支持）
+    // 这里简化处理，假设用户一定存在
+    window.$message?.error('用户不存在，请先确保用户已注册');
+    return;
+  }
+
+  const success = await permissionStore.updateUserPermissions(user.user_id, permissions);
 
   if (success) {
     addPermissionDialogVisible.value = false;
-    permissionStore.getAllUserPermissions();
+    handleSearchPermissions();
   }
 }
 
-async function handleRevoke(row: Api.Permission.UserPermission) {
-  try {
-    await window.$messageBox?.confirm($t('page.permission.confirmRevoke'), $t('common.warning'), {
-      confirmButtonText: $t('common.confirm'),
-      cancelButtonText: $t('common.cancel'),
-      type: 'warning'
-    });
+interface PermissionChangeSummary {
+  added: Array<{ type: Api.Permission.PermissionType; days: number; name: string }>;
+  deleted: Array<{ type: Api.Permission.PermissionType; name: string }>;
+  modified: Array<{
+    type: Api.Permission.PermissionType;
+    name: string;
+    wasPermanent: boolean;
+    willBePermanent: boolean;
+    oldDays: number;
+    newDays: number;
+  }>;
+  changes: Array<{ type: Api.Permission.PermissionType; action: 'APPROVE' | 'REJECT'; days: number }>;
+}
 
-    const success = await permissionStore.revokePermission(row.id);
-    if (success) {
-      permissionStore.getAllUserPermissions();
+function calculatePermissionChanges(): PermissionChangeSummary | null {
+  const addedPermissions: PermissionChangeSummary['added'] = [];
+  const deletedPermissions: PermissionChangeSummary['deleted'] = [];
+  const modifiedPermissions: PermissionChangeSummary['modified'] = [];
+  const permissionChanges: PermissionChangeSummary['changes'] = [];
+
+  // 使用 Set 优化查找性能
+  const currentTypes = new Set(userPermissionsToUpdate.value.map(p => p.type));
+  const originalTypes = new Set(originalUserPermissions.value.map(p => p.type));
+
+  // 1. 检查新增的权限（在original中不存在）
+  userPermissionsToUpdate.value.forEach(perm => {
+    if (!originalTypes.has(perm.type) && perm.isNew) {
+      const permissionName = permissionTypeMap.value[perm.type as Api.Permission.PermissionType] || perm.type;
+      addedPermissions.push({
+        type: perm.type,
+        days: perm.days,
+        name: permissionName
+      });
+      permissionChanges.push({
+        type: perm.type,
+        action: 'APPROVE',
+        days: perm.days
+      });
     }
+  });
+
+  // 2. 检查删除的权限（在userPermissionsToUpdate中不存在，但original中存在）
+  originalUserPermissions.value.forEach(original => {
+    if (!currentTypes.has(original.type)) {
+      const permissionName = permissionTypeMap.value[original.type as Api.Permission.PermissionType] || original.type;
+      deletedPermissions.push({
+        type: original.type,
+        name: permissionName
+      });
+      permissionChanges.push({
+        type: original.type,
+        action: 'REJECT',
+        days: 0
+      });
+    }
+  });
+
+  // 3. 检查修改的权限（都存在，但状态发生变化）
+  userPermissionsToUpdate.value.forEach(perm => {
+    if (perm.isNew) return;
+
+    const original = originalUserPermissions.value.find(p => p.type === perm.type);
+    if (!original) return;
+
+    const wasPermanent = !original.expire_time;
+    const willBePermanent = perm.days === 0;
+    const permissionName = permissionTypeMap.value[perm.type as Api.Permission.PermissionType] || perm.type;
+    const oldDays = original.expire_time ? 30 : 0;
+
+    if (wasPermanent && !willBePermanent) {
+      modifiedPermissions.push({
+        type: perm.type,
+        name: permissionName,
+        wasPermanent,
+        willBePermanent,
+        oldDays,
+        newDays: perm.days
+      });
+      permissionChanges.push({
+        type: perm.type,
+        action: 'APPROVE',
+        days: perm.days
+      });
+    } else if (!wasPermanent && willBePermanent) {
+      modifiedPermissions.push({
+        type: perm.type,
+        name: permissionName,
+        wasPermanent,
+        willBePermanent,
+        oldDays,
+        newDays: perm.days
+      });
+      permissionChanges.push({
+        type: perm.type,
+        action: 'APPROVE',
+        days: 0
+      });
+    } else if (!wasPermanent && !willBePermanent && perm.days !== oldDays) {
+      modifiedPermissions.push({
+        type: perm.type,
+        name: permissionName,
+        wasPermanent,
+        willBePermanent,
+        oldDays,
+        newDays: perm.days
+      });
+      permissionChanges.push({
+        type: perm.type,
+        action: 'APPROVE',
+        days: perm.days
+      });
+    }
+  });
+
+  if (permissionChanges.length === 0) {
+    return null;
+  }
+
+  return {
+    added: addedPermissions,
+    deleted: deletedPermissions,
+    modified: modifiedPermissions,
+    changes: permissionChanges
+  };
+}
+
+async function generateConfirmHTML(summary: PermissionChangeSummary): Promise<boolean> {
+  let confirmHTML = '<div style="margin-bottom: 15px; font-size: 14px; color: #606266;">即将更新以下权限：</div>';
+
+  // 新增权限
+  if (summary.added.length > 0) {
+    confirmHTML += '<div style="margin-bottom: 15px;">';
+    confirmHTML += '<div style="font-weight: bold; color: #67C23A; margin-bottom: 8px;">📌 新增权限</div>';
+    summary.added.forEach(perm => {
+      confirmHTML += `<div style="margin: 5px 0; padding: 8px 12px; background-color: #F0F9EB; border-left: 4px solid #67C23A; border-radius: 4px;">`;
+      confirmHTML += `<strong>${perm.name}</strong>: <span style="color: #67C23A; font-weight: bold;">授予 ${perm.days === 0 ? '永久权限' : `${perm.days}天权限`}</span>`;
+      confirmHTML += `</div>`;
+    });
+    confirmHTML += '</div>';
+  }
+
+  // 删除权限
+  if (summary.deleted.length > 0) {
+    confirmHTML += '<div style="margin-bottom: 15px;">';
+    confirmHTML += '<div style="font-weight: bold; color: #F56C6C; margin-bottom: 8px;">🗑️ 删除权限</div>';
+    summary.deleted.forEach(perm => {
+      confirmHTML += `<div style="margin: 5px 0; padding: 8px 12px; background-color: #FEF0F0; border-left: 4px solid #F56C6C; border-radius: 4px;">`;
+      confirmHTML += `<strong>${perm.name}</strong>: <span style="color: #F56C6C; font-weight: bold;">撤销</span>`;
+      confirmHTML += `</div>`;
+    });
+    confirmHTML += '</div>';
+  }
+
+  // 修改权限
+  if (summary.modified.length > 0) {
+    confirmHTML += '<div style="margin-bottom: 15px;">';
+    confirmHTML += '<div style="font-weight: bold; color: #E6A23C; margin-bottom: 8px;">✏️ 修改权限</div>';
+    summary.modified.forEach(perm => {
+      let oldState = '';
+      let newState = '';
+
+      if (perm.wasPermanent && !perm.willBePermanent) {
+        oldState = '永久权限';
+        newState = `${perm.newDays}天权限`;
+      } else if (!perm.wasPermanent && perm.willBePermanent) {
+        oldState = perm.oldDays > 0 ? `${perm.oldDays}天权限` : '临时权限';
+        newState = '永久权限';
+      } else {
+        oldState = `${perm.oldDays}天权限`;
+        newState = `${perm.newDays}天权限`;
+      }
+
+      confirmHTML += `<div style="margin: 5px 0; padding: 8px 12px; background-color: #FDF6EC; border-left: 4px solid #E6A23C; border-radius: 4px;">`;
+      confirmHTML += `<strong>${perm.name}</strong>: <span style="text-decoration: line-through; color: #909399;">${oldState}</span> → <span style="color: #E6A23C; font-weight: bold;">${newState}</span>`;
+      confirmHTML += `</div>`;
+    });
+    confirmHTML += '</div>';
+  }
+
+  confirmHTML +=
+    '<div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #EBEEF5; font-size: 14px; color: #909399; text-align: center;">是否确认执行此操作？</div>';
+
+  try {
+    await window.$messageBox?.confirm('', '权限变更确认', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+      dangerouslyUseHTMLString: true,
+      message: confirmHTML,
+      customClass: 'permission-confirm-dialog',
+      showClose: false
+    });
+    return true;
   } catch {
-    // 取消操作
+    return false;
+  }
+}
+
+async function handleUpdateUserPermissions() {
+  if (!currentUser.value) return;
+
+  // 计算权限变更
+  const summary = calculatePermissionChanges();
+  if (!summary) {
+    window.$message?.info('权限没有变化');
+    userDetailDialogVisible.value = false;
+    return;
+  }
+
+  // 生成确认对话框
+  const confirmed = await generateConfirmHTML(summary);
+  if (!confirmed) return;
+
+  // 应用权限变更
+  const success = await permissionStore.updateUserPermissions(currentUser.value.user_id, summary.changes);
+
+  if (success) {
+    userDetailDialogVisible.value = false;
+    handleSearchPermissions();
   }
 }
 
@@ -267,9 +536,6 @@ function handleExport() {
     <div class="mb-5 flex items-center justify-between">
       <h2 class="text-xl font-bold">{{ $t('page.permission.manage') }}</h2>
       <div class="flex gap-2">
-        <ElButton type="success" @click="openAddPermissionDialog">
-          {{ $t('page.permission.addPermission') }}
-        </ElButton>
         <ElButton type="primary" @click="handleExport">
           {{ $t('common.export') }}
         </ElButton>
@@ -297,6 +563,11 @@ function handleExport() {
                 class="w-48"
               />
             </ElFormItem>
+            <ElFormItem label="状态">
+              <ElSelect v-model="requestSearchForm.status" clearable class="w-48">
+                <ElOption v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </ElSelect>
+            </ElFormItem>
             <ElFormItem>
               <ElButton type="primary" @click="handleSearchRequests">
                 {{ $t('common.search') }}
@@ -304,44 +575,46 @@ function handleExport() {
             </ElFormItem>
           </ElForm>
 
-          <ElTable v-loading="permissionStore.permissionLoading" :data="permissionStore.permissionRequests" border>
-            <ElTableColumn
-              v-for="col in requestColumns"
-              :key="col.prop"
-              :label="col.label"
-              :prop="col.prop"
-              :width="col.width"
-              show-overflow-tooltip
-            >
+          <ElTable v-loading="permissionStore.permissionLoading" :data="permissionStore.allPermissionRequests" border>
+            <ElTableColumn label="申请ID" prop="request_id" width="100" />
+            <ElTableColumn label="用户名" prop="user_name" width="150" />
+            <ElTableColumn label="权限类型" prop="type" width="150">
               <template #default="{ row }">
-                <template v-if="col.prop === 'permissionType'">
-                  <ElTag>{{ permissionTypeMap[row.permissionType as Api.Permission.PermissionType] }}</ElTag>
-                </template>
-                <template v-else-if="col.prop === 'duration'">
-                  {{ row.duration }} {{ $t('page.permission.days') }}
-                </template>
-                <template v-else-if="col.prop === 'status'">
-                  <ElTag :type="statusTypeMap[row.status as Api.Permission.PermissionStatus]">
-                    {{ statusMap[row.status as Api.Permission.PermissionStatus] }}
-                  </ElTag>
-                </template>
-                <template v-else-if="col.prop === 'action'">
-                  <ElButton v-if="row.status === 'PENDING'" type="primary" link @click="openReviewDialog(row)">
-                    {{ $t('page.permission.review') }}
-                  </ElButton>
-                  <span v-else>-</span>
-                </template>
-                <template v-else>
-                  {{ row[col.prop] }}
-                </template>
+                <ElTag>{{ permissionTypeMap[row.type as Api.Permission.PermissionType] || row.type }}</ElTag>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="申请时长" width="120">
+              <template #default="{ row }">
+                {{ row.days === 0 ? '永久' : `${row.days}天` }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="状态" prop="status" width="120">
+              <template #default="{ row }">
+                <ElTag :type="statusTypeMap[row.status as keyof typeof statusTypeMap]">
+                  {{ statusMap[row.status as keyof typeof statusMap] }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="申请理由" prop="reason" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row.reason || '-' }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="申请时间" prop="created_time" min-width="180" />
+            <ElTableColumn label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <ElButton v-if="row.status === 'PENDING'" type="primary" link @click="openReviewDialog(row)">
+                  审批
+                </ElButton>
+                <span v-else>-</span>
               </template>
             </ElTableColumn>
           </ElTable>
 
           <ElPagination
-            v-model:current-page="permissionStore.requestPagination.current"
-            v-model:page-size="permissionStore.requestPagination.size"
-            :total="permissionStore.requestPagination.total"
+            v-model:current-page="permissionStore.allRequestPagination.current"
+            v-model:page-size="permissionStore.allRequestPagination.size"
+            :total="permissionStore.allRequestPagination.total"
             class="mt-5 flex justify-end"
             layout="total, sizes, prev, pager, next, jumper"
             :page-sizes="[10, 20, 50, 100]"
@@ -377,40 +650,31 @@ function handleExport() {
           </ElForm>
 
           <ElTable v-loading="permissionStore.permissionLoading" :data="permissionStore.allUserPermissions" border>
-            <ElTableColumn
-              v-for="col in permissionColumns"
-              :key="col.prop"
-              :label="col.label"
-              :prop="col.prop"
-              :width="col.width"
-              show-overflow-tooltip
-            >
+            <ElTableColumn label="用户ID" prop="user_id" width="100" />
+            <ElTableColumn label="用户名" prop="user_name" width="150" />
+            <ElTableColumn label="权限详情" min-width="300">
               <template #default="{ row }">
-                <template v-if="col.prop === 'permissionType'">
-                  <ElTag>{{ permissionTypeMap[row.permissionType as Api.Permission.PermissionType] }}</ElTag>
-                </template>
-                <template v-else-if="col.prop === 'status'">
-                  <ElTag :type="statusTypeMap[row.status as Api.Permission.PermissionStatus]">
-                    {{ statusMap[row.status as Api.Permission.PermissionStatus] }}
+                <div class="flex flex-wrap gap-2">
+                  <ElTag v-for="perm in row.permissions" :key="perm.type" type="success">
+                    {{ permissionTypeMap[perm.type as Api.Permission.PermissionType] || perm.type }}
+                    <span v-if="perm.expire_time" class="ml-1 text-xs">(至 {{ formatDate(perm.expire_time) }})</span>
+                    <span v-else class="ml-1 text-xs">(永久)</span>
                   </ElTag>
-                </template>
-                <template v-else-if="col.prop === 'action'">
-                  <ElButton v-if="row.status !== 'EXPIRED'" type="danger" link @click="handleRevoke(row)">
-                    {{ $t('page.permission.revoke') }}
-                  </ElButton>
-                  <span v-else>-</span>
-                </template>
-                <template v-else>
-                  {{ row[col.prop] }}
-                </template>
+                  <ElTag v-if="row.permissions.length === 0" type="info">无权限</ElTag>
+                </div>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <ElButton type="primary" link @click="openUserDetailDialog(row)">查看详情</ElButton>
               </template>
             </ElTableColumn>
           </ElTable>
 
           <ElPagination
-            v-model:current-page="permissionStore.permissionPagination.current"
-            v-model:page-size="permissionStore.permissionPagination.size"
-            :total="permissionStore.permissionPagination.total"
+            v-model:current-page="permissionStore.allUserPermissionPagination.current"
+            v-model:page-size="permissionStore.allUserPermissionPagination.size"
+            :total="permissionStore.allUserPermissionPagination.total"
             class="mt-5 flex justify-end"
             layout="total, sizes, prev, pager, next, jumper"
             :page-sizes="[10, 20, 50, 100]"
@@ -442,11 +706,19 @@ function handleExport() {
       </template>
     </ElDialog>
 
-    <!-- 添加权限对话框 -->
-    <ElDialog v-model="addPermissionDialogVisible" :title="$t('page.permission.addPermission')" width="700px">
+    <!-- 添加/编辑权限对话框 -->
+    <ElDialog
+      v-model="addPermissionDialogVisible"
+      :title="isEditMode ? '编辑权限' : $t('page.permission.addPermission')"
+      width="700px"
+    >
       <ElForm :model="addPermissionForm" label-width="120px">
         <ElFormItem :label="$t('page.permission.userName')" required>
-          <ElInput v-model="addPermissionForm.userName" :placeholder="$t('page.permission.searchUserName')" />
+          <ElInput
+            v-model="addPermissionForm.userName"
+            :placeholder="$t('page.permission.searchUserName')"
+            :disabled="isEditMode"
+          />
         </ElFormItem>
 
         <div class="mb-4 border rounded-lg p-4">
@@ -515,9 +787,154 @@ function handleExport() {
       <template #footer>
         <ElButton @click="addPermissionDialogVisible = false">{{ $t('common.cancel') }}</ElButton>
         <ElButton type="primary" :loading="permissionStore.permissionLoading" @click="handleAddPermission">
-          {{ $t('common.confirm') }}
+          {{ isEditMode ? '保存修改' : $t('common.confirm') }}
+        </ElButton>
+      </template>
+    </ElDialog>
+
+    <!-- 用户权限详情对话框 -->
+    <ElDialog v-model="userDetailDialogVisible" title="用户权限详情" width="700px">
+      <div v-if="currentUser" class="space-y-4">
+        <ElCard shadow="never">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <span class="font-medium">用户信息</span>
+              <ElTag type="info">ID: {{ currentUser.user_id }}</ElTag>
+            </div>
+          </template>
+          <div class="py-2">
+            <div class="text-lg font-semibold">{{ currentUser.user_name }}</div>
+          </div>
+        </ElCard>
+
+        <ElCard shadow="never">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <span class="font-medium">权限列表</span>
+              <div class="flex items-center gap-3">
+                <ElText v-if="userPermissionsToUpdate.length >= 7" type="warning" size="small">
+                  已达最大权限数 (7/7)
+                </ElText>
+                <ElText v-else type="info" size="small">{{ userPermissionsToUpdate.length }}/7 项权限</ElText>
+                <ElButton
+                  type="primary"
+                  size="small"
+                  :disabled="userPermissionsToUpdate.length >= 7"
+                  @click="addUserPermissionItem"
+                >
+                  <icon-ic-round-add class="mr-1" />
+                  添加权限
+                </ElButton>
+              </div>
+            </div>
+          </template>
+
+          <ElTable v-if="userPermissionsToUpdate.length > 0" :data="userPermissionsToUpdate" border class="mt-2">
+            <ElTableColumn label="权限类型" width="150">
+              <template #default="{ row, $index }">
+                <ElSelect v-model="row.type" class="w-full">
+                  <ElOption
+                    v-for="opt in permissionTypeOptions.filter(o => o.value !== '')"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                    :disabled="userPermissionsToUpdate.some((p, idx) => p.type === opt.value && idx !== $index)"
+                  />
+                </ElSelect>
+              </template>
+            </ElTableColumn>
+
+            <ElTableColumn label="当前状态" width="150">
+              <template #default="{ row }">
+                <ElTag v-if="row.isNew" type="info" size="small" effect="plain">尚未拥有</ElTag>
+                <ElTag v-else-if="row.currentExpireTime === null" type="success" size="small">永久权限</ElTag>
+                <div v-else class="text-xs text-gray-500">至 {{ formatDate(row.currentExpireTime) }}</div>
+              </template>
+            </ElTableColumn>
+
+            <ElTableColumn label="新状态" width="220">
+              <template #default="{ row }">
+                <div class="flex items-center gap-2">
+                  <ElInputNumber
+                    v-model="row.days"
+                    :min="0"
+                    :max="365"
+                    size="small"
+                    class="w-24"
+                    :controls="true"
+                    :step="1"
+                    :disabled="row.days === 0"
+                  />
+                  <span class="text-sm text-gray-600">天</span>
+                  <ElCheckbox
+                    :model-value="row.days === 0"
+                    size="small"
+                    @change="
+                      (val: CheckboxValueType) => {
+                        if (val) {
+                          row.days = 0;
+                        } else if (row.days === 0) {
+                          row.days = 30;
+                        }
+                      }
+                    "
+                  >
+                    永久
+                  </ElCheckbox>
+                </div>
+              </template>
+            </ElTableColumn>
+
+            <ElTableColumn label="操作" width="80" fixed="right">
+              <template #default="{ $index }">
+                <ElButton type="danger" link @click="userPermissionsToUpdate.splice($index, 1)">删除</ElButton>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+
+          <ElEmpty v-else description="暂无权限" :image-size="60" />
+        </ElCard>
+      </div>
+
+      <template #footer>
+        <ElButton @click="userDetailDialogVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="permissionStore.permissionLoading" @click="handleUpdateUserPermissions">
+          保存修改
         </ElButton>
       </template>
     </ElDialog>
   </div>
 </template>
+
+<style scoped>
+:deep(.permission-edit-table) {
+  .el-table__cell {
+    padding: 8px 0;
+  }
+}
+
+:deep(.el-input-number--small) {
+  .el-input__wrapper {
+    padding: 1px 8px;
+  }
+}
+
+:deep(.el-checkbox) {
+  margin-right: 0;
+}
+
+:deep(.permission-confirm-dialog) {
+  .el-message-box__content {
+    pre {
+      background-color: #f8f9fa;
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid #e9ecef;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+  }
+}
+</style>

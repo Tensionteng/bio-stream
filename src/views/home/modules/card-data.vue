@@ -67,6 +67,7 @@ async function fetchData() {
     const { data } = await fetchTaskStatus();
     taskStatusData.value = data?.status || [];
   } catch (error) {
+    // eslint-disable-next-line no-console
     console.error('获取任务状态统计失败:', error);
     taskStatusData.value = [];
   } finally {
@@ -90,7 +91,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <ElCard v-loading="loading" class="card-wrapper">
+  <ElCard v-loading="loading" class="h-auto card-wrapper">
     <template #header>
       <div class="text-center">
         <h3 class="text-18px font-semibold">{{ $t('page.home.taskStatusOverview') }}</h3>

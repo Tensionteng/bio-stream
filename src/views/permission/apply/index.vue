@@ -72,8 +72,6 @@ const rules = {
 };
 
 onMounted(() => {
-  permissionStore.getMyPermissions();
-
   // 检查是否是管理员，如果是则跳转到我的权限页面
   if (hasAdminPermission.value) {
     window.$message?.warning('您已是管理员，无需申请权限');
@@ -97,7 +95,7 @@ async function handleSubmit() {
       try {
         // 构建提交参数
         const submitData = {
-          permissionType: applyForm.permissionType!,
+          type: applyForm.permissionType!,
           days: applyForm.forever ? 0 : applyForm.days, // 0表示永久
           reason: applyForm.reason
         };

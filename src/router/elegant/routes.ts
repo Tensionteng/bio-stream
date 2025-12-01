@@ -117,7 +117,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'scene',
       i18nKey: 'route.scene',
-      localIcon: 'scene'
+      localIcon: 'scene',
+      requiredPermission: 'scene'
     },
     children: [
       {
@@ -201,7 +202,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'taskchain',
       i18nKey: 'route.taskchain',
-      localIcon: 'task_chains'
+      localIcon: 'task_chains',
+      requiredPermission: 'task_chain'
     },
     children: [
       {
@@ -233,7 +235,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'taskunit',
       i18nKey: 'route.taskunit',
-      localIcon: 'task'
+      localIcon: 'task',
+      requiredPermission: 'task_unit'
     },
     children: [
       {
@@ -266,7 +269,7 @@ export const generatedRoutes: GeneratedRoute[] = [
       title: 'visualization',
       i18nKey: 'route.visualization',
       icon: 'mdi:chart-areaspline',
-      requiredPermission: 'scene'
+      requiredPermission: 'task'
     }
   }
 ];

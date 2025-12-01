@@ -37,7 +37,7 @@ export function createRouteGuard(router: Router) {
     const needLogin = !to.meta.constant;
     const routeRoles = to.meta.roles || [];
 
-    const hasRole = authStore.userInfo.roles.some(role => routeRoles.includes(role));
+    const hasRole = authStore.userInfo.permissions.some(role => routeRoles.includes(role));
     const hasAuth = authStore.isStaticSuper || !routeRoles.length || hasRole;
 
     // if it is login route when logged in, then switch to the root page
@@ -106,7 +106,7 @@ export function createRouteGuard(router: Router) {
           });
           return;
         } catch {
-          // 用户取消，停留在当前页面
+          // 用户取消，停留在原页面
           next(false);
           return;
         }
