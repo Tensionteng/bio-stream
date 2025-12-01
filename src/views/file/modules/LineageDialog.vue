@@ -133,11 +133,30 @@ function transformLineageData(data: any[]) {
         itemStyle: {
           color: color1,
           borderColor: '#ffffff',
-          borderWidth: 3.5,
-          shadowBlur: 16,
-          shadowColor: color1 + '40',
-          shadowOffsetY: 4,
-          opacity: 0.95
+          borderWidth: 4,
+          shadowBlur: 20,
+          shadowColor: color1 + '50',
+          shadowOffsetY: 5,
+          opacity: 1
+        },
+        emphasis: {
+          itemStyle: {
+            color: color1,
+            borderColor: '#ffd700',
+            borderWidth: 5,
+            shadowBlur: 25,
+            shadowColor: color1 + '60',
+            shadowOffsetY: 6
+          },
+          label: {
+            show: true,
+            color: color1,
+            fontSize: 12,
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: color1,
+            borderWidth: 1.5
+          }
         }
       });
     }
@@ -172,16 +191,36 @@ function transformLineageData(data: any[]) {
         itemStyle: {
           color: color2,
           borderColor: '#ffffff',
-          borderWidth: 3.5,
-          shadowBlur: 16,
-          shadowColor: color2 + '40',
-          shadowOffsetY: 4,
-          opacity: 0.95
+          borderWidth: 4,
+          shadowBlur: 20,
+          shadowColor: color2 + '50',
+          shadowOffsetY: 5,
+          opacity: 1
+        },
+        emphasis: {
+          itemStyle: {
+            color: color2,
+            borderColor: '#ffd700',
+            borderWidth: 5,
+            shadowBlur: 25,
+            shadowColor: color2 + '60',
+            shadowOffsetY: 6
+          },
+          label: {
+            show: true,
+            color: color2,
+            fontSize: 12,
+            fontWeight: 'bold',
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            borderColor: color2,
+            borderWidth: 1.5
+          }
         }
       });
     }
 
     // 添加连接线
+    const taskCount = genealogy.task?.task_units?.length || 0;
     links.push({
       source: genealogy.file1.file_id,
       target: genealogy.file2.file_id,
@@ -189,27 +228,48 @@ function transformLineageData(data: any[]) {
       label: {
         show: true,
         position: 'middle',
-        fontSize: 10,
-        color: '#555',
-        backgroundColor: 'rgba(255, 255, 255, 0.98)',
-        borderColor: '#d0d0d0',
-        borderWidth: 1,
-        borderRadius: 3,
-        padding: [5, 8],
+        fontSize: 12,
+        color: '#fff',
+        backgroundColor: 'rgba(74, 144, 226, 0.95)',
+        borderColor: '#4A90E2',
+        borderWidth: 1.5,
+        borderRadius: 4,
+        padding: [6, 10],
         fontWeight: 'bold',
-        shadowColor: 'rgba(0, 0, 0, 0.08)',
-        shadowBlur: 4
+        shadowColor: 'rgba(74, 144, 226, 0.4)',
+        shadowBlur: 8,
+        rich: {
+          taskCount: {
+            color: '#ffd700',
+            fontSize: 11,
+            fontWeight: 'bold'
+          }
+        },
+        formatter: `任务数：{taskCount|${taskCount}}`
       },
       lineStyle: {
-        width: 2.8,
-        color: 'rgba(180, 180, 180, 0.7)',
+        width: 3,
+        color: 'rgba(74, 144, 226, 0.8)',
         curveness: 0.15,
-        opacity: 0.75,
+        opacity: 0.85,
         type: 'solid'
       },
-      symbolSize: [10, 18],
+      symbolSize: [12, 20],
       symbol: ['circle', 'arrow'],
-      smooth: true
+      smooth: true,
+      emphasis: {
+        lineStyle: {
+          width: 4,
+          color: 'rgba(74, 144, 226, 1)',
+          opacity: 1
+        },
+        label: {
+          show: true,
+          fontSize: 13,
+          backgroundColor: 'rgba(74, 144, 226, 1)',
+          shadowBlur: 10
+        }
+      }
     });
   });
 
@@ -324,21 +384,21 @@ function renderLineageGraph(genealogyData: any[]) {
   });
 
   const option = {
+    backgroundColor: 'rgba(250, 252, 255, 0.5)',
     tooltip: {
       trigger: 'item',
-      backgroundColor: 'rgba(30, 30, 40, 0.98)',
-      borderColor: '#5470c6',
-      borderWidth: 1.5,
+      backgroundColor: 'rgba(20, 25, 40, 0.98)',
+      borderColor: '#4A90E2',
+      borderWidth: 2,
       textStyle: {
         color: '#fff',
         fontSize: 13,
         fontFamily: "'Segoe UI', 'Microsoft YaHei', sans-serif"
       },
-      padding: [12, 16],
+      padding: [14, 18],
       formatter: (params: any) => {
         if (params.dataType === 'node') {
           const nodeData = params.data.value;
-          const timestamp = new Date(nodeData.created_time).toLocaleString('zh-CN');
           return `
             <div style="line-height: 1.8;">
               <div style="font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 8px;">📄 文件信息</div>
@@ -346,6 +406,31 @@ function renderLineageGraph(genealogyData: any[]) {
                 <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件名:</span> <span style="color: #fff; font-weight: 500;">${nodeData.file_name}</span></div>
                 <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件类型:</span> <span style="color: #90ee90; font-weight: 500;">${nodeData.file_type}</span></div>
                 <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 文件ID:</span> <span style="color: #fff;">${nodeData.file_id}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 用户:</span> <span style="color: #fff;">${nodeData.user || 'N/A'}</span></div>
+              </div>
+            </div>
+          `;
+        } else if (params.dataType === 'edge') {
+          const taskData = params.data.value;
+          if (!taskData || !taskData.task_units) {
+            return '<div style="padding: 8px;">加载中...</div>';
+          }
+          const taskCount = taskData.task_units.length;
+          const taskUnits = taskData.task_units
+            .map((u: any) => `<li style="margin: 3px 0; color: #90ee90;">✓ ${u.task_unit_name}</li>`)
+            .join('');
+          const timestamp = new Date(taskData.time).toLocaleString('zh-CN');
+          return `
+            <div style="line-height: 1.8;">
+              <div style="font-size: 14px; font-weight: bold; color: #ffd700; margin-bottom: 8px;">⚙️ 任务信息</div>
+              <div style="color: #e0e0e0; font-size: 12px;">
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 任务数:</span> <span style="color: #90ee90; font-weight: bold;">${taskCount}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 执行用户:</span> <span style="color: #fff;">${taskData.user || 'N/A'}</span></div>
+                <div style="margin: 4px 0;"><span style="color: #87ceeb;">▸ 执行时间:</span> <span style="color: #bbb; font-size: 11px;">${timestamp}</span></div>
+                <div style="margin-top: 8px;"><span style="color: #87ceeb;">▸ 任务单元:</span></div>
+                <ul style="margin: 4px 0 0 16px; padding: 0; list-style: none;">
+                  ${taskUnits}
+                </ul>
               </div>
             </div>
           `;
@@ -361,15 +446,34 @@ function renderLineageGraph(genealogyData: any[]) {
         data: graphData.nodes,
         links: graphData.links,
         categories: graphData.categories,
-        roam: 'scale',
+        roam: true,
+        roamDetail: {
+          x: 0.3,
+          y: 0.3,
+          scaleX: 1,
+          scaleY: 1
+        },
         focusNodeAdjacency: true,
         draggable: true,
+        hoverAnimation: true,
         lineStyle: {
           width: 2.5,
-          color: '#bbb',
+          color: 'rgba(180, 180, 180, 0.5)',
           curveness: 0.2,
           opacity: 0.6,
           type: 'solid'
+        },
+        edgeSymbol: ['circle', 'arrow'],
+        edgeSymbolSize: [12, 18],
+        label: {
+          position: 'bottom',
+          show: false
+        },
+        emphasis: {
+          label: {
+            show: true
+          },
+          focus: 'adjacency'
         }
       }
     ]
@@ -436,10 +540,11 @@ defineExpose({
   height: 100%;
   min-height: 400px;
   position: relative;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #fafcff 0%, #f5f8fd 100%);
+  border: 2px solid #e0e7ff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fafcff 0%, #f0f5ff 50%, #f5f8fd 100%);
   overflow: hidden;
+  box-shadow: 0 2px 12px rgba(74, 144, 226, 0.08), inset 0 0 20px rgba(74, 144, 226, 0.03);
 }
 
 .lineage-overlay {
