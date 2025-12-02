@@ -466,14 +466,14 @@ export async function processBatchFileUploads(
 ): Promise<any> {
   try {
     // 从响应中提取上传URLs
-    // 响应格式: { status: "success", upload_urls: [ { sample_id, field_name, upload_url, s3_key }, ... ] }
+    // 响应格式: { status: "success", upload_files: [ { sample_id, upload_urls: [ { field_name, upload_url, s3_key }, ... ] }, ... ] }
     const responseData = batchInitResponse?.data || batchInitResponse;
     console.log('批量上传初始化响应数据:', responseData);
 
-    const uploadUrlsList = responseData?.upload_files || [];
-    console.log('批量上传URL列表:', uploadUrlsList);
+    const uploadFilesArray = responseData?.upload_files || [];
+    console.log('批量上传文件数组:', uploadFilesArray);
 
-    if (!Array.isArray(uploadUrlsList) || uploadUrlsList.length === 0) {
+    if (!Array.isArray(uploadFilesArray) || uploadFilesArray.length === 0) {
       const errorMsg = '批量上传初始化失败：未获取到上传URL';
       console.error('响应数据:', responseData);
       console.error(errorMsg);
@@ -481,10 +481,20 @@ export async function processBatchFileUploads(
     }
 
     // 构建 (sample_id, field_name) -> uploadUrl 的映射
+    // 需要把分组的结构展平
     const uploadUrlMap = new Map<string, any>();
-    for (const urlInfo of uploadUrlsList) {
-      const key = `${urlInfo.sample_id}|${urlInfo.field_name}`;
-      uploadUrlMap.set(key, urlInfo);
+    for (const uploadFileGroup of uploadFilesArray) {
+      const sample_id = uploadFileGroup.sample_id;
+      const uploadUrlsList = uploadFileGroup.upload_urls || [];
+      for (const urlInfo of uploadUrlsList) {
+        // 确保 urlInfo 包含 sample_id（响应中可能没有，需要从 uploadFileGroup 获取）
+        const completeUrlInfo = {
+          ...urlInfo,
+          sample_id: sample_id
+        };
+        const key = `${sample_id}|${urlInfo.field_name}`;
+        uploadUrlMap.set(key, completeUrlInfo);
+      }
     }
     console.log('上传URL映射表:', uploadUrlMap);
     const uploadPromises: Promise<void>[] = [];
@@ -496,9 +506,10 @@ export async function processBatchFileUploads(
     for (let batchIndex = 0; batchIndex < uploads.length; batchIndex++) {
       const batch = uploads[batchIndex];
       const sample_id = batch.sample_id;
-
+      console.log(batch);
       for (let fieldIndex = 0; fieldIndex < (batch.fields || []).length; fieldIndex++) {
         const field = batch.fields[fieldIndex];
+        console.log('处理字段:', field);
         const field_name = field.field_name;
 
         // 根据 sample_id 和 field_name 查找对应的上传URL
