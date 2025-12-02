@@ -1,11 +1,8 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import {
-  processFileUploads,
   processBatchFileUploads,
-  buildDescriptionJson,
   getFileNameFromSchema,
-  completeFileUpload,
   cancelUploadTask as cancelUploadTaskGlobal
 } from './FileUploadHandler';
 import { FileBatchUploadInit } from '@/service/api/file';
@@ -93,7 +90,7 @@ export function useFileUpload() {
     }
   }
 
-  // 处理提交和上传
+  // 处理提交和上传（改为使用 processBatchFileUploads）
   async function handleSubmit(
     dynamicForm: any,
     selectedSchema: any,
@@ -110,43 +107,87 @@ export function useFileUpload() {
     if (!validateFileFields() || !validateTextFields()) return;
 
     uploadLoading.value = true;
+    let taskId: string = '';
+    
     try {
+      // 收集所有文件字段
+      const fileEntries: any[] = [];
+      fileFields.forEach(field => {
+        const fieldValue = dynamicForm[field.name];
+        if (fieldValue && fieldValue.file) {
+          fileEntries.push({
+            field_name: field.originalName || field.name,
+            filename: fieldValue.file.name,
+            content_type: fieldValue.file.type || 'application/octet-stream'
+          });
+        }
+      });
+
+      // 构造 content_json（只保留非文件字段）
+      const contentJson: any = {};
+      textFields.forEach(f => {
+        if (f.type === 'dynamic-object') return;
+        const val = dynamicForm[f.name];
+        if (val !== undefined && val !== '' && val !== null) {
+          contentJson[f.name] = val;
+        }
+      });
+
+      // 如果没有文件字段，就创建一个空的 batch
+      if (fileEntries.length === 0) {
+        console.log('表单中没有文件字段，仅上传表单数据');
+        fileEntries.push({
+          field_name: 'form_data',
+          filename: 'form_data',
+          content_type: 'application/json'
+        });
+      }
+
+      // 为这个表单创建一个 batch
+      const sampleId = getFileNameFromSchema(dynamicForm);
+      const uploads = [{
+        sample_id: sampleId,
+        fields: fileEntries
+      }];
+
+      // 为这个 batch 生成任务 ID
+      taskId = addUploadTask(`上传: ${fileEntries.map(f => f.filename).join(', ')}`);
+      const batchTaskIds = [taskId];
+
+      // 调用批量上传初始化接口
+      let batchInitResponse: any;
+      try {
+        batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
+        // Init 成功，更新任务状态为 uploading（进度条开始显示）
+        updateUploadTaskStatus(taskId, 'uploading');
+      } catch (initError: any) {
+        updateUploadTaskStatus(taskId, 'error', `初始化失败: ${initError.message || '未知错误'}`);
+        ElMessage.error(`初始化上传失败: ${initError.message || '未知错误'}`);
+        return;
+      }
+
       // 处理文件上传
-      const uploadedFiles = await processFileUploads(
+      const uploadResult = await processBatchFileUploads(
+        batchInitResponse,
+        uploads,
         dynamicForm,
         selectedSchema.id,
-        (taskId, fileName) => {
-          // taskId 由 processFileUploads 生成，直接使用
-          uploadTaskList.value.push({
-            id: taskId,
-            fileName,
-            progress: 0,
-            status: 'uploading'
-          });
-        },
-        (taskId, progress) => updateUploadTaskProgress(taskId, progress),
-        (taskId, status, error) => updateUploadTaskStatus(taskId, status, error)
+        textFields,
+        batchTaskIds,
+        (tid, progress) => updateUploadTaskProgress(tid, progress),
+        (tid, status, error) => updateUploadTaskStatus(tid, status, error)
       );
 
-      if (uploadedFiles.length === 0) {
-        ElMessage.error('文件上传失败');
+      if (!uploadResult.success) {
+        // 上传或 complete 失败，错误信息已由 updateUploadTaskStatus 处理
+        // 此时进度条应该已经显示错误状态
+        ElMessage.error(`上传失败: ${uploadResult.error}`);
         uploadLoading.value = false;
         return;
       }
 
-      // 构建描述JSON
-      const descriptionJson = buildDescriptionJson(uploadedFiles, textFields, dynamicForm);
-
-      // 完成上传
-      console.log('上传文件信息:', uploadedFiles);
-      await completeFileUpload(
-        selectedSchema.id,
-        getFileNameFromSchema(dynamicForm),
-        descriptionJson,
-        uploadedFiles
-      );
-
-      // 文件上传成功
+      // 文件上传成功（complete 接口调用成功）
+      updateUploadTaskStatus(taskId, 'success');
       ElMessage.success('文件上传成功');
       resetForm();
       
@@ -154,7 +195,11 @@ export function useFileUpload() {
         onSuccess();
       }
     } catch (e: any) {
+      if (taskId) {
+        updateUploadTaskStatus(taskId, 'error', e.message || '未知错误');
+      }
       ElMessage.error(`上传失败: ${e.message || '未知错误'}`);
+      console.error('上传失败详情:', e);
     } finally {
       uploadLoading.value = false;
     }
@@ -311,8 +356,21 @@ export function useFileUpload() {
 
       // Step 1: 调用批量上传初始化接口
       console.log('调用 FileBatchUploadInit...');
-      const batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
-      console.log('FileBatchUploadInit 响应:', batchInitResponse);
+      let batchInitResponse: any;
+      try {
+        batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
+        console.log('FileBatchUploadInit 响应:', batchInitResponse);
+        
+        // Init 成功，更新所有任务状态为 uploading（进度条开始显示）
+        taskIds.forEach(tid => updateUploadTaskStatus(tid, 'uploading'));
+      } catch (initError: any) {
+        console.error('初始化失败:', initError);
+        // 初始化失败，标记所有任务为错误
+        taskIds.forEach(tid => updateUploadTaskStatus(tid, 'error', `初始化失败: ${initError.message || '未知错误'}`));
+        ElMessage.error(`初始化上传失败: ${initError.message || '未知错误'}`);
+        uploadLoading.value = false;
+        return;
+      }
 
       // Step 2: 处理实际的文件上传
       console.log('开始处理实际的文件上传...');
@@ -334,12 +392,13 @@ export function useFileUpload() {
       );
 
       if (!batchUploadResult.success) {
+        // 上传或 complete 失败，错误信息已由 updateUploadTaskStatus 处理
         ElMessage.error(`文件上传失败: ${batchUploadResult.error}`);
         uploadLoading.value = false;
         return;
       }
 
-      // 文件上传成功
+      // 所有文件上传成功（所有 complete 接口调用成功）
       ElMessage.success('文件上传成功');
       resetForm();
       
