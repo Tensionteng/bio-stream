@@ -50,7 +50,13 @@ const dynamicForm = reactive({
 // 解析后的字段列表
 const parsedFields = reactive({
   content: [] as { key: string; label: string; type: string; required: boolean; enum?: string[] }[],
-  files: [] as { key: string; label: string; required: boolean; description: string }[]
+  files: [] as {
+    key: string;
+    label: string;
+    required: boolean;
+    description: string;
+    pattern?: string; // 新增 pattern 字段
+  }[]
 });
 
 // -- Computed Properties --
@@ -154,7 +160,8 @@ watch(
             key: fileKey,
             label: fileKey,
             description: fileItem.description || '',
-            required: fileRequiredList.includes(fileKey)
+            required: fileRequiredList.includes(fileKey),
+            pattern: fileItem.pattern // 提取 pattern
           });
           dynamicForm.files[fileKey] = '';
         });
@@ -163,7 +170,8 @@ watch(
           key,
           label: key,
           description: (propDef.description || '') + (key === 'filePaths' ? ' (提交时映射为 filepath)' : ''),
-          required: isRequired
+          required: isRequired,
+          pattern: propDef.pattern // 提取 pattern
         });
         dynamicForm.files[key] = '';
       } else if (propDef.type !== 'object' || key === 'position') {
@@ -254,6 +262,18 @@ const getUploadStatusInfo = (status: string | null) => {
   }
 };
 
+/** 根据 pattern 过滤可用文件列表 用于下拉框只显示符合后缀名的文件 */
+function getFilteredFiles(pattern?: string) {
+  if (!pattern) return availableTaskFiles.value;
+  try {
+    const regex = new RegExp(pattern);
+    return availableTaskFiles.value.filter(file => regex.test(file.value));
+  } catch (e) {
+    console.warn('Regex error:', e);
+    return availableTaskFiles.value;
+  }
+}
+
 // -- API Calls --
 async function getTaskDetails(id: number) {
   loading.value = true;
@@ -341,12 +361,34 @@ async function submitUpload() {
     ElMessage.warning('请选择目标元文件 (Meta File)');
     return;
   }
+
+  // 校验文件选择
   for (const field of parsedFields.files) {
-    if (field.required && !dynamicForm.files[field.key]) {
+    const selectedFile = dynamicForm.files[field.key];
+
+    // 1. 必填校验
+    if (field.required && !selectedFile) {
       ElMessage.warning(`请选择文件: ${field.label}`);
       return;
     }
+
+    // 2. 正则格式校验 (防止非法输入)
+    if (selectedFile && field.pattern) {
+      try {
+        const regex = new RegExp(field.pattern);
+        if (!regex.test(selectedFile)) {
+          ElMessage.error(`字段 [${field.label}] 文件类型错误`);
+          ElMessage.error(`已选: ${selectedFile}`);
+          ElMessage.error(`需匹配: ${field.pattern}`);
+          return;
+        }
+      } catch (e) {
+        console.error('正则校验异常', e);
+      }
+    }
   }
+
+  // 校验普通字段
   for (const field of parsedFields.content) {
     if (field.required && !dynamicForm.content[field.key]) {
       ElMessage.warning(`请输入参数: ${field.label}`);
@@ -583,15 +625,15 @@ async function submitUpload() {
                       <ElSelect
                         v-model="dynamicForm.files[field.key]"
                         filterable
-                        placeholder="请选择任务产出的文件"
+                        :placeholder="field.pattern ? `需匹配后缀: ${field.pattern}` : '请选择任务产出的文件'"
                         class="full-width-select"
-                        no-data-text="当前任务无可用文件"
+                        :no-data-text="field.pattern ? '当前无匹配后缀的文件' : '当前任务无可用文件'"
                       >
                         <template #prefix>
                           <ElIcon><DocumentCopy /></ElIcon>
                         </template>
                         <ElOption
-                          v-for="file in availableTaskFiles"
+                          v-for="file in getFilteredFiles(field.pattern)"
                           :key="file.value"
                           :label="file.label"
                           :value="file.value"
@@ -743,7 +785,7 @@ async function submitUpload() {
   margin-top: 10px;
 }
 
-/* 工具类补充 (如果项目中已有 Tailwind 或 UnoCSS 可移除) */
+/* 工具类补充 */
 .bg-blue-100 {
   background-color: #ecf5ff;
 }
@@ -775,6 +817,8 @@ async function submitUpload() {
   padding-top: 2rem;
   padding-bottom: 2rem;
 }
+
+/* 基础样式复用 */
 .loading-container {
   min-height: 200px;
 }
