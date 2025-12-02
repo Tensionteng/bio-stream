@@ -3,6 +3,33 @@ import { createSHA256 } from 'hash-wasm';
 import { FileUploadInit, FileUploadComplete } from '@/service/api/file';
 import { ElMessage } from 'element-plus';
 
+// 全局上传任务映射表，用于管理和取消上传任务
+const uploadTaskMap = new Map<string, { cancelToken: any; uploadClient: any }>();
+
+// 获取或创建任务的 cancel token
+export function getUploadTaskCancelToken(taskId: string) {
+  return uploadTaskMap.get(taskId)?.cancelToken;
+}
+
+// 注册上传任务
+export function registerUploadTask(taskId: string, cancelToken: any, uploadClient: any) {
+  uploadTaskMap.set(taskId, { cancelToken, uploadClient });
+}
+
+// 取消上传任务
+export function cancelUploadTask(taskId: string) {
+  const task = uploadTaskMap.get(taskId);
+  if (task?.cancelToken) {
+    task.cancelToken.cancel(`任务 ${taskId} 已被取消`);
+    uploadTaskMap.delete(taskId);
+  }
+}
+
+// 清理已完成的任务
+export function cleanupUploadTask(taskId: string) {
+  uploadTaskMap.delete(taskId);
+}
+
 // 计算文件哈希编码
 export async function hashFile(file: File) {
   const sha256 = await createSHA256();
@@ -120,6 +147,115 @@ export function getFileNameFromSchema(dynamicForm: any): string {
   return `bioFile_${timestamp}_${randomSuffix}`;
 }
 
+// 提取表单中非文件字段的内容
+export function extractNonFileFormData(dynamicForm: any): Record<string, any> {
+  const formData: Record<string, any> = {};
+  const fileEntries = collectFileEntries(dynamicForm);
+  const fileFieldNames = new Set(fileEntries.map(e => e.field_name));
+  
+  // 需要跳过的上传产生的字段
+  const uploadGeneratedFields = new Set(['path', 's3_key', 'file_hash', 'file_size', 'file_type', 'origin_filename']);
+
+  // 检查一个值是否为有效的用户输入
+  function isValidUserInput(value: any): boolean {
+    // null 或 undefined 不是有效值
+    if (value === null || value === undefined) {
+      return false;
+    }
+    
+    // 空字符串、空数组不是有效值
+    if (value === '' || (Array.isArray(value) && value.length === 0)) {
+      return false;
+    }
+    
+    // 对象类型的值需要进一步检查
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // 如果对象只包含上传生成的字段，则不是有效值
+      const keys = Object.keys(value);
+      if (keys.length === 0) {
+        return false;
+      }
+      const hasNonUploadFields = keys.some(k => !uploadGeneratedFields.has(k));
+      return hasNonUploadFields;
+    }
+    
+    return true;
+  }
+
+  // 递归处理表单数据，排除文件字段和上传产生的字段
+  function processObject(obj: any, result: Record<string, any>) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+      return;
+    }
+
+    Object.entries(obj).forEach(([key, value]) => {
+      // 跳过文件字段
+      if (fileFieldNames.has(key)) {
+        return;
+      }
+
+      // 跳过上传产生的字段
+      if (uploadGeneratedFields.has(key)) {
+        return;
+      }
+
+      // 跳过包含 file 属性的对象
+      if (value && typeof value === 'object' && 'file' in value) {
+        return;
+      }
+
+      // 如果值是基本类型
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        // 只添加有效的用户输入值
+        if (isValidUserInput(value)) {
+          result[key] = value;
+        }
+        return;
+      }
+
+      // 如果是对象，递归处理
+      const nestedResult: Record<string, any> = {};
+      processObject(value, nestedResult);
+      // 只有当嵌套对象中有有效字段时，才添加它
+      if (Object.keys(nestedResult).length > 0) {
+        result[key] = nestedResult;
+      }
+    });
+  }
+
+  processObject(dynamicForm, formData);
+  return formData;
+}
+
+// 创建专用的上传 axios 实例，用于更精准的进度跟踪
+function createUploadAxiosInstance() {
+  return axios.create({
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    timeout: 0 // 禁用超时，大文件上传需要充足时间
+  });
+}
+
+// 实时跟踪上传进度，确保进度更新的准确性和连续性
+function trackUploadProgress(
+  progressEvent: any,
+  taskId: string,
+  onTaskProgress?: (taskId: string, progress: number) => void,
+  lastProgress?: { current: number }
+) {
+  if (!progressEvent.total || !onTaskProgress) return;
+  
+  // 计算当前进度百分比
+  const currentProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+  
+  // 确保进度单调递增，避免进度条抖动
+  if (!lastProgress || currentProgress > lastProgress.current) {
+    lastProgress = lastProgress || { current: 0 };
+    lastProgress.current = currentProgress;
+    onTaskProgress(taskId, currentProgress);
+  }
+}
+
 // 处理文件上传
 export async function processFileUploads(
   dynamicForm: any,
@@ -140,12 +276,55 @@ export async function processFileUploads(
     });
   });
 
-  const initiateRes: any = await FileUploadInit(Number(selectedSchemaId), uploads);
-  const currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response.data?.upload_urls || []) as any[];
+  // 提取非文件字段的表单数据作为 content_json
+  const contentJson = extractNonFileFormData(dynamicForm);
 
   const uploadedFiles: any[] = [];
   const uploadPromises: Promise<void>[] = [];
   
+  // Step 1: 调用 FileUploadInit 接口初始化上传
+  let initiateRes: any;
+  let currentUploadUrls: any[] = [];
+  let initiateError: string | null = null;
+  
+  try {
+    initiateRes = await FileUploadInit(Number(selectedSchemaId), contentJson, uploads);
+    currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response?.data?.upload_urls || []) as any[];
+    
+    if (!currentUploadUrls || currentUploadUrls.length === 0) {
+      initiateError = '初始化上传失败：未获取到上传 URL';
+    }
+  } catch (err: any) {
+    initiateError = err?.message || '初始化上传失败';
+  }
+  
+  // Step 2: 在 initiate 阶段为每个文件添加任务到列表
+  // 这样用户在初始化完成后立即能看到任务，而不是等待上传完成
+  const taskMap = new Map<string, string>(); // 用于映射 field_name 到 taskId
+  
+  fileEntries.forEach(({ field_name, file }) => {
+    const taskId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    taskMap.set(field_name, taskId);
+    
+    if (onTaskAdded) {
+      onTaskAdded(taskId, file.name);
+    }
+    
+    // 如果初始化失败，立即标记任务为错误
+    if (initiateError) {
+      if (onTaskCompleted) {
+        onTaskCompleted(taskId, 'error', initiateError);
+      }
+    }
+  });
+  
+  // Step 3: 如果初始化失败，返回空数组（不继续上传）
+  if (initiateError) {
+    console.error('FileUploadInit 失败:', initiateError);
+    return uploadedFiles;
+  }
+  
+  // Step 4: 开始实际的文件上传
   try {
     currentUploadUrls.forEach((u: any) => {
       const promise = (async () => {
@@ -154,29 +333,36 @@ export async function processFileUploads(
           throw new Error(`上传时未找到对应的文件字段: ${u.field_name}`);
         }
 
-        // 创建上传任务
-        const taskId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        if (onTaskAdded) {
-          onTaskAdded(taskId, entry.file.name);
+        // 从任务映射表获取已创建的 taskId
+        const taskId = taskMap.get(u.field_name);
+        if (!taskId) {
+          throw new Error(`找不到任务 ID: ${u.field_name}`);
         }
         
         const cancelTokenSource = axios.CancelToken.source();
+        const uploadClient = createUploadAxiosInstance();
+        const lastProgress = { current: 0 }; // 用于追踪上一次的进度百分比
+
+        // 注册上传任务，用于全局管理和取消
+        registerUploadTask(taskId, cancelTokenSource, uploadClient);
 
         try {
-          await axios.put(u.upload_url, entry.file, {
+          // 执行上传请求，实时捕捉传输进度
+          await uploadClient.put(u.upload_url, entry.file, {
             headers: {
               'Content-Type': entry.file.type || 'application/octet-stream'
             },
-            onUploadProgress: progressEvent => {
-              if (progressEvent.total && onTaskProgress) {
-                const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                onTaskProgress(taskId, percent);
-              }
+            // 实时捕捉上传进度，确保面板显示最新的传输状态
+            onUploadProgress: (progressEvent: any) => {
+              trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
             },
-            maxBodyLength: Infinity,
-            maxContentLength: Infinity,
             cancelToken: cancelTokenSource.token
           });
+
+          // 确保上传成功时进度显示为 100%
+          if (onTaskProgress) {
+            onTaskProgress(taskId, 100);
+          }
 
           // 上传成功
           if (onTaskCompleted) {
@@ -231,6 +417,9 @@ export async function processFileUploads(
               onTaskCompleted(taskId, 'error', err?.message || '上传失败');
             }
           }
+        } finally {
+          // 清理已完成的任务
+          cleanupUploadTask(taskId);
         }
       })();
       uploadPromises.push(promise);

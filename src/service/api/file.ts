@@ -33,12 +33,13 @@ export function fetchFileListInfo(page: number, pageSize: number,
   });
 }
 
-export function FileUploadInit(file_type_id: number, uploads: Api.Files.FileUpload[]) {
+export function FileUploadInit(file_type_id: number, content_json: object, uploads: Api.Files.FileUpload[]) {
   return request<Api.Files.FileUploadInitResponse>({
     url: `/files/upload/initiate`,
     method: 'post',
     data: {
       file_type_id,
+      content_json,
       uploads
     }
   });

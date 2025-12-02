@@ -2,9 +2,6 @@
 import { ref, reactive, watch, computed } from 'vue';
 import { ElMessage, ElForm, ElFormItem, ElInput, ElSelect, ElOption, ElSwitch, ElUpload, ElButton, ElIcon } from 'element-plus';
 import { Upload } from '@element-plus/icons-vue';
-import axios from 'axios';
-import { createSHA256 } from 'hash-wasm';
-import { FileUploadInit, FileUploadComplete } from '@/service/api/file';
 
 // Props
 const props = defineProps<{
@@ -22,8 +19,6 @@ const emit = defineEmits<{
 const dynamicForm = reactive<any>({});
 const textFields = ref<any[]>([]);
 const fileFields = ref<any[]>([]);
-const uploadLoading = ref(false);
-const uploadTaskList = ref<any[]>([]);
 
 // 获取已上传文件数
 function getUploadedFileCount(field: any): number {

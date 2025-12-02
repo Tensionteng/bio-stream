@@ -105,6 +105,33 @@ src/views/file/
 | `getFileNameFromSchema(dynamicForm)` | 生成文件名 |
 | `processFileUploads(...)` | 处理文件上传流程 |
 | `completeFileUpload(...)` | 完成上传请求 |
+| `registerUploadTask(...)` | 注册上传任务（用于全局管理） |
+| `cancelUploadTask(taskId)` | 取消指定上传任务 |
+| `cleanupUploadTask(taskId)` | 清理已完成的任务 |
+
+#### 进度跟踪机制改进
+
+为了实现**实时捕捉传输请求中的进度**，进行了以下优化：
+
+1. **独立的 axios 实例** (`createUploadAxiosInstance`)
+   - 为每个文件上传创建独立的 axios 实例
+   - 配置无限超时和内容长度限制
+   - 确保大文件上传的可靠性
+
+2. **精确的进度计算** (`trackUploadProgress`)
+   - 使用进度事件中的 `loaded` 和 `total` 字段计算百分比
+   - 确保进度单调递增，避免进度条抖动
+   - 记录进度变化日志用于调试
+
+3. **全局任务管理**
+   - 维护 `uploadTaskMap` 存储所有活跃上传任务
+   - 支持中途取消上传任务
+   - 自动清理已完成的任务
+
+4. **完整的生命周期管理**
+   - 任务创建时自动注册
+   - 上传成功/失败时更新状态
+   - 任务完成后自动清理资源
 
 ### useFileUpload.ts
 提供上传管理的 Composable Hook：
@@ -114,11 +141,23 @@ src/views/file/
 | `uploadLoading` | Ref<boolean> | 上传加载状态 |
 | `uploadTaskList` | Ref<any[]> | 上传任务列表 |
 | `addUploadTask` | Function | 添加任务 |
-| `updateUploadTaskProgress` | Function | 更新进度 |
+| `updateUploadTaskProgress` | Function | 更新进度（实时捕捉） |
 | `updateUploadTaskStatus` | Function | 更新状态 |
-| `cancelUploadTask` | Function | 取消任务 |
+| `cancelUploadTask` | Function | 取消任务（调用全局取消机制） |
 | `removeUploadTask` | Function | 移除任务 |
 | `handleSubmit` | Function | 处理提交 |
+
+#### 进度更新流程
+
+```
+文件上传 → onUploadProgress 回调
+           ↓
+     trackUploadProgress (进度计算)
+           ↓
+   updateUploadTaskProgress (状态更新)
+           ↓
+  UploadTaskPanel.vue (UI 实时显示)
+```
 
 ## 主入口组件 (index.vue)
 

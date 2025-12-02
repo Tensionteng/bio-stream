@@ -4,7 +4,8 @@ import {
   processFileUploads,
   buildDescriptionJson,
   getFileNameFromSchema,
-  completeFileUpload
+  completeFileUpload,
+  cancelUploadTask as cancelUploadTaskGlobal
 } from './FileUploadHandler';
 
 export function useFileUpload() {
@@ -23,11 +24,16 @@ export function useFileUpload() {
     return taskId;
   }
 
-  // 更新上传任务进度
+  // 更新上传任务进度（实时捕捉传输进度）
   function updateUploadTaskProgress(taskId: string, progress: number) {
     const task = uploadTaskList.value.find(t => t.id === taskId);
     if (task) {
-      task.progress = progress;
+      // 确保进度单调递增，并记录进度变化
+      if (progress > task.progress) {
+        task.progress = progress;
+        // 可选：添加进度更新日志用于调试
+        console.log(`[${task.fileName}] 上传进度: ${progress}%`);
+      }
     }
   }
 
@@ -39,10 +45,20 @@ export function useFileUpload() {
   ) {
     const task = uploadTaskList.value.find(t => t.id === taskId);
     if (task) {
+      const previousStatus = task.status;
       task.status = status;
+      
+      // 上传成功或失败时，将进度设置为100%
+      if (status !== 'uploading') {
+        task.progress = 100;
+      }
+      
       if (error) {
         task.error = error;
       }
+      
+      // 记录状态变化
+      console.log(`[${task.fileName}] 状态变更: ${previousStatus} -> ${status}${error ? ` (${error})` : ''}`);
     }
   }
 
@@ -51,16 +67,19 @@ export function useFileUpload() {
     const task = uploadTaskList.value.find(t => t.id === taskId);
     if (task) {
       task.canceling = true;
-      if (task.cancelTokenSource) {
-        task.cancelTokenSource.cancel('用户取消上传');
-      }
+      // 调用全局取消机制
+      cancelUploadTaskGlobal(taskId);
+      
+      console.log(`正在取消任务 ${taskId}: ${task.fileName}`);
+      
+      // 异步处理状态更新
       setTimeout(() => {
         if (task.status === 'uploading') {
           task.status = 'error';
           task.error = '已取消';
         }
         task.canceling = false;
-      }, 300);
+      }, 100);
     }
   }
 
@@ -94,7 +113,15 @@ export function useFileUpload() {
       const uploadedFiles = await processFileUploads(
         dynamicForm,
         selectedSchema.id,
-        (taskId, fileName) => addUploadTask(fileName),
+        (taskId, fileName) => {
+          // taskId 由 processFileUploads 生成，直接使用
+          uploadTaskList.value.push({
+            id: taskId,
+            fileName,
+            progress: 0,
+            status: 'uploading'
+          });
+        },
         (taskId, progress) => updateUploadTaskProgress(taskId, progress),
         (taskId, status, error) => updateUploadTaskStatus(taskId, status, error)
       );
