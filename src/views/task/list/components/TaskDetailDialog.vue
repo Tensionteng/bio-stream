@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Collection, DocumentCopy, InfoFilled, Refresh, Upload } from '@element-plus/icons-vue';
+import { Collection, DocumentCopy, InfoFilled, Refresh, Setting, Upload } from '@element-plus/icons-vue';
 import {
   type FileSchemaItem,
   type SelectFileUploadPayload,
   type TaskDetail,
+  type UploadMapItem,
   fetchFileSchemaList,
   fetchTaskDetail,
   restartTask,
@@ -23,7 +24,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
-  // 1. 修复命名规范 warning: task-restarted -> taskRestarted
   (e: 'taskRestarted'): void;
 }>();
 
@@ -34,14 +34,26 @@ const taskDetails = ref<TaskDetail | null>(null);
 // -- Upload Dialog State --
 const isUploadDialogVisible = ref(false);
 const uploadLoading = ref(false);
-const uploadForm = reactive<SelectFileUploadPayload>({
+const metaFileLoading = ref(false);
+const metaFileOptions = ref<FileSchemaItem[]>([]);
+
+// 当前选中的 Schema
+const currentSchema = ref<FileSchemaItem | null>(null);
+
+// 动态表单数据
+const dynamicForm = reactive({
   meta_file_id: undefined as unknown as number,
-  files: []
+  // 存放 content_json 的数据
+  content: {} as Record<string, any>,
+  // 存放 uploads 的文件映射
+  files: {} as Record<string, string>
 });
 
-// Meta File 下拉选项
-const metaFileOptions = ref<FileSchemaItem[]>([]);
-const metaFileLoading = ref(false);
+// 解析后的字段列表（用于界面渲染）
+const parsedFields = reactive({
+  content: [] as { key: string; label: string; type: string; required: boolean; enum?: string[] }[],
+  files: [] as { key: string; label: string; required: boolean; description: string }[]
+});
 
 // -- Computed Properties --
 const isDialogVisible = computed({
@@ -128,6 +140,80 @@ watch(isDialogVisible, isVisible => {
   }
 });
 
+// ==========================================
+// 核心逻辑修改：Schema 解析 (包含新增的 filePath 支持)
+// ==========================================
+watch(
+  () => dynamicForm.meta_file_id,
+  newId => {
+    // 1. 重置表单数据
+    dynamicForm.content = {};
+    dynamicForm.files = {};
+    parsedFields.content = [];
+    parsedFields.files = [];
+    currentSchema.value = null;
+
+    if (!newId) return;
+
+    // 2. 找到对应的 Schema 定义
+    const schemaItem = metaFileOptions.value.find(item => item.id === newId);
+    if (!schemaItem || !schemaItem.schema_json || !schemaItem.schema_json.properties) return;
+
+    currentSchema.value = schemaItem;
+    const propsDef = schemaItem.schema_json.properties;
+    const requiredList = (schemaItem.schema_json.required as string[]) || [];
+
+    // 3. 遍历属性进行分类
+    Object.keys(propsDef).forEach(key => {
+      const propDef = propsDef[key];
+      const isRequired = requiredList.includes(key);
+
+      // --- CASE A: 标准文件结构 (file_locations) ---
+      // 识别 type: object 且名为 file_locations 的容器
+      if (key === 'file_locations' && propDef.type === 'object' && propDef.properties) {
+        const fileProps = propDef.properties;
+        const fileRequiredList = (propDef.required as string[]) || [];
+
+        Object.keys(fileProps).forEach(fileKey => {
+          const fileItem = fileProps[fileKey];
+          parsedFields.files.push({
+            key: fileKey, // 字段名，如 json_file, bam_file
+            label: fileKey,
+            description: fileItem.description || '',
+            required: fileRequiredList.includes(fileKey)
+          });
+          dynamicForm.files[fileKey] = '';
+        });
+      }
+      // --- CASE B: 特殊文件结构 (filePaths / filePath) ---
+      // ID 7 使用 filePaths (object), ID 4 使用 filePath (string)
+      // 只要 key 是这两个之一，就强制作为单个文件处理
+      else if (key === 'filePaths' || key === 'filePath') {
+        parsedFields.files.push({
+          key,
+          label: key,
+          description: (propDef.description || '') + (key === 'filePaths' ? ' (提交时映射为 filepath)' : ''),
+          required: isRequired
+        });
+        dynamicForm.files[key] = '';
+      }
+      // --- CASE C: 普通参数 (Content) ---
+      // 排除掉对象类型（除非是 position 或者是我们未处理的其他字段），剩下的作为普通文本/枚举参数
+      // 注意：ID 4 的 position 是 object，这里不做深层解析，暂时允许它生成一个 Input (需输入JSON或后续优化)
+      else if (propDef.type !== 'object' || key === 'position') {
+        parsedFields.content.push({
+          key,
+          label: key,
+          type: propDef.type,
+          required: isRequired,
+          enum: propDef.enum
+        });
+        dynamicForm.content[key] = propDef.enum && propDef.enum.length > 0 ? propDef.enum[0] : undefined;
+      }
+    });
+  }
+);
+
 // -- Helper Functions --
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
@@ -211,7 +297,6 @@ async function getTaskDetails(id: number) {
     const detailRes = await fetchTaskDetail(id);
     taskDetails.value = detailRes.data as TaskDetail;
   } catch {
-    // 2. 修复 unused-vars: 移除未使用的 error 参数
     ElMessage.error('获取任务详情失败');
     isDialogVisible.value = false;
   } finally {
@@ -241,7 +326,6 @@ async function handleRestartTask() {
     loading.value = true;
     const res = await restartTask(props.taskId);
     ElMessage.success(res.data?.message || '操作成功');
-    // 修复事件名称
     emit('taskRestarted');
     isDialogVisible.value = false;
   } catch (error) {
@@ -268,48 +352,80 @@ async function handleReupload() {
 
 // -- Manual Upload Logic --
 
-// 打开弹窗时，加载 Schema 列表
 async function handleOpenUploadDialog() {
-  // 重置表单
-  uploadForm.meta_file_id = undefined as unknown as number;
-  uploadForm.files = [];
+  dynamicForm.meta_file_id = undefined as unknown as number;
+  dynamicForm.content = {};
+  dynamicForm.files = {};
+  parsedFields.content = [];
+  parsedFields.files = [];
+  currentSchema.value = null;
 
   isUploadDialogVisible.value = true;
 
-  // 加载 Meta File 选项
   metaFileLoading.value = true;
   try {
     const res = await fetchFileSchemaList();
     metaFileOptions.value = res.data?.schemas || [];
   } catch {
-    // 修复 unused-vars
     ElMessage.error('无法加载源文件列表');
   } finally {
     metaFileLoading.value = false;
   }
 }
 
+// ==========================================
+// 核心逻辑修改：提交 Payload 构建
+// ==========================================
 async function submitUpload() {
   if (!props.taskId) return;
 
-  if (!uploadForm.meta_file_id) {
+  if (!dynamicForm.meta_file_id) {
     ElMessage.warning('请选择目标元文件 (Meta File)');
     return;
   }
-  if (!uploadForm.files || uploadForm.files.length === 0) {
-    ElMessage.warning('请至少选择一个生成文件');
-    return;
+
+  // 1. 校验必填文件
+  for (const field of parsedFields.files) {
+    if (field.required && !dynamicForm.files[field.key]) {
+      ElMessage.warning(`请选择文件: ${field.label}`);
+      return;
+    }
   }
+  // 2. 校验必填内容
+  for (const field of parsedFields.content) {
+    if (field.required && !dynamicForm.content[field.key]) {
+      ElMessage.warning(`请输入参数: ${field.label}`);
+      return;
+    }
+  }
+
+  // 3. 构造 Payload
+  const uploadsPayload: UploadMapItem[] = Object.keys(dynamicForm.files)
+    .filter(key => Boolean(dynamicForm.files[key]))
+    .map(key => {
+      // 只有 filePaths 需要重命名为 filepath，filePath (ID 4) 保持原名
+      const apiFiledName = key === 'filePaths' ? 'filepath' : key;
+
+      return {
+        filed_name: apiFiledName,
+        file_dir: dynamicForm.files[key]
+      };
+    });
+
+  const payload: SelectFileUploadPayload = {
+    meta_file_id: dynamicForm.meta_file_id,
+    uploads: uploadsPayload,
+    content_json: dynamicForm.content
+  };
 
   uploadLoading.value = true;
   try {
-    await uploadTaskGeneratedFiles(props.taskId, uploadForm);
+    console.log(payload);
+    await uploadTaskGeneratedFiles(props.taskId, payload);
     ElMessage.success('文件上传任务已提交');
     isUploadDialogVisible.value = false;
-    // 刷新详情状态
     await getTaskDetails(props.taskId);
   } catch {
-    // 3. 修复 no-console: 移除 console.error，添加 UI 提示
     ElMessage.error('上传任务提交失败');
   } finally {
     uploadLoading.value = false;
@@ -325,7 +441,6 @@ async function submitUpload() {
     top="5vh"
     :close-on-click-modal="false"
   >
-    <!-- 4. 修复 static inline styles: 提取到 css class -->
     <div v-loading="loading" class="loading-container">
       <div v-if="taskDetails">
         <ElDescriptions :column="3" border>
@@ -422,7 +537,7 @@ async function submitUpload() {
   <ElDialog
     v-model="isUploadDialogVisible"
     title="上传任务生成文件"
-    width="560px"
+    width="600px"
     append-to-body
     destroy-on-close
     :close-on-click-modal="false"
@@ -432,19 +547,15 @@ async function submitUpload() {
       <div class="info-block">
         <ElIcon class="info-icon" color="#409eff"><InfoFilled /></ElIcon>
         <span class="info-text">
-          手动将任务流程中产生的文件关联到系统文件库。请选择目标元文件定义和具体要上传的文件。
+          系统根据选择的 Schema 动态生成表单。请填写必要参数并将任务输出文件映射到对应字段。
         </span>
       </div>
 
-      <ElForm label-position="top" class="upload-form">
-        <ElFormItem required>
-          <template #label>
-            <span class="form-label">目标元文件 (Meta File)</span>
-          </template>
-          <!-- 修复 static inline styles -->
+      <ElForm label-position="top" class="upload-form" label-width="120px">
+        <ElFormItem required label="目标元文件 (Meta File)">
           <ElSelect
-            v-model="uploadForm.meta_file_id"
-            placeholder="请选择要归属的文件 Schema"
+            v-model="dynamicForm.meta_file_id"
+            placeholder="请选择文件定义 Schema"
             :loading="metaFileLoading"
             class="full-width-select"
             size="large"
@@ -461,32 +572,69 @@ async function submitUpload() {
           </ElSelect>
         </ElFormItem>
 
-        <ElFormItem required>
-          <template #label>
-            <span class="form-label">选择上传文件</span>
+        <ElDivider v-if="parsedFields.content.length > 0 || parsedFields.files.length > 0" border-style="dashed" />
+
+        <div v-if="parsedFields.content.length > 0" class="mb-4">
+          <h4 class="mb-3 flex items-center text-sm text-gray-600 font-bold">
+            <ElIcon class="mr-1"><Setting /></ElIcon>
+            基础参数 (Content)
+          </h4>
+          <template v-for="field in parsedFields.content" :key="field.key">
+            <ElFormItem :label="field.label" :required="field.required">
+              <ElSelect
+                v-if="field.enum && field.enum.length > 0"
+                v-model="dynamicForm.content[field.key]"
+                class="full-width-select"
+                placeholder="请选择"
+              >
+                <ElOption v-for="opt in field.enum" :key="opt" :label="opt" :value="opt" />
+              </ElSelect>
+              <ElInput v-else v-model="dynamicForm.content[field.key]" :placeholder="`请输入 ${field.label}`" />
+            </ElFormItem>
           </template>
-          <!-- 修复 static inline styles -->
-          <ElSelect
-            v-model="uploadForm.files"
-            multiple
-            filterable
-            collapse-tags
-            collapse-tags-tooltip
-            placeholder="从任务产生的文件列表中选择"
-            class="full-width-select"
-            size="large"
-            no-data-text="当前任务暂无记录的文件"
-          >
-            <template #prefix>
-              <ElIcon><DocumentCopy /></ElIcon>
-            </template>
-            <ElOption v-for="file in availableTaskFiles" :key="file.value" :label="file.label" :value="file.value" />
-          </ElSelect>
-          <div class="mt-2 flex items-center text-xs text-gray-400">
-            <span class="mr-1">*</span>
-            列表仅显示任务执行记录中明确输出的文件
-          </div>
-        </ElFormItem>
+        </div>
+
+        <ElDivider v-if="parsedFields.content.length > 0 && parsedFields.files.length > 0" border-style="dashed" />
+
+        <div v-if="parsedFields.files.length > 0">
+          <h4 class="mb-3 flex items-center text-sm text-gray-600 font-bold">
+            <ElIcon class="mr-1"><DocumentCopy /></ElIcon>
+            文件映射 (Files)
+          </h4>
+          <template v-for="field in parsedFields.files" :key="field.key">
+            <ElFormItem :required="field.required">
+              <template #label>
+                <div class="flex flex-col">
+                  <span>{{ field.label }}</span>
+                  <span v-if="field.description" class="mt-1 text-xs text-gray-400 font-normal">
+                    {{ field.description }}
+                  </span>
+                </div>
+              </template>
+
+              <ElSelect
+                v-model="dynamicForm.files[field.key]"
+                filterable
+                placeholder="请选择任务产出的文件"
+                class="full-width-select"
+                no-data-text="当前任务无可用文件"
+              >
+                <ElOption
+                  v-for="file in availableTaskFiles"
+                  :key="file.value"
+                  :label="file.label"
+                  :value="file.value"
+                />
+              </ElSelect>
+            </ElFormItem>
+          </template>
+        </div>
+
+        <ElEmpty
+          v-if="dynamicForm.meta_file_id && parsedFields.content.length === 0 && parsedFields.files.length === 0"
+          description="该 Schema 暂无需填写字段"
+          :image-size="60"
+        />
       </ElForm>
     </div>
 
@@ -502,17 +650,13 @@ async function submitUpload() {
 </template>
 
 <style scoped>
-/* 弹窗样式优化 */
 .upload-dialog {
   border-radius: 12px;
   overflow: hidden;
 }
-
 .dialog-content {
   padding: 0 10px;
 }
-
-/* 顶部提示块 */
 .info-block {
   display: flex;
   align-items: flex-start;
@@ -521,49 +665,40 @@ async function submitUpload() {
   padding: 10px 14px;
   margin-bottom: 24px;
 }
-
 .info-icon {
   margin-top: 2px;
   margin-right: 8px;
   font-size: 16px;
 }
-
 .info-text {
   font-size: 13px;
   color: #409eff;
   line-height: 1.5;
 }
-
-/* 表单样式 */
 .upload-form .el-form-item {
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
-
 .form-label {
   font-weight: 600;
   color: #303133;
 }
-
-/* 底部按钮区 */
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
   padding-top: 8px;
 }
-
-/* 新增工具类，解决 inline-styles 报错 */
 .loading-container {
   min-height: 200px;
 }
-
 .full-width-select {
   width: 100%;
 }
-
-/* 通用工具类 */
 .flex {
   display: flex;
+}
+.flex-col {
+  flex-direction: column;
 }
 .items-center {
   align-items: center;
@@ -574,13 +709,43 @@ async function submitUpload() {
 .text-xs {
   font-size: 12px;
 }
+.text-sm {
+  font-size: 14px;
+}
+.font-semibold {
+  font-weight: 600;
+}
+.font-bold {
+  font-weight: 700;
+}
+.font-normal {
+  font-weight: 400;
+}
 .text-gray-400 {
   color: #9ca3af;
 }
-.mt-2 {
-  margin-top: 8px;
+.text-gray-600 {
+  color: #606266;
+}
+.mt-1 {
+  margin-top: 4px;
+}
+.mt-6 {
+  margin-top: 24px;
+}
+.mb-3 {
+  margin-bottom: 12px;
+}
+.mb-4 {
+  margin-bottom: 16px;
 }
 .mr-1 {
   margin-right: 4px;
+}
+.p-4 {
+  padding: 16px;
+}
+.space-x-2 > * + * {
+  margin-left: 0.5rem;
 }
 </style>

@@ -16,7 +16,7 @@ import {
   ElSwitch,
   ElTable,
   ElTableColumn,
-  ElTag // 1. 移除了 ElScrollbar
+  ElTag
 } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
 import { Document, FolderOpened, Search, UploadFilled } from '@element-plus/icons-vue';
@@ -42,7 +42,6 @@ interface PaginatedFilesResponse {
   results: FileInfo[];
 }
 
-// 2. 修复 max-params: 将参数合并为一个对象
 interface FetchFileListParams {
   page: number;
   pageSize: number;
@@ -53,7 +52,7 @@ interface FetchFileListParams {
 // --- API ---
 function fetchFileList({ page, pageSize, fileType, keyword }: FetchFileListParams) {
   const params: any = { page, page_size: pageSize };
-  if (fileType) params.File_type = fileType;
+  if (fileType) params.file_type = fileType;
   if (keyword) params.file_name = keyword;
   return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
 }
@@ -64,7 +63,6 @@ const props = defineProps<{
   modelValue: Record<string, any>;
 }>();
 
-// 3. 修复 vue/define-emits-declaration: 使用类型声明
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, any>): void;
 }>();
@@ -79,9 +77,8 @@ const currentFileSelectionKey = ref<string | null>(null);
 const tempSelection = ref<FileInfo[]>([]);
 
 // 搜索相关状态
-const selectedFileType = ref<string>('');
+const selectedFileType = ref<string>(''); // 手动输入的类型
 const searchKeyword = ref<string>('');
-const fileTypeOptions = ref(['BAM输入文件', 'FASTQ输入文件', 'VCF结果文件', '报告文件', '其他类型']);
 
 const pagination = ref({ page: 1, pageSize: 20, total: 0, hasNextPage: false });
 const dialogTableRef = ref();
@@ -120,7 +117,7 @@ watch(fileDialogVisible, isVisible => {
   }
 });
 
-// --- 4. Helpers (移动到 Computed 之前，修复 no-use-before-define) ---
+// --- Helpers ---
 const isNumericType = (p: any) =>
   Array.isArray(p.type)
     ? p.type.some((t: string) => ['number', 'integer'].includes(t))
@@ -144,7 +141,7 @@ const formRules = computed<FormRules>(() => {
     if (props.schema.required?.includes(key)) {
       const prop = props.schema.properties[key];
       let trigger = 'blur';
-      let message = `请输入 ${formatLabel(key)}`; // 现在 formatLabel 已经定义了
+      let message = `请输入 ${formatLabel(key)}`;
       let validator;
       if (prop.type === 'array') {
         trigger = 'change';
@@ -172,7 +169,6 @@ const fileIdMap = computed(() => {
   return map;
 });
 
-// Helper dependent on computed (Needs to stay here or inside logic)
 const getFileName = (id: number) => fileIdMap.value.get(id)?.file_name ?? `ID: ${id}`;
 
 // --- Logic ---
@@ -180,7 +176,6 @@ async function loadFilesPage() {
   if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
   try {
-    // 调用修改后的 API 格式
     const res = await fetchFileList({
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
@@ -192,11 +187,9 @@ async function loadFilesPage() {
       availableFiles.value.push(...res.data.results);
       pagination.value.total = res.data.count;
       pagination.value.hasNextPage = availableFiles.value.length < res.data.count;
-      // 5. 修复 no-plusplus
       if (pagination.value.hasNextPage) pagination.value.page += 1;
     }
   } catch {
-    // 6. 修复 unused vars (去掉 e)
     ElMessage.error('加载文件失败');
   } finally {
     loadingFiles.value = false;
@@ -213,7 +206,7 @@ const handleSearch = () => {
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
   selectedFileType.value = '';
-  searchKeyword.value = ''; // 打开时重置关键词
+  searchKeyword.value = '';
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
   loadFilesPage();
@@ -348,15 +341,14 @@ defineExpose({ validate });
       <div class="dialog-header-bar">
         <div class="filter-wrapper">
           <span class="filter-label">类型筛选：</span>
-          <ElSelect
+          <ElInput
             v-model="selectedFileType"
-            placeholder="全部类型"
+            placeholder="输入类型"
+            class="pretty-input-short"
             clearable
-            class="pretty-select"
-            @change="handleSearch"
-          >
-            <ElOption v-for="type in fileTypeOptions" :key="type" :label="type" :value="type" />
-          </ElSelect>
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
         </div>
 
         <div class="search-group">
@@ -683,14 +675,22 @@ defineExpose({ validate });
   width: 280px;
 }
 
+/* 修改点：新样式，适配短输入框 */
+.pretty-input-short {
+  width: 160px;
+}
+
+/* 通用输入框样式 (Select wrapper 和 Input wrapper) */
 .pretty-select :deep(.el-select__wrapper),
-.pretty-input :deep(.el-input__wrapper) {
+.pretty-input :deep(.el-input__wrapper),
+.pretty-input-short :deep(.el-input__wrapper) {
   border-radius: 20px;
   box-shadow: 0 0 0 1px #dcdfe6 inset;
   padding-left: 12px;
 }
 
-.pretty-input :deep(.el-input__wrapper.is-focus) {
+.pretty-input :deep(.el-input__wrapper.is-focus),
+.pretty-input-short :deep(.el-input__wrapper.is-focus) {
   box-shadow:
     0 0 0 1px var(--primary-color) inset,
     0 2px 8px rgba(64, 158, 255, 0.15);

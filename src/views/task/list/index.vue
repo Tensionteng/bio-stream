@@ -205,7 +205,7 @@ const getFileTypeLabel = (type: string) => {
   return map[type] || type.toUpperCase();
 };
 
-// 核心：点击“可视化”按钮
+// 核心：点击“可视化”按钮 (已修改)
 async function handleVisualize(row: TaskListItem) {
   if (currentVisTaskId.value === row.id) return;
 
@@ -214,26 +214,32 @@ async function handleVisualize(row: TaskListItem) {
   visualizationResult.value = null;
   selectedFileType.value = '';
 
-  // 显式指定类型
-  const ALL_TYPES: Api.Visualization.FileType[] = ['txt', 'vcf', 'pdf', 'csv', 'image'];
-  availableFileTypes.value = ALL_TYPES;
+  // 1. 重置可用类型，确保旧数据被清除
+  availableFileTypes.value = [];
 
   visualizationLoading.value = true;
+
+  // 滚动定位
+  nextTick(() => {
+    visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   try {
     const { data } = await fetchTaskInfo();
     const targetTask = data?.find((t: any) => t.task_id === row.id);
 
-    if (targetTask && targetTask.file_type && targetTask.file_type.length > 0) {
-      // 这里也要断言一下，或者确保后端返回类型一致
-      loadVisData(targetTask.file_type[0] as Api.Visualization.FileType);
+    // 2. 根据后端返回的实际 file_type 列表渲染 Tab
+    if (targetTask && Array.isArray(targetTask.file_type) && targetTask.file_type.length > 0) {
+      availableFileTypes.value = targetTask.file_type as Api.Visualization.FileType[];
+      // 默认加载第一个类型
+      loadVisData(availableFileTypes.value[0]);
     } else {
-      loadVisData(ALL_TYPES[0]);
+      // 3. 如果列表为空，则不显示任何 Tab，并提示
+      ElMessage.warning('该任务暂无生成的可视化文件');
+      availableFileTypes.value = [];
+      // 停止 loading
+      visualizationLoading.value = false;
     }
-
-    nextTick(() => {
-      visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
   } catch {
     ElMessage.error('获取可视化信息失败');
     visualizationLoading.value = false;
@@ -281,7 +287,7 @@ const closeVisPanel = () => {
 };
 
 // ==========================================
-// Part 3: 清理文件逻辑 (保持不变)
+// Part 3: 清理文件逻辑
 // ==========================================
 
 const isDeleteDialogVisible = ref(false);

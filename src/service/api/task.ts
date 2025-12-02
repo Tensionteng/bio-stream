@@ -219,16 +219,23 @@ export function createNewTask(payload: NewTaskPayload) {
 // ==========================================
 // 6. 手动选择文件上传相关
 // ==========================================
+/** 单个文件上传项结构 */
+export interface UploadMapItem {
+  filed_name: string;
+  file_dir: string;
+}
 
-/** 选择文件上传的 Payload */
+/** 选择文件上传的 Payload (更新版) */
 export interface SelectFileUploadPayload {
   /** 元文件ID */
   meta_file_id: number;
-  /** 文件路径/名称列表 */
-  files: string[];
+  /** 文件映射列表 */
+  uploads: UploadMapItem[];
+  /** 除了文件之外的其他参数 */
+  content_json: Record<string, any>;
 }
 
-/** 选择任务文件上传接口 POST /analysis/processes/tasks/{task_id}/file/upload */
+/** 选择任务文件上传接口 */
 export function uploadTaskGeneratedFiles(taskId: number, payload: SelectFileUploadPayload) {
   return request<any>({
     url: `/analysis/processes/tasks/${taskId}/file/upload`,
