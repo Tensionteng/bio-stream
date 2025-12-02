@@ -7,6 +7,29 @@ import {
 } from 'element-plus';
 import { fetchFileListInfo } from '@/service/api/file';
 
+// 格式化时间显示，限制小数位
+function formatTime(timeValue: any): string {
+  if (!timeValue) return '-';
+  
+  // 如果是数字（时间戳），转换为字符串
+  let timeStr = String(timeValue);
+  
+  // 如果包含 ISO 格式的 Z 或 +，保持原样
+  if (timeStr.includes('Z') || timeStr.includes('+')) {
+    return timeStr;
+  }
+  
+  // 如果是带小数点的数字字符串，保留有效的时间部分
+  // 例如：2025-12-02 10:30:45.123456 → 2025-12-02 10:30:45
+  // 或：2025-12-02T10:30:45.123456Z → 2025-12-02T10:30:45Z
+  if (timeStr.includes('.')) {
+    const parts = timeStr.split('.');
+    return parts[0]; // 只返回小数点前的部分
+  }
+  
+  return timeStr;
+}
+
 // Props
 const props = defineProps<{
   modelValue?: any[];
@@ -183,7 +206,11 @@ defineExpose({
         <ElTableColumn prop="file_id" label="ID" show-overflow-tooltip />
         <ElTableColumn prop="file_name" label="文件名" show-overflow-tooltip />
         <ElTableColumn prop="file_size" label="文件大小（字节）" show-overflow-tooltip />
-        <ElTableColumn prop="created_time" label="上传时间" show-overflow-tooltip />
+        <ElTableColumn prop="created_time" label="上传时间" show-overflow-tooltip>
+          <template #default="scope">
+            {{ formatTime(scope.row.created_time) }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="upload_user.user_id" label="上传用户" show-overflow-tooltip />
         <ElTableColumn label="操作" width="200" align="center">
           <template #default="scope">
