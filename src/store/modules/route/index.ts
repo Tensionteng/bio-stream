@@ -15,12 +15,11 @@ import {
   filterAuthRoutesByPermissions,
   getBreadcrumbsByRoute,
   getCacheRouteNames,
-  getGlobalMenusByAuthRoutes,
+  getGlobalMenusByAuthRoutesWithRoleFilter,
   getSelectedMenuKeyPathByKey,
   isRouteExistByRouteName,
   sortRoutesByOrder,
-  transformMenuToSearchMenus,
-  updateLocaleOfGlobalMenus
+  transformMenuToSearchMenus
 } from './shared';
 
 export const useRouteStore = defineStore(SetupStoreId.Route, () => {
@@ -84,12 +83,16 @@ export const useRouteStore = defineStore(SetupStoreId.Route, () => {
 
   /** Get global menus */
   function getGlobalMenus(routes: ElegantConstRoute[]) {
-    menus.value = getGlobalMenusByAuthRoutes(routes);
+    const permissions = authStore.userInfo.permissions || [];
+    menus.value = getGlobalMenusByAuthRoutesWithRoleFilter(routes, permissions);
   }
 
   /** Update global menus by locale */
   function updateGlobalMenusByLocale() {
-    menus.value = updateLocaleOfGlobalMenus(menus.value);
+    const permissions = authStore.userInfo.permissions || [];
+    const routes = [...constantRoutes.value, ...authRoutes.value];
+    const sortRoutes = sortRoutesByOrder(routes);
+    menus.value = getGlobalMenusByAuthRoutesWithRoleFilter(sortRoutes, permissions);
   }
 
   /** Cache routes */

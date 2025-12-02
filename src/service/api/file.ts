@@ -1,3 +1,4 @@
+import { c } from 'vite/dist/node/moduleRunnerTransport.d-CXw_Ws6P';
 import { request } from '../request';
 
 export function fetchFileSchemaInfo() {

@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePermissionStore } from '@/store/modules/permission';
 import { useAuthStore } from '@/store/modules/auth';
+import { getI18nPermissionKey } from '@/hooks/business/permission-guard';
 import { $t } from '@/locales';
 
 const router = useRouter();
@@ -34,6 +35,13 @@ const statusTypeMap = {
 
 function handleApply() {
   router.push('/permission/apply');
+}
+
+function getPermissionTypeLabel(type: string): string {
+  // 将 snake_case 转换为 camelCase 用于 i18n 键
+  const permissionKey = getI18nPermissionKey(type as Api.Permission.PermissionType);
+  // 从 i18n 获取翻译，如果找不到则返回原始值
+  return $t(`page.permission.${permissionKey}` as any) || type;
 }
 
 function formatDate(dateString: string | undefined) {
@@ -100,7 +108,7 @@ onMounted(async () => {
       >
         <ElTableColumn label="权限类型" prop="type" width="120">
           <template #default="{ row }">
-            <ElTag>{{ $t(`page.permission.${row.type}` as any) || row.type }}</ElTag>
+            <ElTag>{{ getPermissionTypeLabel(row.type) }}</ElTag>
           </template>
         </ElTableColumn>
 
