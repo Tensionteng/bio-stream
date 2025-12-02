@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+// [新增] 引入 axios 用于下载
+import axios from 'axios';
 import {
   Close,
   DataAnalysis,
   Delete,
   Document,
+  Download,
   Odometer,
   Refresh,
   Search,
@@ -23,6 +26,9 @@ import {
   fetchTotalFileSize
 } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
+// [新增] 工具函数引入
+import { getServiceBaseURL } from '@/utils/service';
+import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
 // ==========================================
@@ -262,6 +268,75 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
   }
 }
 
+// [新增] 处理下载
+const handleDownload = async () => {
+  if (!currentVisTaskId.value || !selectedFileType.value) {
+    ElMessage.warning('请先选择任务和文件类型');
+    return;
+  }
+
+  try {
+    const token = localStg.get('token');
+    const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
+    const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
+
+    const response = await axios({
+      url: `${baseURL}/visualization/tasks/download/${currentVisTaskId.value}`,
+      method: 'GET',
+      params: { type: selectedFileType.value },
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: '*/*'
+      },
+      responseType: 'blob'
+    });
+
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition'];
+    let fileName = '';
+
+    if (contentDisposition) {
+      const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (fileNameMatch && fileNameMatch.length === 2) {
+        fileName = decodeURIComponent(fileNameMatch[1]);
+      }
+    }
+
+    // 如果没有在header中找到文件名，则使用默认名称
+    if (!fileName) {
+      const type = selectedFileType.value;
+      fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
+      // 根据类型添加扩展名
+      const extensions: Record<string, string> = {
+        txt: '.txt',
+        pdf: '.pdf',
+        vcf: '.vcf',
+        csv: '.csv',
+        image: '.zip'
+      };
+      fileName += extensions[type] || '';
+    }
+
+    // 创建下载链接
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+
+    // 清理
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success('文件下载成功');
+  } catch (error) {
+    console.error('文件下载失败:', error);
+    ElMessage.error('文件下载失败');
+  }
+};
+
 // 切换 CSV 类型时提示
 watch(selectedCsvTable, val => {
   if (visualizationResult.value?.type === 'csv') {
@@ -490,17 +565,23 @@ onMounted(() => {
 
         <div v-loading="visualizationLoading" class="vis-body">
           <div v-if="availableFileTypes.length > 0" class="vis-tabs">
-            <div class="vis-tabs-label">选择查看内容：</div>
-            <div class="vis-tabs-group">
-              <div
-                v-for="type in availableFileTypes"
-                :key="type"
-                class="vis-tab-item"
-                :class="{ active: selectedFileType === type }"
-                @click="loadVisData(type)"
-              >
-                {{ getFileTypeLabel(type) }}
+            <div class="vis-tabs-left">
+              <div class="vis-tabs-label">选择查看内容：</div>
+              <div class="vis-tabs-group">
+                <div
+                  v-for="type in availableFileTypes"
+                  :key="type"
+                  class="vis-tab-item"
+                  :class="{ active: selectedFileType === type }"
+                  @click="loadVisData(type)"
+                >
+                  {{ getFileTypeLabel(type) }}
+                </div>
               </div>
+            </div>
+
+            <div class="vis-actions">
+              <ElButton type="primary" :icon="Download" @click="handleDownload">下载文件</ElButton>
             </div>
           </div>
 
@@ -793,14 +874,22 @@ onMounted(() => {
   padding: 8px 0;
 }
 
-/* Tab 切换 */
+/* [修改] Tab 切换布局 */
 .vis-tabs {
   display: flex;
   align-items: center;
+  justify-content: space-between; /* 两端对齐 */
   margin-bottom: 20px;
   border-bottom: 1px solid #f0f2f5;
   padding-bottom: 12px;
 }
+
+/* [新增] 左侧 Tabs 容器 */
+.vis-tabs-left {
+  display: flex;
+  align-items: center;
+}
+
 .vis-tabs-label {
   font-size: 14px;
   font-weight: 600;

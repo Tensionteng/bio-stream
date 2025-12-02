@@ -234,10 +234,14 @@ export interface SelectFileUploadPayload {
   /** 除了文件之外的其他参数 */
   content_json: Record<string, any>;
 }
-
+// 定义 API 返回的数据结构
+export interface UploadTaskResponse {
+  message: string;
+  code: string;
+}
 /** 选择任务文件上传接口 */
 export function uploadTaskGeneratedFiles(taskId: number, payload: SelectFileUploadPayload) {
-  return request<any>({
+  return request<UploadTaskResponse>({
     url: `/analysis/processes/tasks/${taskId}/file/upload`,
     method: 'post',
     data: payload

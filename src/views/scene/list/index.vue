@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
+import axios from 'axios'; // [新增]
 import {
   Close,
   DataAnalysis,
   Delete,
   Document,
+  Download, // [新增]
   Odometer,
   Refresh,
   Search,
@@ -23,6 +25,9 @@ import {
 } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
+// [新增] 引入工具函数
+import { getServiceBaseURL } from '@/utils/service';
+import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
 // =======================
@@ -52,7 +57,7 @@ const deleteLoading = ref(false);
 const currentDeleteTaskId = ref<number | null>(null);
 const deleteLevel = ref<number>(3);
 
-// [新增] 存储当前选中任务的预览大小数据
+// 存储当前选中任务的预览大小数据
 const deletePreviewSizes = ref<Record<string, number>>({});
 
 // 清理选项配置
@@ -73,7 +78,7 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
-// [新增] 获取对应级别的预览大小文本
+// 获取对应级别的预览大小文本
 const getPreviewSizeText = (level: number) => {
   const key = `size_${level}`;
   const size = deletePreviewSizes.value[key];
@@ -87,7 +92,7 @@ function openDeleteDialog(row: TaskListItem) {
   deleteLevel.value = 2; // 重置为默认推荐值
   isDeleteDialogVisible.value = true;
 
-  // [新增] 重置并获取该任务的文件大小预览
+  // 重置并获取该任务的文件大小预览
   deletePreviewSizes.value = {};
   fetchTaskFileSize(row.id)
     .then(res => {
@@ -203,7 +208,6 @@ async function getTasks() {
       pagination.itemCount = data.count || 0;
     }
   } catch {
-    // 修复：移除未使用的 _error
     ElMessage.error('获取任务列表失败');
   } finally {
     loading.value = false;
@@ -288,7 +292,6 @@ const normalizePdfUrl = (url: string) => {
     const pdfPathWithQuery = `${pdfUrl.pathname}${pdfUrl.search}`;
     return `${proxyPrefix}${pdfPathWithQuery}`;
   } catch {
-    // 修复：移除未使用的 _error
     return url;
   }
 };
@@ -308,7 +311,6 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
       visualizationResult.value = resultData ?? null;
     }
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error('获取数据失败:', error);
     visualizationResult.value = null;
     ElMessage.error('数据加载失败');
@@ -317,12 +319,81 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
   }
 };
 
-// 修复：将 handleFileTypeClick 移动到使用它的函数 (handleVisualize) 之前
 function handleFileTypeClick(fileType: Api.Visualization.FileType) {
   if (currentVisTaskId.value) {
     fetchVisualizationData(currentVisTaskId.value, fileType);
   }
 }
+
+// [新增] 处理下载
+const handleDownload = async () => {
+  if (!currentVisTaskId.value || !selectedFileType.value) {
+    ElMessage.warning('请先选择任务和文件类型');
+    return;
+  }
+
+  try {
+    const token = localStg.get('token');
+    const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
+    const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
+
+    const response = await axios({
+      url: `${baseURL}/visualization/tasks/download/${currentVisTaskId.value}`,
+      method: 'GET',
+      params: { type: selectedFileType.value },
+      headers: {
+        Authorization: token ? `Bearer ${token}` : '',
+        Accept: '*/*'
+      },
+      responseType: 'blob'
+    });
+
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition'];
+    let fileName = '';
+
+    if (contentDisposition) {
+      const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
+      if (fileNameMatch && fileNameMatch.length === 2) {
+        fileName = decodeURIComponent(fileNameMatch[1]);
+      }
+    }
+
+    // 如果没有在header中找到文件名，则使用默认名称
+    if (!fileName) {
+      const type = selectedFileType.value;
+      // 使用 currentVisTaskId
+      fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
+      // 根据类型添加扩展名
+      const extensions: Record<string, string> = {
+        txt: '.txt',
+        pdf: '.pdf',
+        vcf: '.vcf',
+        csv: '.csv',
+        image: '.zip'
+      };
+      fileName += extensions[type] || '';
+    }
+
+    // 创建下载链接
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+
+    // 清理
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    ElMessage.success('文件下载成功');
+  } catch (error) {
+    console.error('文件下载失败:', error);
+    ElMessage.error('文件下载失败');
+  }
+};
 
 async function handleVisualize(taskId: number) {
   if (currentVisTaskId.value === taskId) {
@@ -349,7 +420,6 @@ async function handleVisualize(taskId: number) {
       currentVisTaskId.value = null;
     }
   } catch (error) {
-    // eslint-disable-next-line no-console
     console.error('获取可视化元数据失败:', error);
     ElMessage.error('无法加载该任务的可视化配置');
   } finally {
@@ -559,23 +629,28 @@ onMounted(async () => {
 
         <div v-loading="visualizationLoading" class="vis-body">
           <div v-if="availableFileTypes.length > 0" class="vis-tabs">
-            <div class="vis-tabs-label">查看类型：</div>
-            <div class="vis-tabs-group">
-              <div
-                v-for="type in availableFileTypes"
-                :key="type"
-                class="vis-tab-item"
-                :class="{ active: selectedFileType === type }"
-                @click="handleFileTypeClick(type)"
-              >
-                {{ getFileTypeLabel(type) }}
+            <div class="vis-tabs-left">
+              <div class="vis-tabs-label">查看类型：</div>
+              <div class="vis-tabs-group">
+                <div
+                  v-for="type in availableFileTypes"
+                  :key="type"
+                  class="vis-tab-item"
+                  :class="{ active: selectedFileType === type }"
+                  @click="handleFileTypeClick(type)"
+                >
+                  {{ getFileTypeLabel(type) }}
+                </div>
               </div>
+            </div>
+
+            <div class="vis-actions">
+              <ElButton type="primary" :icon="Download" @click="handleDownload">下载文件</ElButton>
             </div>
           </div>
 
           <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="vis-sub-filter">
             <span class="sub-label">表格数据：</span>
-            <!-- 修复：移除行内样式，添加 class -->
             <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
               <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </ElSelect>
@@ -598,7 +673,6 @@ onMounted(async () => {
               v-else-if="visualizationResult?.type === 'vcf' || visualizationResult?.type === 'csv'"
               class="table-viewer"
             >
-              <!-- 修复：移除行内样式 :style -->
               <ElTable
                 :data="visualizationResult.type === 'csv' ? currentCsvData : visualizationResult.data"
                 border
@@ -857,13 +931,23 @@ onMounted(async () => {
 .vis-body {
   padding: 8px 0;
 }
+
+/* [修改] 调整 vis-tabs 布局支持两端对齐 */
 .vis-tabs {
   display: flex;
   align-items: center;
+  justify-content: space-between; /* 关键修改：两端对齐 */
   margin-bottom: 20px;
   border-bottom: 1px solid #f0f2f5;
   padding-bottom: 12px;
 }
+
+/* [新增] 左侧 Tabs 容器 */
+.vis-tabs-left {
+  display: flex;
+  align-items: center;
+}
+
 .vis-tabs-label {
   font-size: 14px;
   font-weight: 600;
@@ -1090,7 +1174,6 @@ onMounted(async () => {
   color: #303133;
   margin-right: 8px;
 }
-/* 新增样式：文件大小预览文本 */
 .size-preview-text {
   font-size: 13px;
   color: #909399;
@@ -1111,7 +1194,7 @@ onMounted(async () => {
   padding: 8px 24px;
 }
 
-/* === 新增/修改的工具类样式 (解决 inline style warning) === */
+/* === 工具类样式 === */
 .csv-select-width {
   width: 160px;
 }

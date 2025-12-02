@@ -31,7 +31,7 @@ async function getTaskChains() {
       task_name: searchParams.name || undefined
     };
 
-    const response = await fetchTaskChainList(params); // 修正解构，直接获取 response
+    const response = await fetchTaskChainList(params);
 
     if (response.data) {
       chainList.value = response.data.task_chains || [];
@@ -391,6 +391,7 @@ onMounted(() => {
   /* 多行省略 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
