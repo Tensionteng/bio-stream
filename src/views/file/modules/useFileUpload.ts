@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import {
   processFileUploads,
+  processBatchFileUploads,
   buildDescriptionJson,
   getFileNameFromSchema,
   completeFileUpload,
@@ -308,13 +309,32 @@ export function useFileUpload() {
         taskIds.push(taskId);
       }
 
-      // 调用批量上传接口
-      await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
+      // Step 1: 调用批量上传初始化接口
+      console.log('调用 FileBatchUploadInit...');
+      const batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
+      console.log('FileBatchUploadInit 响应:', batchInitResponse);
 
-      // 更新所有任务状态为成功
-      taskIds.forEach(taskId => {
-        updateUploadTaskStatus(taskId, 'success');
-      });
+      // Step 2: 处理实际的文件上传
+      console.log('开始处理实际的文件上传...');
+      const batchUploadResult = await processBatchFileUploads(
+        batchInitResponse,
+        uploads,
+        dynamicForm,
+        // onTaskProgress callback
+        (taskId: string, progress: number) => {
+          updateUploadTaskProgress(taskId, progress);
+        },
+        // onTaskCompleted callback
+        (taskId: string, status: 'success' | 'error', error?: string) => {
+          updateUploadTaskStatus(taskId, status, error);
+        }
+      );
+
+      if (!batchUploadResult.success) {
+        ElMessage.error(`文件上传失败: ${batchUploadResult.error}`);
+        uploadLoading.value = false;
+        return;
+      }
 
       // 文件上传成功
       ElMessage.success('文件上传成功');
