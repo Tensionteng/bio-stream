@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, reactive, watch, computed } from 'vue';
+import { ref, reactive, watch} from 'vue';
 import { ElMessage, ElForm, ElFormItem, ElInput, ElSelect, ElOption, ElSwitch, ElUpload, ElButton, ElIcon } from 'element-plus';
 import { Upload } from '@element-plus/icons-vue';
 
@@ -19,6 +19,7 @@ const emit = defineEmits<{
 const dynamicForm = reactive<any>({});
 const textFields = ref<any[]>([]);
 const fileFields = ref<any[]>([]);
+const fileFieldGroupSizes = reactive<Record<string, number>>({}); // 每个文件字段的分组数量
 
 // 获取已上传文件数
 function getUploadedFileCount(field: any): number {
@@ -230,6 +231,8 @@ function handleFileField({
     pattern: prop.pattern || '',
     description: prop.description || `请上传${propName}文件`
   });
+  // 初始化该字段的分组数量
+  fileFieldGroupSizes[fieldKey] = 1;
   if (
     !dynamicForm[fieldKey] ||
     typeof dynamicForm[fieldKey] !== 'object' ||
@@ -789,6 +792,7 @@ defineExpose({
   dynamicForm,
   textFields,
   fileFields,
+  fileFieldGroupSizes,
   validateTextFields,
   validateFileFields,
   resetForm,
@@ -905,6 +909,18 @@ defineExpose({
         <template v-for="field in fileFields" :key="field.name">
           <ElFormItem :label="getShortLabel(field.displayLabel || field.label)" :required="field.required">
             <div class="upload-container">
+              <!-- 分组数量选择器 -->
+              <div class="upload-row" style="margin-bottom: 8px;">
+                <span style="font-size: 12px; color: #909399; margin-right: 8px;">每组文件数量:</span>
+                <ElInput 
+                  v-model.number="fileFieldGroupSizes[field.name]" 
+                  type="number" 
+                  min="1" 
+                  style="width: 80px;" 
+                  placeholder="1"
+                />
+              </div>
+              
               <div class="upload-row">
                 <ElUpload
                   :multiple="true"

@@ -20,7 +20,7 @@ const {
   uploadTaskList,
   cancelUploadTask,
   removeUploadTask,
-  handleSubmit
+  handleBatchSubmit
 } = useFileUpload();
 
 // 组件引用
@@ -46,11 +46,13 @@ function handleSchemaSelected(schema: any) {
 // 处理提交
 async function handleFormSubmit() {
   if (formSectionRef.value) {
-    await handleSubmit(
+    await handleBatchSubmit(
       formSectionRef.value.dynamicForm,
       selectedSchema.value,
       formSectionRef.value.textFields,
       formSectionRef.value.fileFields,
+      formSectionRef.value.fileFieldGroupSizes,
+      (field) => formSectionRef.value.getUploadedFilesForField(field),
       () => formSectionRef.value.validateFileFields(),
       () => formSectionRef.value.validateTextFields(),
       () => formSectionRef.value.resetForm(),
