@@ -18,29 +18,6 @@ const emit = defineEmits<{
 const fileDetailLoading = ref(false);
 const fileDetailData = ref<any>(null);
 
-// 格式化时间显示，限制小数位
-function formatTime(timeValue: any): string {
-  if (!timeValue) return '-';
-  
-  // 如果是数字（时间戳），转换为字符串
-  let timeStr = String(timeValue);
-  
-  // 如果包含 ISO 格式的 Z 或 +，保持原样
-  if (timeStr.includes('Z') || timeStr.includes('+')) {
-    return timeStr;
-  }
-  
-  // 如果是带小数点的数字字符串，保留有效的时间部分
-  // 例如：2025-12-02 10:30:45.123456 → 2025-12-02 10:30:45
-  // 或：2025-12-02T10:30:45.123456Z → 2025-12-02T10:30:45Z
-  if (timeStr.includes('.')) {
-    const parts = timeStr.split('.');
-    return parts[0]; // 只返回小数点前的部分
-  }
-  
-  return timeStr;
-}
-
 // 获取文件详情
 async function fetchDetail(file_id: number) {
   fileDetailLoading.value = true;
@@ -100,7 +77,7 @@ defineExpose({
         <ElDescriptionsItem label="文件名">{{ fileDetailData.file_name }}</ElDescriptionsItem>
         <ElDescriptionsItem label="类型">{{ fileDetailData.file_type }}</ElDescriptionsItem>
         <ElDescriptionsItem label="大小">{{ fileDetailData.file_size }} 字节</ElDescriptionsItem>
-        <ElDescriptionsItem label="上传时间">{{ formatTime(fileDetailData.created_time) }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="上传时间">{{ fileDetailData.created_time }}</ElDescriptionsItem>
         <ElDescriptionsItem label="上传用户">
           <span v-if="fileDetailData.upload_user">
             {{ fileDetailData.upload_user.username }} (ID: {{ fileDetailData.upload_user.user_id }})
@@ -128,11 +105,7 @@ defineExpose({
         <ElTableColumn prop="file_type" label="类型" show-overflow-tooltip />
         <ElTableColumn prop="file_size" label="大小(字节)" show-overflow-tooltip />
         <ElTableColumn prop="file_hash" label="哈希值" show-overflow-tooltip />
-        <ElTableColumn prop="upload_time" label="上传时间" show-overflow-tooltip>
-          <template #default="scope">
-            {{ formatTime(scope.row.upload_time) }}
-          </template>
-        </ElTableColumn>
+        <ElTableColumn prop="upload_time" label="上传时间" show-overflow-tooltip />
       </ElTable>
       <div v-else style="color: #aaa; text-align: center">无子文件</div>
     </div>

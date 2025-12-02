@@ -47,7 +47,7 @@ async function showLineage(row: any) {
         renderLineageGraph(genealogyData.data as any[]);
       }, 100);
     } else {
-      ElMessage.warning('暂无世系数据');
+      ElMessage.warning((genealogyData as any).message || '该文件暂无世系数据');
       emit('update:modelValue', false);
     }
   } catch (e: any) {

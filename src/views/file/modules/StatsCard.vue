@@ -9,29 +9,6 @@ const totalFileCount = ref(0);
 const totalFileSize = ref(0);
 const lastUploadTime = ref('');
 
-// 格式化时间显示，限制小数位
-function formatTime(timeValue: any): string {
-  if (!timeValue) return 'N/A';
-  
-  // 如果是数字（时间戳），转换为字符串
-  let timeStr = String(timeValue);
-  
-  // 如果包含 ISO 格式的 Z 或 +，保持原样
-  if (timeStr.includes('Z') || timeStr.includes('+')) {
-    return timeStr;
-  }
-  
-  // 如果是带小数点的数字字符串，保留有效的时间部分
-  // 例如：2025-12-02 10:30:45.123456 → 2025-12-02 10:30:45
-  // 或：2025-12-02T10:30:45.123456Z → 2025-12-02T10:30:45Z
-  if (timeStr.includes('.')) {
-    const parts = timeStr.split('.');
-    return parts[0]; // 只返回小数点前的部分
-  }
-  
-  return timeStr;
-}
-
 // 2. 获取文件统计信息
 async function fetchFileStats() {
   try {
@@ -70,7 +47,7 @@ defineExpose({
       <span class="stats-gap">总数据量：</span>
       <b class="stats-num">{{ (totalFileSize / 1024 / 1024).toFixed(2) }} MB</b>
       <span class="stats-gap">最后上传时间：</span>
-      <b class="stats-num">{{ formatTime(lastUploadTime) }}</b>
+      <b class="stats-num">{{ lastUploadTime }}</b>
     </div>
   </div>
 </template>
