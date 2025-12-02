@@ -289,10 +289,17 @@ export async function processFileUploads(
   
   try {
     initiateRes = await FileUploadInit(Number(selectedSchemaId), contentJson, uploads);
-    currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response?.data?.upload_urls || []) as any[];
+    
+    // 新响应格式：data.upload_files[] 按 sample_id 分组，需要根据 dynamicForm.sample_id 找对应的 upload_urls
+    const sampleId = getFileNameFromSchema(dynamicForm);
+    const uploadFilesArray = initiateRes.data?.upload_files || initiateRes.response?.data?.upload_files || [];
+    
+    // 根据 sample_id 找到对应的 upload_urls
+    const matchedUploadFile = uploadFilesArray.find((uf: any) => uf.sample_id === sampleId);
+    currentUploadUrls = matchedUploadFile?.upload_urls || [];
     
     if (!currentUploadUrls || currentUploadUrls.length === 0) {
-      initiateError = '初始化上传失败：未获取到上传 URL';
+      initiateError = `初始化上传失败：未获取到上传 URL (sample_id: ${sampleId})`;
     }
   } catch (err: any) {
     initiateError = err?.message || '初始化上传失败';
@@ -461,8 +468,11 @@ export async function processBatchFileUploads(
     // 从响应中提取上传URLs
     // 响应格式: { status: "success", upload_urls: [ { sample_id, field_name, upload_url, s3_key }, ... ] }
     const responseData = batchInitResponse?.data || batchInitResponse;
-    const uploadUrlsList = responseData?.upload_urls || [];
-    
+    console.log('批量上传初始化响应数据:', responseData);
+
+    const uploadUrlsList = responseData?.upload_files || [];
+    console.log('批量上传URL列表:', uploadUrlsList);
+
     if (!Array.isArray(uploadUrlsList) || uploadUrlsList.length === 0) {
       const errorMsg = '批量上传初始化失败：未获取到上传URL';
       console.error('响应数据:', responseData);
@@ -470,15 +480,13 @@ export async function processBatchFileUploads(
       return { success: false, error: errorMsg };
     }
 
-    console.log('批量上传URL列表:', uploadUrlsList);
-
     // 构建 (sample_id, field_name) -> uploadUrl 的映射
     const uploadUrlMap = new Map<string, any>();
     for (const urlInfo of uploadUrlsList) {
       const key = `${urlInfo.sample_id}|${urlInfo.field_name}`;
       uploadUrlMap.set(key, urlInfo);
     }
-
+    console.log('上传URL映射表:', uploadUrlMap);
     const uploadPromises: Promise<void>[] = [];
     const fileEntries = collectFileEntries(dynamicForm);
 
@@ -496,6 +504,7 @@ export async function processBatchFileUploads(
         // 根据 sample_id 和 field_name 查找对应的上传URL
         const mapKey = `${sample_id}|${field_name}`;
         const uploadUrlInfo = uploadUrlMap.get(mapKey);
+        console.log(`处理样本 ${sample_id} 字段 ${field_name} 的上传URL:`, uploadUrlInfo);
 
         if (!uploadUrlInfo) {
           console.warn(`未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`);
