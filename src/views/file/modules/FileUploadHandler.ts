@@ -231,7 +231,11 @@ function createUploadAxiosInstance() {
   return axios.create({
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
-    timeout: 0 // 禁用超时，大文件上传需要充足时间
+    timeout: 0, // 禁用超时，大文件上传需要充足时间
+    validateStatus: function(status) {
+      // 认可所有状态码，让我们手动处理
+      return true;
+    }
   });
 }
 
@@ -337,7 +341,9 @@ export async function processBatchFileUploads(
         console.log(`处理样本 ${sample_id} 字段 ${field_name} 的上传URL:`, uploadUrlInfo);
 
         if (!uploadUrlInfo) {
-          console.warn(`未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`);
+          const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`;
+          console.error(errorMsg);
+          uploadErrorMap.set(`${field_name}_url_missing`, errorMsg);
           continue;
         }
 
@@ -345,7 +351,9 @@ export async function processBatchFileUploads(
         const fileEntry = fileEntries.find(e => e.field_name === field_name);
 
         if (!fileEntry) {
-          console.warn(`未找到字段 ${field_name} 的文件数据`);
+          const errorMsg = `未找到字段 ${field_name} 的文件数据`;
+          console.error(errorMsg);
+          uploadErrorMap.set(`${field_name}_file_missing`, errorMsg);
           continue;
         }
 
@@ -363,17 +371,34 @@ export async function processBatchFileUploads(
             registerUploadTask(taskId, cancelTokenSource, uploadClient);
 
             console.log(`开始上传 [样本${sample_id}] ${field_name}: ${uploadUrlInfo.upload_url}`);
+            console.log(`文件信息: 名称=${fileEntry.file.name}, 大小=${fileEntry.file.size}, 类型=${fileEntry.file.type}`);
 
             // 执行上传
-            await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
+            const response = await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
               headers: {
-                'Content-Type': fileEntry.file.type || 'application/octet-stream'
+                'Content-Type': fileEntry.file.type || 'application/octet-stream',
+                // 某些 S3 配置可能需要这些头
+                'Content-Length': fileEntry.file.size.toString()
               },
               onUploadProgress: (progressEvent: any) => {
                 trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
               },
               cancelToken: cancelTokenSource.token
             });
+
+            console.log(`PUT 请求响应状态码: ${response.status}, 状态文本: ${response.statusText}`);
+
+            // 检查响应状态码，200-299 为成功
+            if (!response.status || response.status < 200 || response.status >= 300) {
+              const errorMsg = `PUT 上传失败: HTTP ${response.status} ${response.statusText || ''}`;
+              console.error(errorMsg);
+              if (response.data) {
+                console.error('服务器响应:', response.data);
+              }
+              throw new Error(errorMsg);
+            }
+
+            console.log('PUT 响应数据:', response.data);
 
             // 确保进度显示为100%
             if (onTaskProgress) {
@@ -411,10 +436,20 @@ export async function processBatchFileUploads(
                 onTaskCompleted(taskId, 'error', '已取消');
               }
             } else {
-              console.error(`任务 ${taskId} 上传失败:`, err?.message);
-              uploadErrorMap.set(taskId, err?.message || '上传失败');
+              // 详细的错误信息
+              let errorMsg = err?.message || '上传失败';
+              if (err?.response) {
+                errorMsg = `上传失败 (HTTP ${err.response.status}): ${err.response.statusText || err.message}`;
+                console.error(`任务 ${taskId} HTTP 错误响应:`, err.response.data);
+              } else if (err?.request) {
+                errorMsg = `上传失败: 无响应 (${err.message})`;
+                console.error(`任务 ${taskId} 请求无响应:`, err);
+              }
+              
+              console.error(`任务 ${taskId} 上传失败:`, errorMsg);
+              uploadErrorMap.set(taskId, errorMsg);
               if (onTaskCompleted) {
-                onTaskCompleted(taskId, 'error', err?.message || '上传失败');
+                onTaskCompleted(taskId, 'error', errorMsg);
               }
             }
           } finally {
@@ -427,52 +462,79 @@ export async function processBatchFileUploads(
 
       console.log(`批次 ${batchIndex + 1} 准备执行 ${batchUploadPromises.length} 个上传任务`);
 
+      // 如果这个 batch 中没有任何文件需要上传，标记为错误
+      if (batchUploadPromises.length === 0) {
+        const errorMsg = `批次 ${batchIndex + 1} 中没有找到任何可上传的文件`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
+        }
+        return { success: false, error: errorMsg };
+      }
+
       // 等待这个 batch 的所有文件上传完成
       await Promise.all(batchUploadPromises);
 
       // 检查此 batch 中是否有上传失败的任务
       if (uploadErrorMap.size > 0) {
         const failedTasks = Array.from(uploadErrorMap.entries());
-        console.error(`批次 ${batchIndex + 1} 中有 ${failedTasks.length} 个任务上传失败:`, failedTasks);
+        console.error(`批次 ${batchIndex + 1} 中有 ${failedTasks.length} 个任务出现问题:`, failedTasks);
         return { success: false, error: `批次 ${batchIndex + 1} 文件上传失败` };
+      }
+
+      // 检查是否有任何文件被成功上传
+      if (uploadedFilesForBatch.length === 0) {
+        const errorMsg = `批次 ${batchIndex + 1} 中没有任何文件被成功上传`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
+        }
+        return { success: false, error: errorMsg };
       }
 
       // 所有文件都上传成功，现在调用 complete 接口
       // 只有 complete 成功后，才认为该批次真正成功
-      if (selectedSchemaId && uploadedFilesForBatch.length > 0) {
-        try {
-          // 构建描述 JSON
-          const descriptionJson = buildDescriptionJson(uploadedFilesForBatch, textFields || [], dynamicForm);
-          
-          console.log(`\n批次 ${batchIndex + 1} 所有文件上传完成，调用 complete 接口 (sample_id=${sample_id})`, {
-            file_type_id: selectedSchemaId,
-            file_name: sample_id,
-            description_json: descriptionJson,
-            uploaded_files: uploadedFilesForBatch
-          });
-
-          // 调用 complete 接口
-          await FileUploadComplete({
-            file_type_id: Number(selectedSchemaId),
-            file_name: sample_id,
-            description_json: descriptionJson,
-            uploaded_files: uploadedFilesForBatch
-          });
-
-          console.log(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用成功，标记任务为成功`);
-          
-          // Complete 接口调用成功后，才更新任务状态为成功
-          if (batchTaskId && onTaskCompleted) {
-            onTaskCompleted(batchTaskId, 'success');
-          }
-        } catch (err: any) {
-          console.error(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用失败:`, err?.message);
-          // Complete 失败，更新任务状态为错误
-          if (batchTaskId && onTaskCompleted) {
-            onTaskCompleted(batchTaskId, 'error', `完成上传失败: ${err?.message}`);
-          }
-          return { success: false, error: `Complete 接口调用失败: ${err?.message}` };
+      if (!selectedSchemaId) {
+        const errorMsg = `批次 ${batchIndex + 1} 缺少必要的 schemaId，无法完成上传`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
         }
+        return { success: false, error: errorMsg };
+      }
+
+      try {
+        // 构建描述 JSON
+        const descriptionJson = buildDescriptionJson(uploadedFilesForBatch, textFields || [], dynamicForm);
+        
+        console.log(`\n批次 ${batchIndex + 1} 所有文件上传完成，调用 complete 接口 (sample_id=${sample_id})`, {
+          file_type_id: selectedSchemaId,
+          file_name: sample_id,
+          description_json: descriptionJson,
+          uploaded_files: uploadedFilesForBatch
+        });
+
+        // 调用 complete 接口
+        await FileUploadComplete({
+          file_type_id: Number(selectedSchemaId),
+          file_name: sample_id,
+          description_json: descriptionJson,
+          uploaded_files: uploadedFilesForBatch
+        });
+
+        console.log(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用成功，标记任务为成功`);
+        
+        // Complete 接口调用成功后，才更新任务状态为成功
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'success');
+        }
+      } catch (err: any) {
+        console.error(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用失败:`, err?.message);
+        // Complete 失败，更新任务状态为错误
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', `完成上传失败: ${err?.message}`);
+        }
+        return { success: false, error: `Complete 接口调用失败: ${err?.message}` };
       }
 
       console.log(`\n批次 ${batchIndex + 1} 完全处理完成\n`);
