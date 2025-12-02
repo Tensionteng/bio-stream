@@ -94,129 +94,89 @@ function transformLineageData(data: any[]) {
     }
   });
 
+  // 帮助函数：创建节点
+  const createNode = (file: any, color: string) => ({
+    id: file.file_id,
+    name: file.file_name,
+    value: file,
+    category: 0,
+    symbolSize: 55,
+    label: {
+      show: true,
+      position: 'bottom',
+      formatter: () => {
+        const name = file.file_name;
+        return name.length > 25 ? `${name.substring(0, 25)}...` : name;
+      },
+      fontSize: 11,
+      color: '#333',
+      fontWeight: 'bold',
+      distance: 10,
+      backgroundColor: 'rgba(255, 255, 255, 0.85)',
+      borderRadius: 3,
+      borderColor: '#e0e0e0',
+      borderWidth: 0.5,
+      padding: [4, 7],
+      shadowColor: 'rgba(0, 0, 0, 0.1)',
+      shadowBlur: 3
+    },
+    itemStyle: {
+      color: color,
+      borderColor: '#ffffff',
+      borderWidth: 4,
+      shadowBlur: 20,
+      shadowColor: color + '50',
+      shadowOffsetY: 5,
+      opacity: 1
+    },
+    emphasis: {
+      itemStyle: {
+        color: color,
+        borderColor: '#ffd700',
+        borderWidth: 5,
+        shadowBlur: 25,
+        shadowColor: color + '60',
+        shadowOffsetY: 6
+      },
+      label: {
+        show: true,
+        color: color,
+        fontSize: 12,
+        fontWeight: 'bold',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        borderColor: color,
+        borderWidth: 1.5
+      }
+    }
+  });
+
   // 第二遍：创建节点和连接
   data.forEach((genealogy) => {
-    if (!genealogy.file1 || !genealogy.file2) {
+    if (!genealogy.file1) {
       return;
     }
 
+    // 只有file1时，直接添加该节点
+    if (!genealogy.file2) {
+      const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0].primary;
+      if (!nodeMap.has(genealogy.file1.file_id)) {
+        nodeMap.set(genealogy.file1.file_id, createNode(genealogy.file1, color1));
+      }
+      return;
+    }
+
+    // file1和file2都存在时，添加两个节点和连接线
     const color1 = fileTypeColorMap.get(genealogy.file1.file_type) || colors[0].primary;
     const color2 = fileTypeColorMap.get(genealogy.file2.file_type) || colors[1].primary;
 
     // 添加file1节点
     if (!nodeMap.has(genealogy.file1.file_id)) {
-      nodeMap.set(genealogy.file1.file_id, {
-        id: genealogy.file1.file_id,
-        name: genealogy.file1.file_name,
-        value: genealogy.file1,
-        category: 0,
-        symbolSize: 55,
-        label: {
-          show: true,
-          position: 'bottom',
-          formatter: () => {
-            const name = genealogy.file1.file_name;
-            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
-          },
-          fontSize: 11,
-          color: '#333',
-          fontWeight: 'bold',
-          distance: 10,
-          backgroundColor: 'rgba(255, 255, 255, 0.85)',
-          borderRadius: 3,
-          borderColor: '#e0e0e0',
-          borderWidth: 0.5,
-          padding: [4, 7],
-          shadowColor: 'rgba(0, 0, 0, 0.1)',
-          shadowBlur: 3
-        },
-        itemStyle: {
-          color: color1,
-          borderColor: '#ffffff',
-          borderWidth: 4,
-          shadowBlur: 20,
-          shadowColor: color1 + '50',
-          shadowOffsetY: 5,
-          opacity: 1
-        },
-        emphasis: {
-          itemStyle: {
-            color: color1,
-            borderColor: '#ffd700',
-            borderWidth: 5,
-            shadowBlur: 25,
-            shadowColor: color1 + '60',
-            shadowOffsetY: 6
-          },
-          label: {
-            show: true,
-            color: color1,
-            fontSize: 12,
-            fontWeight: 'bold',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: color1,
-            borderWidth: 1.5
-          }
-        }
-      });
+      nodeMap.set(genealogy.file1.file_id, createNode(genealogy.file1, color1));
     }
 
     // 添加file2节点
     if (!nodeMap.has(genealogy.file2.file_id)) {
-      nodeMap.set(genealogy.file2.file_id, {
-        id: genealogy.file2.file_id,
-        name: genealogy.file2.file_name,
-        value: genealogy.file2,
-        category: 0,
-        symbolSize: 55,
-        label: {
-          show: true,
-          position: 'bottom',
-          formatter: () => {
-            const name = genealogy.file2.file_name;
-            return name.length > 25 ? `${name.substring(0, 25)}...` : name;
-          },
-          fontSize: 11,
-          color: '#333',
-          fontWeight: 'bold',
-          distance: 10,
-          backgroundColor: 'rgba(255, 255, 255, 0.85)',
-          borderRadius: 3,
-          borderColor: '#e0e0e0',
-          borderWidth: 0.5,
-          padding: [4, 7],
-          shadowColor: 'rgba(0, 0, 0, 0.1)',
-          shadowBlur: 3
-        },
-        itemStyle: {
-          color: color2,
-          borderColor: '#ffffff',
-          borderWidth: 4,
-          shadowBlur: 20,
-          shadowColor: color2 + '50',
-          shadowOffsetY: 5,
-          opacity: 1
-        },
-        emphasis: {
-          itemStyle: {
-            color: color2,
-            borderColor: '#ffd700',
-            borderWidth: 5,
-            shadowBlur: 25,
-            shadowColor: color2 + '60',
-            shadowOffsetY: 6
-          },
-          label: {
-            show: true,
-            color: color2,
-            fontSize: 12,
-            fontWeight: 'bold',
-            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-            borderColor: color2,
-            borderWidth: 1.5
-          }
-        }
-      });
+      nodeMap.set(genealogy.file2.file_id, createNode(genealogy.file2, color2));
     }
 
     // 添加连接线
@@ -328,6 +288,15 @@ function calculateNodeLevels(graphData: any): Record<number, any[]> {
     });
   }
 
+  // 处理孤立节点（没有入度关系的节点）
+  graphData.nodes.forEach((node: any) => {
+    if (!visited.has(node.id)) {
+      nodeLevel[node.id] = 0;
+      if (!levels[0]) levels[0] = [];
+      levels[0].push(node);
+    }
+  });
+
   return levels;
 }
 
@@ -350,7 +319,7 @@ function renderLineageGraph(genealogyData: any[]) {
   });
 
   const graphData = transformLineageData(genealogyData);
-
+  console.log('Transformed graph data:', graphData);
   if (graphData.nodes.length === 0) {
     console.warn('No nodes in graph data');
     ElMessage.warning('无法生成世系图：没有有效的数据');
@@ -362,16 +331,30 @@ function renderLineageGraph(genealogyData: any[]) {
   const levelWidth = 200;
   const nodeHeight = 150;
 
+  // 获取图表容器的实际尺寸
+  const containerWidth = lineageChartRef.value?.clientWidth || 800;
+  const containerHeight = lineageChartRef.value?.clientHeight || 600;
+
   Object.entries(levels).forEach(([level, nodes]: [string, any[]]) => {
     const levelIndex = Number.parseInt(level, 10);
-    const x = levelIndex * levelWidth + 50;
-    const totalHeight = nodes.length * nodeHeight;
-    const startY = 50 - totalHeight / 2;
+    
+    // 对于单个节点或多个层级，分别计算位置
+    if (Object.keys(levels).length === 1 && nodes.length === 1) {
+      // 单个节点：居中显示
+      const x = containerWidth / 2;
+      const y = containerHeight / 2;
+      nodePositions.set(nodes[0].id, [x, y]);
+    } else {
+      // 多个节点：按照层级排列
+      const x = levelIndex * levelWidth + 50;
+      const totalHeight = nodes.length * nodeHeight;
+      const startY = containerHeight / 2 - totalHeight / 2;
 
-    nodes.forEach((node: any, index: number) => {
-      const y = startY + index * nodeHeight;
-      nodePositions.set(node.id, [x, y]);
-    });
+      nodes.forEach((node: any, index: number) => {
+        const y = startY + index * nodeHeight;
+        nodePositions.set(node.id, [x, y]);
+      });
+    }
   });
 
   graphData.nodes.forEach((node: any) => {
@@ -412,8 +395,11 @@ function renderLineageGraph(genealogyData: any[]) {
           `;
         } else if (params.dataType === 'edge') {
           const taskData = params.data.value;
-          if (!taskData || !taskData.task_units) {
-            return '<div style="padding: 8px;">加载中...</div>';
+          if (!taskData) {
+            return '<div style="padding: 8px; color: #e0e0e0;">无任务数据</div>';
+          }
+          if (!taskData.task_units || taskData.task_units.length === 0) {
+            return '<div style="padding: 8px; color: #e0e0e0;">暂无任务单元信息</div>';
           }
           const taskCount = taskData.task_units.length;
           const taskUnits = taskData.task_units

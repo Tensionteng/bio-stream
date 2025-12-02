@@ -135,6 +135,44 @@ export function getGlobalMenusByAuthRoutes(routes: ElegantConstRoute[]) {
 }
 
 /**
+ * Get global menus by auth routes with role filtering
+ *
+ * @param routes Auth routes
+ * @param permissions User permissions
+ */
+export function getGlobalMenusByAuthRoutesWithRoleFilter(routes: ElegantConstRoute[], permissions: string[]) {
+  const menus: App.Global.Menu[] = [];
+  const isAdmin = permissions.includes('admin');
+
+  routes.forEach(route => {
+    if (!route.meta?.hideInMenu) {
+      // 根据角色隐藏特定路由
+      const routeName = route.name;
+
+      // 如果不是管理员，隐藏权限审批(permission_manage)
+      if (!isAdmin && routeName === 'permission_manage') {
+        return;
+      }
+
+      // 如果是管理员，隐藏申请权限(permission_apply)和权限申请记录(permission_my)
+      if (isAdmin && (routeName === 'permission_apply' || routeName === 'permission_my')) {
+        return;
+      }
+
+      const menu = getGlobalMenuByBaseRoute(route);
+
+      if (route.children?.some(child => !child.meta?.hideInMenu)) {
+        menu.children = getGlobalMenusByAuthRoutesWithRoleFilter(route.children, permissions);
+      }
+
+      menus.push(menu);
+    }
+  });
+
+  return menus;
+}
+
+/**
  * Update locale of global menus
  *
  * @param menus
