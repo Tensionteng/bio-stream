@@ -12,7 +12,6 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
-// 引入 API (请确保 fetchTaskFileSize 已添加到 api/task.ts)
 import {
   type TaskListItem,
   type TaskListParams,
@@ -96,10 +95,7 @@ function openDeleteDialog(row: TaskListItem) {
         deletePreviewSizes.value = res.data;
       }
     })
-    .catch(() => {
-      // 忽略错误或记录日志
-      // console.warn('获取清理预览大小失败', err);
-    });
+    .catch(() => {});
 }
 
 // 获取总占用空间
@@ -110,7 +106,6 @@ async function getTaskSize() {
       totalSize.value = res.data && res.data.total_size ? res.data.total_size : 0;
     }
   } catch {
-    // 修复：移除未使用的 _error 变量
     ElMessage.error('获取空间统计失败');
   }
 }
@@ -118,11 +113,9 @@ async function getTaskSize() {
 // 执行清理
 async function handleDeleteSubmit() {
   if (!currentDeleteTaskId.value) return;
-
   deleteLoading.value = true;
   try {
     const res = await cleanTaskFiles(currentDeleteTaskId.value, deleteLevel.value);
-
     if (res) {
       const freedSpace =
         res.data && res.data.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
@@ -131,12 +124,9 @@ async function handleDeleteSubmit() {
         duration: 3000
       });
       isDeleteDialogVisible.value = false;
-
-      // 清理成功后，刷新总空间显示
       getTaskSize();
     }
   } catch (error: any) {
-    // eslint-disable-next-line no-console
     console.error(error);
     ElMessage.error(error.message || '请求异常，请稍后重试');
   } finally {
@@ -166,7 +156,6 @@ function formatDateTime(isoString: string | null | undefined): string {
     const seconds = date.getSeconds().toString().padStart(2, '0');
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   } catch {
-    // 修复：移除未使用的 _error
     return isoString;
   }
 }
