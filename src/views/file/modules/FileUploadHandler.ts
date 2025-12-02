@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { createSHA256 } from 'hash-wasm';
 import { FileUploadInit, FileUploadComplete } from '@/service/api/file';
-import { ElMessage } from 'element-plus';
 
 // 全局上传任务映射表，用于管理和取消上传任务
 const uploadTaskMap = new Map<string, { cancelToken: any; uploadClient: any }>();
@@ -461,6 +460,9 @@ export async function processBatchFileUploads(
   batchInitResponse: any,
   uploads: any[],
   dynamicForm: any,
+  selectedSchemaId?: string | number,
+  textFields?: any[],
+  batchTaskIds?: string[], // 新增：batch 任务 ID 列表
   onTaskProgress?: (taskId: string, progress: number) => void,
   onTaskCompleted?: (taskId: string, status: 'success' | 'error', error?: string) => void
 ): Promise<any> {
@@ -497,16 +499,30 @@ export async function processBatchFileUploads(
       }
     }
     console.log('上传URL映射表:', uploadUrlMap);
-    const uploadPromises: Promise<void>[] = [];
+    
     const fileEntries = collectFileEntries(dynamicForm);
 
     console.log('收集的文件条目:', fileEntries);
 
-    // 遍历所有上传batch中的每个field
+    // 创建 sample_id -> batch taskId 的映射（如果提供了 batchTaskIds）
+    const batchTaskIdMap = new Map<string, string>();
+    if (batchTaskIds && batchTaskIds.length === uploads.length) {
+      for (let i = 0; i < uploads.length; i++) {
+        batchTaskIdMap.set(uploads[i].sample_id, batchTaskIds[i]);
+      }
+    }
+
+    // 为每个 batch 分别处理上传和完成
     for (let batchIndex = 0; batchIndex < uploads.length; batchIndex++) {
       const batch = uploads[batchIndex];
       const sample_id = batch.sample_id;
-      console.log(batch);
+      const batchTaskId = batchTaskIdMap.get(sample_id);
+      const uploadedFilesForBatch: any[] = [];
+      const batchUploadPromises: Promise<void>[] = [];
+
+      console.log(`\n开始处理批次 ${batchIndex + 1} (sample_id: ${sample_id})`);
+
+      // 遍历这个 batch 中的所有 field
       for (let fieldIndex = 0; fieldIndex < (batch.fields || []).length; fieldIndex++) {
         const field = batch.fields[fieldIndex];
         console.log('处理字段:', field);
@@ -530,8 +546,8 @@ export async function processBatchFileUploads(
           continue;
         }
 
-        // 为这个文件生成 taskId
-        const taskId = `batch_upload_${sample_id}_${field_name}_${fieldIndex}`;
+        // 使用 batch taskId（如果有的话）
+        const taskId = batchTaskId || `batch_upload_${sample_id}_${field_name}_${fieldIndex}`;
 
         // 创建上传Promise
         const uploadPromise = (async () => {
@@ -567,6 +583,28 @@ export async function processBatchFileUploads(
             }
 
             console.log(`上传完成 [样本${sample_id}] ${field_name} -> ${uploadUrlInfo.s3_key}`);
+
+            // 记录此 batch 的已上传文件信息
+            try {
+              const sha256 = await hashFile(fileEntry.file);
+              uploadedFilesForBatch.push({
+                field_name: field.field_name,
+                origin_filename: fileEntry.file.name,
+                s3_key: uploadUrlInfo.s3_key,
+                file_type: fileEntry.file.type || 'application/octet-stream',
+                file_size: fileEntry.file.size,
+                file_hash: sha256
+              });
+            } catch {
+              uploadedFilesForBatch.push({
+                field_name: field.field_name,
+                origin_filename: fileEntry.file.name,
+                s3_key: uploadUrlInfo.s3_key,
+                file_type: fileEntry.file.type || 'application/octet-stream',
+                file_size: fileEntry.file.size,
+                file_hash: 'error'
+              });
+            }
           } catch (err: any) {
             if (axios.isCancel(err)) {
               console.log(`任务 ${taskId} 已被用户取消`);
@@ -584,14 +622,44 @@ export async function processBatchFileUploads(
           }
         })();
 
-        uploadPromises.push(uploadPromise);
+        batchUploadPromises.push(uploadPromise);
       }
+
+      console.log(`批次 ${batchIndex + 1} 准备执行 ${batchUploadPromises.length} 个上传任务`);
+
+      // 等待这个 batch 的所有文件上传完成
+      await Promise.all(batchUploadPromises);
+
+      // batch 完成后立即调用 complete 接口
+      if (selectedSchemaId && uploadedFilesForBatch.length > 0) {
+        try {
+          // 构建描述 JSON
+          const descriptionJson = buildDescriptionJson(uploadedFilesForBatch, textFields || [], dynamicForm);
+          
+          console.log(`\n批次 ${batchIndex + 1} 完成，调用 complete 接口 (sample_id=${sample_id})`, {
+            file_type_id: selectedSchemaId,
+            file_name: sample_id,
+            description_json: descriptionJson,
+            uploaded_files: uploadedFilesForBatch
+          });
+
+          // 调用 complete 接口
+          await completeFileUpload(
+            selectedSchemaId,
+            sample_id,
+            descriptionJson,
+            uploadedFilesForBatch
+          );
+
+          console.log(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用成功`);
+        } catch (err: any) {
+          console.error(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用失败:`, err?.message);
+          return { success: false, error: `Complete 接口调用失败: ${err?.message}` };
+        }
+      }
+
+      console.log(`\n批次 ${batchIndex + 1} 完全处理完成\n`);
     }
-
-    console.log(`准备执行 ${uploadPromises.length} 个上传任务`);
-
-    // 等待所有上传完成
-    await Promise.all(uploadPromises);
 
     return { success: true };
   } catch (err: any) {

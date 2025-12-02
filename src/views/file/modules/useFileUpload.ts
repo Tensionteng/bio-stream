@@ -320,6 +320,9 @@ export function useFileUpload() {
         batchInitResponse,
         uploads,
         dynamicForm,
+        selectedSchema.id,
+        textFields,
+        taskIds, // 传入 batch taskIds
         // onTaskProgress callback
         (taskId: string, progress: number) => {
           updateUploadTaskProgress(taskId, progress);
