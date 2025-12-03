@@ -2,7 +2,6 @@ import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import {
   processBatchFileUploads,
-  getFileNameFromSchema,
   cancelUploadTask as cancelUploadTaskGlobal
 } from './FileUploadHandler';
 import { FileBatchUploadInit } from '@/service/api/file';
@@ -87,121 +86,6 @@ export function useFileUpload() {
     const index = uploadTaskList.value.findIndex(t => t.id === taskId);
     if (index > -1) {
       uploadTaskList.value.splice(index, 1);
-    }
-  }
-
-  // 处理提交和上传（改为使用 processBatchFileUploads）
-  async function handleSubmit(
-    dynamicForm: any,
-    selectedSchema: any,
-    textFields: any[],
-    fileFields: any[],
-    validateFileFields: () => boolean,
-    validateTextFields: () => boolean,
-    resetForm: () => void,
-    onSuccess?: () => void
-  ) {
-    if (!selectedSchema) return;
-
-    // 验证字段
-    if (!validateFileFields() || !validateTextFields()) return;
-
-    uploadLoading.value = true;
-    let taskId: string = '';
-    
-    try {
-      // 收集所有文件字段
-      const fileEntries: any[] = [];
-      fileFields.forEach(field => {
-        const fieldValue = dynamicForm[field.name];
-        if (fieldValue && fieldValue.file) {
-          fileEntries.push({
-            field_name: field.originalName || field.name,
-            filename: fieldValue.file.name,
-            content_type: fieldValue.file.type || 'application/octet-stream'
-          });
-        }
-      });
-
-      // 构造 content_json（只保留非文件字段）
-      const contentJson: any = {};
-      textFields.forEach(f => {
-        if (f.type === 'dynamic-object') return;
-        const val = dynamicForm[f.name];
-        if (val !== undefined && val !== '' && val !== null) {
-          contentJson[f.name] = val;
-        }
-      });
-
-      // 如果没有文件字段，就创建一个空的 batch
-      if (fileEntries.length === 0) {
-        console.log('表单中没有文件字段，仅上传表单数据');
-        fileEntries.push({
-          field_name: 'form_data',
-          filename: 'form_data',
-          content_type: 'application/json'
-        });
-      }
-
-      // 为这个表单创建一个 batch
-      const sampleId = getFileNameFromSchema(dynamicForm);
-      const uploads = [{
-        sample_id: sampleId,
-        fields: fileEntries
-      }];
-
-      // 为这个 batch 生成任务 ID
-      taskId = addUploadTask(`上传: ${fileEntries.map(f => f.filename).join(', ')}`);
-      const batchTaskIds = [taskId];
-
-      // 调用批量上传初始化接口
-      let batchInitResponse: any;
-      try {
-        batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
-        // Init 成功，更新任务状态为 uploading（进度条开始显示）
-        updateUploadTaskStatus(taskId, 'uploading');
-      } catch (initError: any) {
-        updateUploadTaskStatus(taskId, 'error', `初始化失败: ${initError.message || '未知错误'}`);
-        ElMessage.error(`初始化上传失败: ${initError.message || '未知错误'}`);
-        return;
-      }
-
-      // 处理文件上传
-      const uploadResult = await processBatchFileUploads(
-        batchInitResponse,
-        uploads,
-        dynamicForm,
-        selectedSchema.id,
-        textFields,
-        batchTaskIds,
-        (tid, progress) => updateUploadTaskProgress(tid, progress),
-        (tid, status, error) => updateUploadTaskStatus(tid, status, error)
-      );
-
-      if (!uploadResult.success) {
-        // 上传或 complete 失败，错误信息已由 updateUploadTaskStatus 处理
-        // 此时进度条应该已经显示错误状态
-        ElMessage.error(`上传失败: ${uploadResult.error}`);
-        uploadLoading.value = false;
-        return;
-      }
-
-      // 文件上传成功（complete 接口调用成功）
-      updateUploadTaskStatus(taskId, 'success');
-      ElMessage.success('文件上传成功');
-      resetForm();
-      
-      if (onSuccess) {
-        onSuccess();
-      }
-    } catch (e: any) {
-      if (taskId) {
-        updateUploadTaskStatus(taskId, 'error', e.message || '未知错误');
-      }
-      ElMessage.error(`上传失败: ${e.message || '未知错误'}`);
-      console.error('上传失败详情:', e);
-    } finally {
-      uploadLoading.value = false;
     }
   }
 
@@ -421,7 +305,6 @@ export function useFileUpload() {
     updateUploadTaskStatus,
     cancelUploadTask,
     removeUploadTask,
-    handleSubmit,
     handleBatchSubmit
   };
 }

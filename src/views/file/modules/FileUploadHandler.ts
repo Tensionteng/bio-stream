@@ -377,8 +377,6 @@ export async function processBatchFileUploads(
             const response = await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
               headers: {
                 'Content-Type': fileEntry.file.type || 'application/octet-stream',
-                // 某些 S3 配置可能需要这些头
-                'Content-Length': fileEntry.file.size.toString()
               },
               onUploadProgress: (progressEvent: any) => {
                 trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
