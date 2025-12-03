@@ -334,6 +334,7 @@ export async function processBatchFileUploads(
         const field = batch.fields[fieldIndex];
         console.log('处理字段:', field);
         const field_name = field.field_name;
+        const content_type = field.content_type; // 从请求中获取指定的 content_type
 
         // 根据 sample_id 和 field_name 查找对应的上传URL
         const mapKey = `${sample_id}|${field_name}`;
@@ -372,11 +373,11 @@ export async function processBatchFileUploads(
 
             console.log(`开始上传 [样本${sample_id}] ${field_name}: ${uploadUrlInfo.upload_url}`);
             console.log(`文件信息: 名称=${fileEntry.file.name}, 大小=${fileEntry.file.size}, 类型=${fileEntry.file.type}`);
-
-            // 执行上传
+            // 执行上传 - 使用指定的 content_type（如果有的话），否则使用浏览器识别的类型
+            const uploadContentType = content_type || fileEntry.file.type || 'application/octet-stream';
             const response = await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
               headers: {
-                'Content-Type': fileEntry.file.type || 'application/octet-stream',
+                'Content-Type': uploadContentType,
               },
               onUploadProgress: (progressEvent: any) => {
                 trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
