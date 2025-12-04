@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { ElMessage } from 'element-plus';
 import { fetchRegister } from '@/service/api';
 import { useRouterPush } from '@/hooks/common/router';
 import { useForm, useFormRules } from '@/hooks/common/form';
@@ -42,8 +43,9 @@ async function handleSubmit() {
   try {
     // 调用注册接口。
     const { response } = await fetchRegister(model.value.username, model.value.password);
-    console.log(response.data.code);
     if (response.data.code !== '0000') {
+      console.log(response.data.message);
+      ElMessage.error(response.data.message);
       return;
     }
     window.$message?.success($t('page.login.common.registerSuccess'));

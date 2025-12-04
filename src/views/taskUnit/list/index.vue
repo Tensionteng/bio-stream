@@ -127,7 +127,7 @@ async function handleDelete(row: TaskUnitListItem) {
       // 这里直接结束，不提供删除选项
     } else {
       // 情况 B: 无关联 -> 使用普通 MessageBox 确认后删除
-      await ElMessageBox.confirm(`确定要删除任务单元 "${cascadeDeleteData.chains}" 吗？`, '删除确认', {
+      await ElMessageBox.confirm(`确定要删除任务单元 "${cascadeDeleteData.name}" 吗？`, '删除确认', {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
         type: 'warning'

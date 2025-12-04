@@ -56,7 +56,7 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'home',
       i18nKey: 'route.home',
-      icon: 'mdi:monitor-dashboard',
+      localIcon: 'monitor-dashboard',
       order: 1
     }
   },
@@ -78,7 +78,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     component: 'layout.base',
     meta: {
       title: 'permission',
-      i18nKey: 'route.permission'
+      i18nKey: 'route.permission',
+      localIcon:'permission'
     },
     children: [
       {
@@ -87,7 +88,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         component: 'view.permission_apply',
         meta: {
           title: 'permission_apply',
-          i18nKey: 'route.permission_apply'
+          i18nKey: 'route.permission_apply',
+          localIcon:'permission'
         }
       },
       {
@@ -96,7 +98,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         component: 'view.permission_manage',
         meta: {
           title: 'permission_manage',
-          i18nKey: 'route.permission_manage'
+          i18nKey: 'route.permission_manage',
+          localIcon:'permission'
         }
       },
       {
@@ -105,7 +108,8 @@ export const generatedRoutes: GeneratedRoute[] = [
         component: 'view.permission_my',
         meta: {
           title: 'permission_my',
-          i18nKey: 'route.permission_my'
+          i18nKey: 'route.permission_my',
+          localIcon:'permission'
         }
       }
     ]
@@ -269,7 +273,7 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'visualization',
       i18nKey: 'route.visualization',
-      icon: 'mdi:chart-areaspline',
+      localIcon: 'chart-areaspline',
       requiredPermission: 'task'
     }
   }

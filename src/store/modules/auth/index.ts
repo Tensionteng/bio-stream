@@ -1,6 +1,7 @@
 import { computed, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { defineStore } from 'pinia';
+import { ElMessage } from 'element-plus';
 import { useLoading } from '@sa/hooks';
 import { fetchGetUserInfo, fetchLogin } from '@/service/api';
 import { useRouterPush } from '@/hooks/common/router';
@@ -122,6 +123,7 @@ export const useAuthStore = defineStore(SetupStoreId.Auth, () => {
         });
       }
     } else {
+      ElMessage.error(error.response?.data.message);
       resetStore();
     }
 
