@@ -160,7 +160,8 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'task',
       i18nKey: 'route.task',
-      localIcon: 'task'
+      localIcon: 'task',
+      requiredPermission: 'task'
     },
     children: [
       {
