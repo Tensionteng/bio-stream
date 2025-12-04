@@ -5,7 +5,6 @@ import { useAuthStore } from '@/store/modules/auth';
 import { useRouterPush } from '@/hooks/common/router';
 import { useForm, useFormRules } from '@/hooks/common/form';
 import { $t } from '@/locales';
-
 defineOptions({ name: 'PwdLogin' });
 
 const authStore = useAuthStore();

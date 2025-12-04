@@ -41,15 +41,15 @@ async function handleSubmit() {
 
   try {
     // 调用注册接口。
-    const data = await fetchRegister(model.value.username, model.value.password);
-    console.log(data);
-    // 如果上面的 await 没有抛出错误，就代表请求成功了
+    const { response } = await fetchRegister(model.value.username, model.value.password);
+    console.log(response.data.code);
+    if (response.data.code !== '0000') {
+      return;
+    }
     window.$message?.success($t('page.login.common.registerSuccess'));
-
     // 注册成功后，跳转到登录页面
     toggleLoginModule('pwd-login');
   } finally {
-    // 无论成功或失败，最后都结束加载状态
     endLoading();
   }
 }
