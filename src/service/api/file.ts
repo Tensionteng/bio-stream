@@ -46,7 +46,7 @@ export function FileUploadInit(file_type_id: number, content_json: object, uploa
   });
 }
 
-export function FileBatchUploadInit(file_type_id: number, content_json: object, uploads: Api.Files.FileUpload[][]) {
+export function FileBatchUploadInit(file_type_id: number, content_json: object, uploads: Api.Files.FileBatchUploadItem[]) {
   return request<Api.Files.FileBatchUploadInit>({
     url: `/files/upload/batch_initiate`,
     method: 'post',

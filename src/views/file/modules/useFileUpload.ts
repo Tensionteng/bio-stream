@@ -1,11 +1,7 @@
 import { ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import {
-  processFileUploads,
   processBatchFileUploads,
-  buildDescriptionJson,
-  getFileNameFromSchema,
-  completeFileUpload,
   cancelUploadTask as cancelUploadTaskGlobal
 } from './FileUploadHandler';
 import { FileBatchUploadInit } from '@/service/api/file';
@@ -90,73 +86,6 @@ export function useFileUpload() {
     const index = uploadTaskList.value.findIndex(t => t.id === taskId);
     if (index > -1) {
       uploadTaskList.value.splice(index, 1);
-    }
-  }
-
-  // 处理提交和上传
-  async function handleSubmit(
-    dynamicForm: any,
-    selectedSchema: any,
-    textFields: any[],
-    fileFields: any[],
-    validateFileFields: () => boolean,
-    validateTextFields: () => boolean,
-    resetForm: () => void,
-    onSuccess?: () => void
-  ) {
-    if (!selectedSchema) return;
-
-    // 验证字段
-    if (!validateFileFields() || !validateTextFields()) return;
-
-    uploadLoading.value = true;
-    try {
-      // 处理文件上传
-      const uploadedFiles = await processFileUploads(
-        dynamicForm,
-        selectedSchema.id,
-        (taskId, fileName) => {
-          // taskId 由 processFileUploads 生成，直接使用
-          uploadTaskList.value.push({
-            id: taskId,
-            fileName,
-            progress: 0,
-            status: 'uploading'
-          });
-        },
-        (taskId, progress) => updateUploadTaskProgress(taskId, progress),
-        (taskId, status, error) => updateUploadTaskStatus(taskId, status, error)
-      );
-
-      if (uploadedFiles.length === 0) {
-        ElMessage.error('文件上传失败');
-        uploadLoading.value = false;
-        return;
-      }
-
-      // 构建描述JSON
-      const descriptionJson = buildDescriptionJson(uploadedFiles, textFields, dynamicForm);
-
-      // 完成上传
-      console.log('上传文件信息:', uploadedFiles);
-      await completeFileUpload(
-        selectedSchema.id,
-        getFileNameFromSchema(dynamicForm),
-        descriptionJson,
-        uploadedFiles
-      );
-
-      // 文件上传成功
-      ElMessage.success('文件上传成功');
-      resetForm();
-      
-      if (onSuccess) {
-        onSuccess();
-      }
-    } catch (e: any) {
-      ElMessage.error(`上传失败: ${e.message || '未知错误'}`);
-    } finally {
-      uploadLoading.value = false;
     }
   }
 
@@ -311,8 +240,21 @@ export function useFileUpload() {
 
       // Step 1: 调用批量上传初始化接口
       console.log('调用 FileBatchUploadInit...');
-      const batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
-      console.log('FileBatchUploadInit 响应:', batchInitResponse);
+      let batchInitResponse: any;
+      try {
+        batchInitResponse = await FileBatchUploadInit(selectedSchema.id, contentJson, uploads);
+        console.log('FileBatchUploadInit 响应:', batchInitResponse);
+        
+        // Init 成功，更新所有任务状态为 uploading（进度条开始显示）
+        taskIds.forEach(tid => updateUploadTaskStatus(tid, 'uploading'));
+      } catch (initError: any) {
+        console.error('初始化失败:', initError);
+        // 初始化失败，标记所有任务为错误
+        taskIds.forEach(tid => updateUploadTaskStatus(tid, 'error', `初始化失败: ${initError.message || '未知错误'}`));
+        ElMessage.error(`初始化上传失败: ${initError.message || '未知错误'}`);
+        uploadLoading.value = false;
+        return;
+      }
 
       // Step 2: 处理实际的文件上传
       console.log('开始处理实际的文件上传...');
@@ -320,6 +262,9 @@ export function useFileUpload() {
         batchInitResponse,
         uploads,
         dynamicForm,
+        selectedSchema.id,
+        textFields,
+        taskIds, // 传入 batch taskIds
         // onTaskProgress callback
         (taskId: string, progress: number) => {
           updateUploadTaskProgress(taskId, progress);
@@ -331,12 +276,13 @@ export function useFileUpload() {
       );
 
       if (!batchUploadResult.success) {
+        // 上传或 complete 失败，错误信息已由 updateUploadTaskStatus 处理
         ElMessage.error(`文件上传失败: ${batchUploadResult.error}`);
         uploadLoading.value = false;
         return;
       }
 
-      // 文件上传成功
+      // 所有文件上传成功（所有 complete 接口调用成功）
       ElMessage.success('文件上传成功');
       resetForm();
       
@@ -359,7 +305,6 @@ export function useFileUpload() {
     updateUploadTaskStatus,
     cancelUploadTask,
     removeUploadTask,
-    handleSubmit,
     handleBatchSubmit
   };
 }

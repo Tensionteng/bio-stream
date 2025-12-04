@@ -109,6 +109,11 @@ declare namespace Api {
       content_type: string;
     }
 
+    interface FileBatchUploadItem {
+      sample_id: string;
+      fields: FileUpload[];
+    }
+
     interface FileBatchUploadInit {
       sample_id: string;
       fileds: FileUpload[];

@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { createSHA256 } from 'hash-wasm';
-import { FileUploadInit, FileUploadComplete } from '@/service/api/file';
-import { ElMessage } from 'element-plus';
+import { FileUploadComplete } from '@/service/api/file';
 
 // 全局上传任务映射表，用于管理和取消上传任务
 const uploadTaskMap = new Map<string, { cancelToken: any; uploadClient: any }>();
@@ -232,7 +231,11 @@ function createUploadAxiosInstance() {
   return axios.create({
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
-    timeout: 0 // 禁用超时，大文件上传需要充足时间
+    timeout: 0, // 禁用超时，大文件上传需要充足时间
+    validateStatus: function(status) {
+      // 认可所有状态码，让我们手动处理
+      return true;
+    }
   });
 }
 
@@ -256,249 +259,92 @@ function trackUploadProgress(
   }
 }
 
-// 处理文件上传
-export async function processFileUploads(
-  dynamicForm: any,
-  selectedSchemaId: string | number,
-  onTaskAdded?: (taskId: string, fileName: string) => void,
-  onTaskProgress?: (taskId: string, progress: number) => void,
-  onTaskCompleted?: (taskId: string, status: 'success' | 'error', error?: string) => void
-): Promise<any[]> {
-  const uploads: any[] = [];
-  const fileEntries = collectFileEntries(dynamicForm);
-  console.log('before collect dynamicForm:', dynamicForm);
-  
-  fileEntries.forEach(({ field_name, file }) => {
-    uploads.push({
-      field_name,
-      filename: file.name,
-      content_type: file.type || 'application/octet-stream'
-    });
-  });
 
-  // 提取非文件字段的表单数据作为 content_json
-  const contentJson = extractNonFileFormData(dynamicForm);
-
-  const uploadedFiles: any[] = [];
-  const uploadPromises: Promise<void>[] = [];
-  
-  // Step 1: 调用 FileUploadInit 接口初始化上传
-  let initiateRes: any;
-  let currentUploadUrls: any[] = [];
-  let initiateError: string | null = null;
-  
-  try {
-    initiateRes = await FileUploadInit(Number(selectedSchemaId), contentJson, uploads);
-    currentUploadUrls = (initiateRes.data?.upload_urls || initiateRes.response?.data?.upload_urls || []) as any[];
-    
-    if (!currentUploadUrls || currentUploadUrls.length === 0) {
-      initiateError = '初始化上传失败：未获取到上传 URL';
-    }
-  } catch (err: any) {
-    initiateError = err?.message || '初始化上传失败';
-  }
-  
-  // Step 2: 在 initiate 阶段为每个文件添加任务到列表
-  // 这样用户在初始化完成后立即能看到任务，而不是等待上传完成
-  const taskMap = new Map<string, string>(); // 用于映射 field_name 到 taskId
-  
-  fileEntries.forEach(({ field_name, file }) => {
-    const taskId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    taskMap.set(field_name, taskId);
-    
-    if (onTaskAdded) {
-      onTaskAdded(taskId, file.name);
-    }
-    
-    // 如果初始化失败，立即标记任务为错误
-    if (initiateError) {
-      if (onTaskCompleted) {
-        onTaskCompleted(taskId, 'error', initiateError);
-      }
-    }
-  });
-  
-  // Step 3: 如果初始化失败，返回空数组（不继续上传）
-  if (initiateError) {
-    console.error('FileUploadInit 失败:', initiateError);
-    return uploadedFiles;
-  }
-  
-  // Step 4: 开始实际的文件上传
-  try {
-    currentUploadUrls.forEach((u: any) => {
-      const promise = (async () => {
-        const entry = fileEntries.find(e => e.field_name === u.field_name);
-        if (!entry) {
-          throw new Error(`上传时未找到对应的文件字段: ${u.field_name}`);
-        }
-
-        // 从任务映射表获取已创建的 taskId
-        const taskId = taskMap.get(u.field_name);
-        if (!taskId) {
-          throw new Error(`找不到任务 ID: ${u.field_name}`);
-        }
-        
-        const cancelTokenSource = axios.CancelToken.source();
-        const uploadClient = createUploadAxiosInstance();
-        const lastProgress = { current: 0 }; // 用于追踪上一次的进度百分比
-
-        // 注册上传任务，用于全局管理和取消
-        registerUploadTask(taskId, cancelTokenSource, uploadClient);
-
-        try {
-          // 执行上传请求，实时捕捉传输进度
-          await uploadClient.put(u.upload_url, entry.file, {
-            headers: {
-              'Content-Type': entry.file.type || 'application/octet-stream'
-            },
-            // 实时捕捉上传进度，确保面板显示最新的传输状态
-            onUploadProgress: (progressEvent: any) => {
-              trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
-            },
-            cancelToken: cancelTokenSource.token
-          });
-
-          // 确保上传成功时进度显示为 100%
-          if (onTaskProgress) {
-            onTaskProgress(taskId, 100);
-          }
-
-          // 上传成功
-          if (onTaskCompleted) {
-            onTaskCompleted(taskId, 'success');
-          }
-
-          // 回填路径信息
-          const stack: Array<{ obj: Record<string, any>; keyPath: string[] }> = [{ obj: dynamicForm, keyPath: [] }];
-          while (stack.length) {
-            const { obj, keyPath } = stack.pop()!;
-            Object.entries(obj).forEach(([k, v]) => {
-              const nextPath = [...keyPath, k];
-              if (k === u.field_name && v && typeof v === 'object') {
-                (v as any).path = u.s3_key;
-              }
-              if (v && typeof v === 'object' && !Array.isArray(v)) {
-                stack.push({ obj: v as Record<string, any>, keyPath: nextPath });
-              }
-            });
-          }
-
-          // 处理文件信息
-          try {
-            const sha256 = await hashFile(entry.file);
-            uploadedFiles.push({
-              field_name: u.field_name,
-              origin_filename: entry.file.name,
-              s3_key: u.s3_key,
-              file_type: entry.file.type || 'application/octet-stream',
-              file_size: entry.file.size,
-              file_hash: sha256
-            });
-          } catch {
-            uploadedFiles.push({
-              field_name: u.field_name,
-              origin_filename: entry.file.name,
-              s3_key: u.s3_key,
-              file_type: entry.file.type || 'application/octet-stream',
-              file_size: entry.file.size,
-              file_hash: 'error'
-            });
-          }
-        } catch (err: any) {
-          if (axios.isCancel(err)) {
-            console.log(`任务 ${taskId} 已被用户取消`);
-            if (onTaskCompleted) {
-              onTaskCompleted(taskId, 'error', '已取消');
-            }
-          } else {
-            console.error(`任务 ${taskId} 上传失败:`, err?.message);
-            if (onTaskCompleted) {
-              onTaskCompleted(taskId, 'error', err?.message || '上传失败');
-            }
-          }
-        } finally {
-          // 清理已完成的任务
-          cleanupUploadTask(taskId);
-        }
-      })();
-      uploadPromises.push(promise);
-    });
-
-    // 等待所有上传完成
-    await Promise.all(uploadPromises);
-  } catch (err: any) {
-    console.error('上传过程中出错:', err);
-  }
-
-  return uploadedFiles;
-}
-
-// 完成文件上传
-export async function completeFileUpload(
-  schemaId: string | number,
-  fileName: string,
-  descriptionJson: any,
-  uploadedFiles: any[]
-) {
-  return await FileUploadComplete({
-    file_type_id: Number(schemaId),
-    file_name: fileName,
-    description_json: descriptionJson,
-    uploaded_files: uploadedFiles
-  });
-}
 
 // 处理批量文件上传 - 在 FileBatchUploadInit 之后调用
 export async function processBatchFileUploads(
   batchInitResponse: any,
   uploads: any[],
   dynamicForm: any,
+  selectedSchemaId?: string | number,
+  textFields?: any[],
+  batchTaskIds?: string[], // 新增：batch 任务 ID 列表
   onTaskProgress?: (taskId: string, progress: number) => void,
   onTaskCompleted?: (taskId: string, status: 'success' | 'error', error?: string) => void
 ): Promise<any> {
   try {
     // 从响应中提取上传URLs
-    // 响应格式: { status: "success", upload_urls: [ { sample_id, field_name, upload_url, s3_key }, ... ] }
+    // 响应格式: { status: "success", upload_files: [ { sample_id, upload_urls: [ { field_name, upload_url, s3_key }, ... ] }, ... ] }
     const responseData = batchInitResponse?.data || batchInitResponse;
-    const uploadUrlsList = responseData?.upload_urls || [];
-    
-    if (!Array.isArray(uploadUrlsList) || uploadUrlsList.length === 0) {
+    console.log('批量上传初始化响应数据:', responseData);
+
+    const uploadFilesArray = responseData?.upload_files || [];
+    console.log('批量上传文件数组:', uploadFilesArray);
+
+    if (!Array.isArray(uploadFilesArray) || uploadFilesArray.length === 0) {
       const errorMsg = '批量上传初始化失败：未获取到上传URL';
       console.error('响应数据:', responseData);
       console.error(errorMsg);
       return { success: false, error: errorMsg };
     }
 
-    console.log('批量上传URL列表:', uploadUrlsList);
-
     // 构建 (sample_id, field_name) -> uploadUrl 的映射
+    // 需要把分组的结构展平
     const uploadUrlMap = new Map<string, any>();
-    for (const urlInfo of uploadUrlsList) {
-      const key = `${urlInfo.sample_id}|${urlInfo.field_name}`;
-      uploadUrlMap.set(key, urlInfo);
+    for (const uploadFileGroup of uploadFilesArray) {
+      const sample_id = uploadFileGroup.sample_id;
+      const uploadUrlsList = uploadFileGroup.upload_urls || [];
+      for (const urlInfo of uploadUrlsList) {
+        // 确保 urlInfo 包含 sample_id（响应中可能没有，需要从 uploadFileGroup 获取）
+        const completeUrlInfo = {
+          ...urlInfo,
+          sample_id: sample_id
+        };
+        const key = `${sample_id}|${urlInfo.field_name}`;
+        uploadUrlMap.set(key, completeUrlInfo);
+      }
     }
-
-    const uploadPromises: Promise<void>[] = [];
+    console.log('上传URL映射表:', uploadUrlMap);
+    
     const fileEntries = collectFileEntries(dynamicForm);
 
     console.log('收集的文件条目:', fileEntries);
 
-    // 遍历所有上传batch中的每个field
+    // 创建 sample_id -> batch taskId 的映射（如果提供了 batchTaskIds）
+    const batchTaskIdMap = new Map<string, string>();
+    if (batchTaskIds && batchTaskIds.length === uploads.length) {
+      for (let i = 0; i < uploads.length; i++) {
+        batchTaskIdMap.set(uploads[i].sample_id, batchTaskIds[i]);
+      }
+    }
+
+    // 为每个 batch 分别处理上传和完成
     for (let batchIndex = 0; batchIndex < uploads.length; batchIndex++) {
       const batch = uploads[batchIndex];
       const sample_id = batch.sample_id;
+      const batchTaskId = batchTaskIdMap.get(sample_id);
+      const uploadedFilesForBatch: any[] = [];
+      const batchUploadPromises: Promise<void>[] = [];
+      const uploadErrorMap = new Map<string, string>(); // 记录上传失败的任务
 
+      console.log(`\n开始处理批次 ${batchIndex + 1} (sample_id: ${sample_id})`);
+
+      // 遍历这个 batch 中的所有 field
       for (let fieldIndex = 0; fieldIndex < (batch.fields || []).length; fieldIndex++) {
         const field = batch.fields[fieldIndex];
+        console.log('处理字段:', field);
         const field_name = field.field_name;
+        const content_type = field.content_type; // 从请求中获取指定的 content_type
 
         // 根据 sample_id 和 field_name 查找对应的上传URL
         const mapKey = `${sample_id}|${field_name}`;
         const uploadUrlInfo = uploadUrlMap.get(mapKey);
+        console.log(`处理样本 ${sample_id} 字段 ${field_name} 的上传URL:`, uploadUrlInfo);
 
         if (!uploadUrlInfo) {
-          console.warn(`未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`);
+          const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`;
+          console.error(errorMsg);
+          uploadErrorMap.set(`${field_name}_url_missing`, errorMsg);
           continue;
         }
 
@@ -506,12 +352,14 @@ export async function processBatchFileUploads(
         const fileEntry = fileEntries.find(e => e.field_name === field_name);
 
         if (!fileEntry) {
-          console.warn(`未找到字段 ${field_name} 的文件数据`);
+          const errorMsg = `未找到字段 ${field_name} 的文件数据`;
+          console.error(errorMsg);
+          uploadErrorMap.set(`${field_name}_file_missing`, errorMsg);
           continue;
         }
 
-        // 为这个文件生成 taskId
-        const taskId = `batch_upload_${sample_id}_${field_name}_${fieldIndex}`;
+        // 使用 batch taskId（如果有的话）
+        const taskId = batchTaskId || `batch_upload_${sample_id}_${field_name}_${fieldIndex}`;
 
         // 创建上传Promise
         const uploadPromise = (async () => {
@@ -524,11 +372,12 @@ export async function processBatchFileUploads(
             registerUploadTask(taskId, cancelTokenSource, uploadClient);
 
             console.log(`开始上传 [样本${sample_id}] ${field_name}: ${uploadUrlInfo.upload_url}`);
-
-            // 执行上传
-            await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
+            console.log(`文件信息: 名称=${fileEntry.file.name}, 大小=${fileEntry.file.size}, 类型=${fileEntry.file.type}`);
+            // 执行上传 - 使用指定的 content_type（如果有的话），否则使用浏览器识别的类型
+            const uploadContentType = content_type || fileEntry.file.type || 'application/octet-stream';
+            const response = await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
               headers: {
-                'Content-Type': fileEntry.file.type || 'application/octet-stream'
+                'Content-Type': uploadContentType,
               },
               onUploadProgress: (progressEvent: any) => {
                 trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
@@ -536,27 +385,70 @@ export async function processBatchFileUploads(
               cancelToken: cancelTokenSource.token
             });
 
+            console.log(`PUT 请求响应状态码: ${response.status}, 状态文本: ${response.statusText}`);
+
+            // 检查响应状态码，200-299 为成功
+            if (!response.status || response.status < 200 || response.status >= 300) {
+              const errorMsg = `PUT 上传失败: HTTP ${response.status} ${response.statusText || ''}`;
+              console.error(errorMsg);
+              if (response.data) {
+                console.error('服务器响应:', response.data);
+              }
+              throw new Error(errorMsg);
+            }
+
+            console.log('PUT 响应数据:', response.data);
+
             // 确保进度显示为100%
             if (onTaskProgress) {
               onTaskProgress(taskId, 100);
             }
 
-            // 上传成功
-            if (onTaskCompleted) {
-              onTaskCompleted(taskId, 'success');
-            }
-
             console.log(`上传完成 [样本${sample_id}] ${field_name} -> ${uploadUrlInfo.s3_key}`);
+
+            // 记录此 batch 的已上传文件信息
+            try {
+              const sha256 = await hashFile(fileEntry.file);
+              uploadedFilesForBatch.push({
+                field_name: field.field_name,
+                origin_filename: fileEntry.file.name,
+                s3_key: uploadUrlInfo.s3_key,
+                file_type: fileEntry.file.type || 'application/octet-stream',
+                file_size: fileEntry.file.size,
+                file_hash: sha256
+              });
+            } catch {
+              uploadedFilesForBatch.push({
+                field_name: field.field_name,
+                origin_filename: fileEntry.file.name,
+                s3_key: uploadUrlInfo.s3_key,
+                file_type: fileEntry.file.type || 'application/octet-stream',
+                file_size: fileEntry.file.size,
+                file_hash: 'error'
+              });
+            }
           } catch (err: any) {
             if (axios.isCancel(err)) {
               console.log(`任务 ${taskId} 已被用户取消`);
+              uploadErrorMap.set(taskId, '已取消');
               if (onTaskCompleted) {
                 onTaskCompleted(taskId, 'error', '已取消');
               }
             } else {
-              console.error(`任务 ${taskId} 上传失败:`, err?.message);
+              // 详细的错误信息
+              let errorMsg = err?.message || '上传失败';
+              if (err?.response) {
+                errorMsg = `上传失败 (HTTP ${err.response.status}): ${err.response.statusText || err.message}`;
+                console.error(`任务 ${taskId} HTTP 错误响应:`, err.response.data);
+              } else if (err?.request) {
+                errorMsg = `上传失败: 无响应 (${err.message})`;
+                console.error(`任务 ${taskId} 请求无响应:`, err);
+              }
+              
+              console.error(`任务 ${taskId} 上传失败:`, errorMsg);
+              uploadErrorMap.set(taskId, errorMsg);
               if (onTaskCompleted) {
-                onTaskCompleted(taskId, 'error', err?.message || '上传失败');
+                onTaskCompleted(taskId, 'error', errorMsg);
               }
             }
           } finally {
@@ -564,14 +456,88 @@ export async function processBatchFileUploads(
           }
         })();
 
-        uploadPromises.push(uploadPromise);
+        batchUploadPromises.push(uploadPromise);
       }
+
+      console.log(`批次 ${batchIndex + 1} 准备执行 ${batchUploadPromises.length} 个上传任务`);
+
+      // 如果这个 batch 中没有任何文件需要上传，标记为错误
+      if (batchUploadPromises.length === 0) {
+        const errorMsg = `批次 ${batchIndex + 1} 中没有找到任何可上传的文件`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
+        }
+        return { success: false, error: errorMsg };
+      }
+
+      // 等待这个 batch 的所有文件上传完成
+      await Promise.all(batchUploadPromises);
+
+      // 检查此 batch 中是否有上传失败的任务
+      if (uploadErrorMap.size > 0) {
+        const failedTasks = Array.from(uploadErrorMap.entries());
+        console.error(`批次 ${batchIndex + 1} 中有 ${failedTasks.length} 个任务出现问题:`, failedTasks);
+        return { success: false, error: `批次 ${batchIndex + 1} 文件上传失败` };
+      }
+
+      // 检查是否有任何文件被成功上传
+      if (uploadedFilesForBatch.length === 0) {
+        const errorMsg = `批次 ${batchIndex + 1} 中没有任何文件被成功上传`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
+        }
+        return { success: false, error: errorMsg };
+      }
+
+      // 所有文件都上传成功，现在调用 complete 接口
+      // 只有 complete 成功后，才认为该批次真正成功
+      if (!selectedSchemaId) {
+        const errorMsg = `批次 ${batchIndex + 1} 缺少必要的 schemaId，无法完成上传`;
+        console.error(errorMsg);
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', errorMsg);
+        }
+        return { success: false, error: errorMsg };
+      }
+
+      try {
+        // 构建描述 JSON
+        const descriptionJson = buildDescriptionJson(uploadedFilesForBatch, textFields || [], dynamicForm);
+        
+        console.log(`\n批次 ${batchIndex + 1} 所有文件上传完成，调用 complete 接口 (sample_id=${sample_id})`, {
+          file_type_id: selectedSchemaId,
+          file_name: sample_id,
+          description_json: descriptionJson,
+          uploaded_files: uploadedFilesForBatch
+        });
+
+        // 调用 complete 接口
+        await FileUploadComplete({
+          file_type_id: Number(selectedSchemaId),
+          file_name: sample_id,
+          description_json: descriptionJson,
+          uploaded_files: uploadedFilesForBatch
+        });
+
+        console.log(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用成功，标记任务为成功`);
+        
+        // Complete 接口调用成功后，才更新任务状态为成功
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'success');
+        }
+      } catch (err: any) {
+        console.error(`批次 ${batchIndex + 1} (sample_id=${sample_id}) 的 complete 接口调用失败:`, err?.message);
+        // Complete 失败，更新任务状态为错误
+        if (batchTaskId && onTaskCompleted) {
+          onTaskCompleted(batchTaskId, 'error', `完成上传失败: ${err?.message}`);
+        }
+        return { success: false, error: `Complete 接口调用失败: ${err?.message}` };
+      }
+
+      console.log(`\n批次 ${batchIndex + 1} 完全处理完成\n`);
     }
-
-    console.log(`准备执行 ${uploadPromises.length} 个上传任务`);
-
-    // 等待所有上传完成
-    await Promise.all(uploadPromises);
 
     return { success: true };
   } catch (err: any) {

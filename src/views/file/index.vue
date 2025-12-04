@@ -11,17 +11,8 @@ import FileList from './modules/FileList.vue';
 import FileDetailDialog from './modules/FileDetailDialog.vue';
 import LineageDialog from './modules/LineageDialog.vue';
 
-// 导入composables
+// 导入上传功能
 import { useFileUpload } from './modules/useFileUpload';
-
-// 获取上传处理hook
-const {
-  uploadLoading,
-  uploadTaskList,
-  cancelUploadTask,
-  removeUploadTask,
-  handleBatchSubmit
-} = useFileUpload();
 
 // 组件引用
 const statsCardRef = ref();
@@ -30,6 +21,15 @@ const formSectionRef = ref();
 const fileListRef = ref();
 const fileDetailDialogRef = ref();
 const lineageDialogRef = ref();
+
+// 上传功能
+const { 
+  uploadLoading, 
+  uploadTaskList, 
+  handleBatchSubmit, 
+  cancelUploadTask, 
+  removeUploadTask 
+} = useFileUpload();
 
 // 状态
 const selectedSchemaId = ref('');
