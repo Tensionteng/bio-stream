@@ -130,8 +130,15 @@ onMounted(() => {
         @upload-complete="uploadLoading = false"
       />
 
+      <!-- 未选择数据类型时的提示 -->
+      <div v-if="!selectedSchema" class="empty-prompt">
+        <div class="prompt-icon">📋</div>
+        <div class="prompt-title">请选择数据类型</div>
+        <div class="prompt-desc">选择数据类型后，将显示对应的表单字段和文件上传选项</div>
+      </div>
+
       <!-- 提交按钮 -->
-      <div class="submit-button-area">
+      <div v-if="selectedSchema" class="submit-button-area">
         <ElButton type="primary" :loading="uploadLoading" size="large" @click="handleFormSubmit">提交并上传</ElButton>
       </div>
     </ElCard>
@@ -200,6 +207,39 @@ onMounted(() => {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid #ebeef5;
+}
+
+.empty-prompt {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 200px;
+  margin-top: 20px;
+  padding: 40px 20px;
+  border: 2px dashed #c0c4cc;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(64, 158, 255, 0.05) 0%, rgba(64, 158, 255, 0) 100%);
+}
+
+.prompt-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+.prompt-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.prompt-desc {
+  font-size: 14px;
+  color: #909399;
+  text-align: center;
 }
 
 .history-list-area {

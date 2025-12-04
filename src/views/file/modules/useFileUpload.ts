@@ -265,6 +265,7 @@ export function useFileUpload() {
         selectedSchema.id,
         textFields,
         taskIds, // 传入 batch taskIds
+        dynamicForm.sample_id, // 传入用户填写的 sample_id
         // onTaskProgress callback
         (taskId: string, progress: number) => {
           updateUploadTaskProgress(taskId, progress);

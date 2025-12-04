@@ -134,22 +134,50 @@ function handleObjectType({
       parent: fieldKey
     });
   } else if (prop.additionalProperties) {
-    const isDynamicObject =
+    const isDynamicFileObject =
       prop.additionalProperties &&
       ((typeof prop.additionalProperties === 'object' && prop.additionalProperties.pattern) ||
         propName.toLowerCase().includes('file') ||
         propName.toLowerCase().includes('path') ||
+        propName.toLowerCase().includes('paths') ||
         (prop.description && /文件|路径|file|path/i.test(prop.description)));
-    if (isDynamicObject) {
-      textFields.value.push({
-        name: fieldKey,
-        label: prop.description || propName,
-        type: 'dynamic-object',
-        required: isRequired,
-        description: prop.description || `请配置${propName}`,
-        additionalProperties: prop.additionalProperties
-      });
-      setNestedObject(dynamicForm, fieldKey, {});
+    
+    if (isDynamicFileObject) {
+      // 检查是否为文件类型的动态对象（如 filePaths）
+      const isFilePathsObject = propName.toLowerCase().includes('filepath') || 
+                                 propName.toLowerCase().includes('filepaths') ||
+                                 (prop.additionalProperties?.properties?.path && prop.additionalProperties?.properties?.file_type);
+      
+      if (isFilePathsObject) {
+        // 作为文件字段处理（支持分组上传）
+        fileFields.value.push({
+          name: fieldKey,
+          originalName: propName,
+          parentField: '',
+          label: prop.description || propName,
+          type: 'file',
+          required: isRequired,
+          fileType: 'dynamic',
+          pattern: '',
+          description: prop.description || `请上传${propName}文件`
+        });
+        // 初始化该字段的分组数量
+        fileFieldGroupSizes[fieldKey] = 1;
+        if (!dynamicForm[fieldKey] || typeof dynamicForm[fieldKey] !== 'object') {
+          dynamicForm[fieldKey] = {};
+        }
+      } else {
+        // 作为动态对象字段处理（非文件）
+        textFields.value.push({
+          name: fieldKey,
+          label: prop.description || propName,
+          type: 'dynamic-object',
+          required: isRequired,
+          description: prop.description || `请配置${propName}`,
+          additionalProperties: prop.additionalProperties
+        });
+        setNestedObject(dynamicForm, fieldKey, {});
+      }
     } else {
       textFields.value.push({
         name: fieldKey,
@@ -601,6 +629,28 @@ function updateFileFieldMultiple(fileField: any, files: File[]) {
   }
 }
 
+// 处理动态文件对象的多文件上传（如 filePaths）
+function updateDynamicFileObjectMultiple(fileField: any, files: File[]) {
+  let currentData = dynamicForm[fileField.name];
+
+  if (!currentData || typeof currentData !== 'object') {
+    currentData = {};
+  }
+
+  // 对于动态文件对象，使用文件名（不含扩展名）作为键
+  files.forEach(file => {
+    const fileKey = file.name.split('.').slice(0, -1).join('.') || file.name;
+    currentData[fileKey] = {
+      path: file.name,
+      file_type: getFileTypeFromExtension(file.name),
+      file,
+      hidden: false
+    };
+  });
+
+  dynamicForm[fileField.name] = currentData;
+}
+
 // 处理文件变更
 function handleFileChange(field: string, files: File[], key?: string | number) {
   if (!dynamicForm[field] || typeof dynamicForm[field] !== 'object') {
@@ -629,7 +679,12 @@ function handleFileChange(field: string, files: File[], key?: string | number) {
     if (!validateFileFormat(fieldConfig, file.name)) return;
   }
 
-  updateFileFieldMultiple(fieldConfig, files);
+  // 检查是否为动态文件对象字段（如 filePaths）
+  if (fieldConfig.fileType === 'dynamic') {
+    updateDynamicFileObjectMultiple(fieldConfig, files);
+  } else {
+    updateFileFieldMultiple(fieldConfig, files);
+  }
   emit('files-updated');
 }
 
@@ -805,9 +860,10 @@ defineExpose({
 
 <template>
   <div class="form-section-container">
-    <ElDivider content-position="center" style="font-size: 16px">填写信息并上传文件</ElDivider>
-    <div class="file-upload-section">
-      <ElForm v-if="props.schema" label-width="140px" style="margin-bottom: 18px">
+    <template v-if="props.schema">
+      <ElDivider content-position="center" style="font-size: 16px">填写信息并上传文件</ElDivider>
+      <div class="file-upload-section">
+        <ElForm label-width="140px" style="margin-bottom: 18px">
         <!-- 文本输入字段 -->
         <template v-for="field in textFields" :key="field.name">
           <ElFormItem :label="getShortLabel(field.label)" :required="field.required">
@@ -963,7 +1019,8 @@ defineExpose({
           </ElFormItem>
         </template>
       </ElForm>
-    </div>
+      </div>
+    </template>
   </div>
 </template>
 
