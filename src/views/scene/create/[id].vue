@@ -48,7 +48,7 @@ async function handleSubmit() {
   try {
     await createNewTask(payload);
     ElMessage.success('任务创建成功！');
-    router.push('/task/list');
+    router.push('/scene/list');
   } catch {
     ElMessage.error('任务创建失败');
   } finally {

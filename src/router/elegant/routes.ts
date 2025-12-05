@@ -79,7 +79,7 @@ export const generatedRoutes: GeneratedRoute[] = [
     meta: {
       title: 'permission',
       i18nKey: 'route.permission',
-      localIcon:'permission'
+      localIcon: 'permission'
     },
     children: [
       {
@@ -89,7 +89,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'permission_apply',
           i18nKey: 'route.permission_apply',
-          localIcon:'permission'
+          localIcon: 'permission'
         }
       },
       {
@@ -99,7 +99,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'permission_manage',
           i18nKey: 'route.permission_manage',
-          localIcon:'permission'
+          localIcon: 'permission'
         }
       },
       {
@@ -109,7 +109,7 @@ export const generatedRoutes: GeneratedRoute[] = [
         meta: {
           title: 'permission_my',
           i18nKey: 'route.permission_my',
-          localIcon:'permission'
+          localIcon: 'permission'
         }
       }
     ]

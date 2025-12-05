@@ -197,10 +197,13 @@ declare namespace Api {
     interface FileType {
       file_type_name: string;
       count: number;
+      size: number;
     }
 
     interface FileTypesResponse {
       file_types: FileType[];
+      total_count: number;
+      total_size: number;
     }
 
     interface TaskStatus {
