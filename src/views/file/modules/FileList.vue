@@ -7,6 +7,24 @@ import {
 } from 'element-plus';
 import { fetchFileListInfo } from '@/service/api/file';
 
+// 格式化文件大小
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  if (!bytes || bytes < 0) return '-';
+  
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const k = 1024;
+  let size = bytes;
+  let unitIndex = 0;
+  
+  while (size >= k && unitIndex < units.length - 1) {
+    size /= k;
+    unitIndex++;
+  }
+  
+  return `${size.toFixed(2)} ${units[unitIndex]}`;
+}
+
 // Props
 const props = defineProps<{
   modelValue?: any[];
@@ -182,7 +200,11 @@ defineExpose({
       <ElTable :data="fileList" :style="{ width: '100%' }" size="small" border stripe>
         <ElTableColumn prop="file_id" label="ID" show-overflow-tooltip />
         <ElTableColumn prop="file_name" label="文件名" show-overflow-tooltip />
-        <ElTableColumn prop="file_size" label="文件大小（字节）" show-overflow-tooltip />
+        <ElTableColumn label="文件大小" show-overflow-tooltip>
+          <template #default="scope">
+            {{ formatFileSize(scope.row.file_size) }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="created_time" label="上传时间" show-overflow-tooltip />
         <ElTableColumn prop="upload_user.user_id" label="上传用户" show-overflow-tooltip />
         <ElTableColumn label="操作" width="200" align="center">
