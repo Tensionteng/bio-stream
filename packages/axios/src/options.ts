@@ -29,7 +29,7 @@ export function createRetryOptions(config?: Partial<CreateAxiosDefaults>) {
 }
 
 export function createAxiosConfig(config?: Partial<CreateAxiosDefaults>) {
-  const TEN_SECONDS = 10 * 1000;
+  const TEN_SECONDS = 20 * 1000;
 
   const axiosConfig: CreateAxiosDefaults = {
     timeout: TEN_SECONDS,
