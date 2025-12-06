@@ -14,10 +14,18 @@ import {
 } from 'element-plus';
 import axios from 'axios';
 import { Download } from '@element-plus/icons-vue';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { GraphChart } from 'echarts/charts';
+import VChart from 'vue-echarts';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
 import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
+
+// 注册 ECharts 组件
+use([CanvasRenderer, GraphChart]);
+
 // 响应式数据
 const loading = ref(false);
 const visualizationLoading = ref(false);
@@ -140,7 +148,8 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
       pdf: 'PDF文档加载成功',
       vcf: 'VCF变异数据加载成功',
       csv: 'CSV表格数据加载成功',
-      image: '图片数据加载成功'
+      image: '图片数据加载成功',
+      graph: '图谱可视化加载成功'
     };
     ElMessage.success(messages[fileType]);
   } catch (error) {
@@ -223,7 +232,8 @@ const handleDownload = async () => {
         pdf: '.pdf',
         vcf: '.vcf',
         csv: '.csv',
-        image: '.zip'
+        image: '.zip',
+        graph: '.json'
       };
       fileName += (extensions as any)[type] || '';
     }
@@ -255,7 +265,8 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
     pdf: 'PDF 文档',
     vcf: 'VCF 变异',
     csv: 'CSV 表格',
-    image: '图片'
+    image: '图片',
+    graph: '关系图谱'
   };
   return labels[fileType] || fileType.toUpperCase();
 };
@@ -272,6 +283,122 @@ const getTableColumns = (data: any[]) => {
 
   return Array.from(allKeys);
 };
+
+// 将graph数据转换为ECharts需要的nodes和links格式
+const transformGraphDataToECharts = (graphData: Api.Visualization.GraphData) => {
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+
+  // 收集所有节点
+  graphData.forEach(item => {
+    if (!nodeMap.has(item.from)) {
+      nodeMap.set(item.from, {
+        id: item.from,
+        name: item.from,
+        symbolSize: 30
+      });
+    }
+    if (!nodeMap.has(item.to)) {
+      nodeMap.set(item.to, {
+        id: item.to,
+        name: item.to,
+        symbolSize: 30
+      });
+    }
+
+    // 添加边
+    links.push({
+      source: item.from,
+      target: item.to
+    });
+  });
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    links
+  };
+};
+
+// Graph 图表配置
+const graphChartOption = computed<any>(() => {
+  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
+    return null;
+  }
+
+  const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
+
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          return `节点: ${params.data.name}`;
+        }
+        if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}`;
+        }
+        return '';
+      }
+    },
+    animationDuration: 1500,
+    animationEasingUpdate: 'quinticInOut',
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        data: nodes,
+        links,
+        roam: true,
+        label: {
+          show: true,
+          position: 'bottom',
+          fontSize: 12,
+          color: '#333'
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: {
+            show: true,
+            fontSize: 14,
+            fontWeight: 'bold',
+            color: '#000'
+          },
+          lineStyle: {
+            width: 4,
+            color: '#4a90e2'
+          }
+        },
+        force: {
+          repulsion: 1000,
+          edgeLength: 150,
+          gravity: 0.1,
+          layoutAnimation: true
+        },
+        lineStyle: {
+          color: 'source',
+          width: 2,
+          curveness: 0.1,
+          opacity: 0.7
+        },
+        itemStyle: {
+          borderColor: '#2c5aa0',
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.1)'
+        },
+        symbol: 'circle',
+        symbolSize: (params: any) => {
+          // 根据节点连接数动态调整大小
+          const relatedLinks = links.filter(
+            (link: any) => link.source === params.data.id || link.target === params.data.id
+          );
+          return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
+        }
+      }
+    ]
+  };
+});
 
 // 处理PDF在新窗口打开 - 移除iframe，直接打开新窗口
 const openPdfInNewWindow = (url: string) => {
@@ -441,6 +568,17 @@ onMounted(async () => {
               <div v-else class="min-h-48 flex items-center justify-center">
                 <ElAlert title="当前没有可展示的图片" type="info" :closable="false" show-icon />
               </div>
+            </template>
+
+            <!-- Graph 关系图谱展示 -->
+            <template v-else-if="visualizationResult.type === 'graph'">
+              <VChart
+                v-if="graphChartOption"
+                :option="graphChartOption"
+                autoresize
+                class="w-full border border-gray-200 rounded bg-white"
+                style="height: 600px"
+              />
             </template>
           </div>
 

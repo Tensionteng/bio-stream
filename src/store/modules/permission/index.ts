@@ -206,6 +206,8 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
         );
         // 刷新列表
         await getAllPermissionRequests();
+        // 同时刷新所有用户权限列表，确保权限数据实时更新
+        await getAllUserPermissions();
         // 如果是自己的权限，刷新用户信息
         if (data.user === useAuthStore().userInfo.userName) {
           await refreshUserPermissions();

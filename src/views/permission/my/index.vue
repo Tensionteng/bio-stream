@@ -44,17 +44,6 @@ function getPermissionTypeLabel(type: string): string {
   return $t(`page.permission.${permissionKey}` as any) || type;
 }
 
-function formatDate(dateString: string | undefined) {
-  if (!dateString) return '-';
-  try {
-    return new Date(dateString).toLocaleString('zh-CN', {
-      timeZone: 'Asia/Shanghai'
-    });
-  } catch {
-    return dateString;
-  }
-}
-
 function isPermanent(days: number) {
   return days === 0;
 }
@@ -126,23 +115,11 @@ onMounted(async () => {
           </template>
         </ElTableColumn>
 
-        <ElTableColumn label="申请时间" prop="created_time" min-width="150">
-          <template #default="{ row }">
-            {{ formatDate(row.created_time) }}
-          </template>
-        </ElTableColumn>
+        <ElTableColumn label="申请时间" prop="created_time" min-width="150" />
 
-        <ElTableColumn label="审批时间" prop="review_time" min-width="150">
-          <template #default="{ row }">
-            {{ formatDate(row.review_time) }}
-          </template>
-        </ElTableColumn>
+        <ElTableColumn label="审批时间" prop="review_time" min-width="150" />
 
-        <ElTableColumn label="过期时间" prop="expire_time" min-width="150">
-          <template #default="{ row }">
-            {{ formatDate(row.expire_time) || '-' }}
-          </template>
-        </ElTableColumn>
+        <ElTableColumn label="过期时间" prop="expire_time" min-width="150" />
 
         <ElTableColumn label="申请理由" prop="reason" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">

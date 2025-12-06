@@ -239,7 +239,15 @@ declare namespace Api {
       default_format: FileType;
     }
 
-    type FileType = 'txt' | 'pdf' | 'vcf' | 'csv' | 'image';
+    type FileType = 'txt' | 'pdf' | 'vcf' | 'csv' | 'image' | 'graph';
+
+    /** Graph 图数据结构 */
+    interface GraphItem {
+      from: string;
+      to: string;
+    }
+
+    type GraphData = GraphItem[];
 
     /** VCF文件数据结构 */
     interface VcfData {
@@ -265,13 +273,14 @@ declare namespace Api {
 
     type ImageResult = ImageData[];
 
-    /** 可视化结果，只能是四种文件类型中的一种 */
+    /** 可视化结果，只能是五种文件类型中的一种 */
     type Result =
       | { type: 'vcf'; data: VcfData[] }
       | { type: 'csv'; data: CsvResult }
       | { type: 'txt'; data: string }
       | { type: 'pdf'; data: string }
-      | { type: 'image'; data: ImageResult };
+      | { type: 'image'; data: ImageResult }
+      | { type: 'graph'; data: GraphData };
   }
   /**
    * namespace Route
