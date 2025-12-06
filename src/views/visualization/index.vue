@@ -17,6 +17,7 @@ import { Download } from '@element-plus/icons-vue';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { GraphChart } from 'echarts/charts';
+import { TooltipComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
@@ -24,7 +25,7 @@ import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 
 // 注册 ECharts 组件
-use([CanvasRenderer, GraphChart]);
+use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 // 响应式数据
 const loading = ref(false);
@@ -388,11 +389,10 @@ const graphChartOption = computed<any>(() => {
           shadowColor: 'rgba(0, 0, 0, 0.1)'
         },
         symbol: 'circle',
-        symbolSize: (params: any) => {
+        symbolSize: (value: any, params: any) => {
           // 根据节点连接数动态调整大小
-          const relatedLinks = links.filter(
-            (link: any) => link.source === params.data.id || link.target === params.data.id
-          );
+          const nodeId = params?.data?.id || value?.id || '';
+          const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
           return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
         }
       }
