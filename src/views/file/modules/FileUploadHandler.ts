@@ -289,20 +289,34 @@ export async function processBatchFileUploads(
       return { success: false, error: errorMsg };
     }
 
-    // 构建 (sample_id, field_name) -> uploadUrl 的映射
-    // 需要把分组的结构展平
+    // 构建 (sample_id, field_name, index) -> uploadUrl 的映射
+    // 需要把分组的结构展平，并处理同一 sample_id 中同一 field_name 有多个文件的情况
     const uploadUrlMap = new Map<string, any>();
+    const fieldNameIndexMap = new Map<string, number>(); // 记录每个字段名的文件索引
+    
     for (const uploadFileGroup of uploadFilesArray) {
       const sample_id = uploadFileGroup.sample_id;
       const uploadUrlsList = uploadFileGroup.upload_urls || [];
+      
       for (const urlInfo of uploadUrlsList) {
         // 确保 urlInfo 包含 sample_id（响应中可能没有，需要从 uploadFileGroup 获取）
         const completeUrlInfo = {
           ...urlInfo,
           sample_id: sample_id
         };
-        const key = `${sample_id}|${urlInfo.field_name}`;
+        
+        // 为同一 field_name 的多个 URL 添加索引
+        const field_name = urlInfo.field_name;
+        const fieldKey = `${sample_id}|${field_name}`;
+        
+        // 获取该字段已有的索引数量
+        const currentIndex = (fieldNameIndexMap.get(fieldKey) || 0);
+        const key = `${sample_id}|${field_name}|${currentIndex}`;
+        
+        fieldNameIndexMap.set(fieldKey, currentIndex + 1);
         uploadUrlMap.set(key, completeUrlInfo);
+        
+        console.log(`添加URL映射: ${key} -> ${urlInfo.upload_url}`);
       }
     }
     console.log('上传URL映射表:', uploadUrlMap);
@@ -310,9 +324,6 @@ export async function processBatchFileUploads(
     const fileEntries = collectFileEntries(dynamicForm);
 
     console.log('收集的文件条目:', fileEntries);
-
-    // 为每个 field_name 维护一个使用计数，确保多个批次不会使用同一个文件
-    const fileUsageIndex = new Map<string, number>();
 
     // 创建 sample_id -> batch taskId 的映射（如果提供了 batchTaskIds）
     const batchTaskIdMap = new Map<string, string>();
@@ -334,6 +345,7 @@ export async function processBatchFileUploads(
           const uploadedFilesForBatch: any[] = [];
           const batchUploadPromises: Promise<void>[] = [];
           const uploadErrorMap = new Map<string, string>(); // 记录上传失败的任务
+          const fileUsageIndex = new Map<string, number>(); // 为该 batch 追踪每个字段的文件使用索引
 
           console.log(`\n开始处理批次 ${batchIndex + 1} (sample_id: ${sample_id})`);
 
@@ -344,21 +356,23 @@ export async function processBatchFileUploads(
             const field_name = field.field_name;
             const content_type = field.content_type; // 从请求中获取指定的 content_type
 
-            // 根据 sample_id 和 field_name 查找对应的上传URL
-            const mapKey = `${sample_id}|${field_name}`;
-            const uploadUrlInfo = uploadUrlMap.get(mapKey);
-            console.log(`处理样本 ${sample_id} 字段 ${field_name} 的上传URL:`, uploadUrlInfo);
-
-            if (!uploadUrlInfo) {
-              const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name} 的上传URL`;
-              console.error(errorMsg);
-              uploadErrorMap.set(`${field_name}_url_missing`, errorMsg);
-              continue;
-            }
-
             // 从 dynamicForm 中找到对应的文件对象
             // 使用索引确保多个批次不会使用同一个文件
             const currentIndex = fileUsageIndex.get(field_name) || 0;
+            
+            // 根据 sample_id、field_name 和当前索引查找对应的上传URL
+            const mapKey = `${sample_id}|${field_name}|${currentIndex}`;
+            const uploadUrlInfo = uploadUrlMap.get(mapKey);
+            console.log(`处理样本 ${sample_id} 字段 ${field_name} 第 ${currentIndex + 1} 个文件，查询key: ${mapKey}, 上传URL:`, uploadUrlInfo);
+
+            if (!uploadUrlInfo) {
+              const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name}, index=${currentIndex} 的上传URL`;
+              console.error(errorMsg);
+              uploadErrorMap.set(`${field_name}_url_missing_${currentIndex}`, errorMsg);
+              continue;
+            }
+
+            // 从 fileEntries 中查找对应索引的文件
             let fileEntryCount = 0;
             let fileEntry: any = null;
             
