@@ -115,7 +115,7 @@ onMounted(async () => {
           </template>
         </ElTableColumn>
 
-        <ElTableColumn label="申请时间" prop="created_time" min-width="150" />
+        <ElTableColumn label="申请时间" prop="create_time" min-width="150" />
 
         <ElTableColumn label="审批时间" prop="review_time" min-width="150" />
 

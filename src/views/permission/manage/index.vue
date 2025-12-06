@@ -600,7 +600,7 @@ function handleExport() {
                 {{ row.reason || '-' }}
               </template>
             </ElTableColumn>
-            <ElTableColumn label="申请时间" prop="created_time" min-width="180" />
+            <ElTableColumn label="申请时间" prop="create_time" min-width="180" />
             <ElTableColumn label="操作" width="120" fixed="right">
               <template #default="{ row }">
                 <ElButton v-if="row.status === 'PENDING'" type="primary" link @click="openReviewDialog(row)">
