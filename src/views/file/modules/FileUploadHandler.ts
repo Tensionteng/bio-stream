@@ -311,6 +311,9 @@ export async function processBatchFileUploads(
 
     console.log('收集的文件条目:', fileEntries);
 
+    // 为每个 field_name 维护一个使用计数，确保多个批次不会使用同一个文件
+    const fileUsageIndex = new Map<string, number>();
+
     // 创建 sample_id -> batch taskId 的映射（如果提供了 batchTaskIds）
     const batchTaskIdMap = new Map<string, string>();
     if (batchTaskIds && batchTaskIds.length === uploads.length) {
@@ -354,12 +357,28 @@ export async function processBatchFileUploads(
             }
 
             // 从 dynamicForm 中找到对应的文件对象
-            const fileEntry = fileEntries.find(e => e.field_name === field_name);
+            // 使用索引确保多个批次不会使用同一个文件
+            const currentIndex = fileUsageIndex.get(field_name) || 0;
+            let fileEntryCount = 0;
+            let fileEntry: any = null;
+            
+            for (const entry of fileEntries) {
+              if (entry.field_name === field_name) {
+                if (fileEntryCount === currentIndex) {
+                  fileEntry = entry;
+                  break;
+                }
+                fileEntryCount++;
+              }
+            }
+            
+            // 更新该字段的使用索引，指向下一个文件
+            fileUsageIndex.set(field_name, currentIndex + 1);
 
             if (!fileEntry) {
-              const errorMsg = `未找到字段 ${field_name} 的文件数据`;
+              const errorMsg = `未找到字段 ${field_name} 的第 ${currentIndex + 1} 个文件数据`;
               console.error(errorMsg);
-              uploadErrorMap.set(`${field_name}_file_missing`, errorMsg);
+              uploadErrorMap.set(`${field_name}_file_missing_${currentIndex}`, errorMsg);
               continue;
             }
 

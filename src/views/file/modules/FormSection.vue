@@ -637,15 +637,20 @@ function updateDynamicFileObjectMultiple(fileField: any, files: File[]) {
     currentData = {};
   }
 
-  // 对于动态文件对象，使用文件名（不含扩展名）作为键
+  // 对于动态文件对象，使用数字索引确保即使文件名相同也不会被覆盖
+  const existingKeys = Object.keys(currentData)
+    .map(k => parseInt(k, 10))
+    .filter(k => !Number.isNaN(k));
+  let nextKey = existingKeys.length > 0 ? Math.max(...existingKeys) + 1 : 1;
+
   files.forEach(file => {
-    const fileKey = file.name.split('.').slice(0, -1).join('.') || file.name;
-    currentData[fileKey] = {
+    currentData[nextKey] = {
       path: file.name,
       file_type: getFileTypeFromExtension(file.name),
       file,
       hidden: false
     };
+    nextKey++;
   });
 
   dynamicForm[fileField.name] = currentData;
