@@ -305,9 +305,21 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
     const { data: resultData } = await fetchTaskResult(taskId.toString(), fileType);
 
     if (resultData && resultData.type === 'pdf') {
+      const pdfUrl = normalizePdfUrl(resultData.data); // 获取原始 URL
+      const token = localStg.get('token');
+
+      const response = await axios.get(pdfUrl, {
+        responseType: 'blob', // 关键：指定响应类型为 blob
+        headers: {
+          Authorization: token ? `Bearer ${token}` : ''
+        }
+      });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const localPdfUrl = window.URL.createObjectURL(blob);
+
       visualizationResult.value = {
         type: 'pdf',
-        data: normalizePdfUrl(resultData.data)
+        data: localPdfUrl
       };
     } else {
       visualizationResult.value = resultData ?? null;
@@ -608,7 +620,7 @@ onMounted(async () => {
       <template #header>
         <div class="card-header">
           <div class="header-title-area">
-            <span>场景任务列表</span>
+            <span>运行记录</span>
 
             <div class="size-stat-badge">
               <ElIcon class="mr-1"><Odometer /></ElIcon>

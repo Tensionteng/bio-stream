@@ -32,7 +32,6 @@ async function getTaskChains() {
     };
 
     const response = await fetchTaskChainList(params);
-
     if (response.data) {
       chainList.value = response.data.task_chains || [];
       pagination.total = response.data.count || 0;

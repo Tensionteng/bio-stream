@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
@@ -15,18 +15,21 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
+// === ECharts 相关引入 ===
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
+// === API 和 工具引入 ===
 import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
-import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
+import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton'; // 请确认这里路径拼写是否是你的实际路径
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
 import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
-// [新增] 注册 ECharts 组件
+// 注册 ECharts 组件
 use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 // ==========================================
@@ -37,6 +40,7 @@ const loading = ref(false);
 const tasks = ref<Api.Task.TaskListItem[]>([]);
 const totalSize = ref(0);
 const route = useRoute();
+
 // 筛选表单
 const filterParams = reactive({
   id: undefined as number | undefined,
@@ -114,7 +118,13 @@ function formatDateTime(isoString: string | null | undefined): string {
   try {
     const date = new Date(isoString);
     if (Number.isNaN(date.getTime())) return isoString;
-    return date.toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   } catch {
     return isoString;
   }
@@ -161,234 +171,139 @@ function handleTaskRestarted() {
 }
 
 // ==========================================
-// Part 2: 可视化逻辑 (Visualization)
+// Part 2: 可视化逻辑 (核心修改)
 // ==========================================
 
-// 状态
 const visSectionRef = ref<HTMLElement | null>(null);
 const currentVisTaskId = ref<number | null>(null);
-const currentVisProcessName = ref('');
+const currentVisProcessName = ref(''); // 用于显示当前任务名
 const visualizationLoading = ref(false);
 const visualizationResult = ref<any>(null);
 const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
 const selectedFileType = ref<Api.Visualization.FileType | ''>('');
-const selectedCsvTable = ref('count_csv'); // CSV 子类型
+const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv');
 
-// CSV 选项
-const csvTableOptions = [
-  { label: 'Count CSV', value: 'count_csv' },
-  { label: 'FPK CSV', value: 'fpk_csv' },
-  { label: 'TPM CSV', value: 'tpm_csv' }
-];
-
-// 计算属性：处理数据显示
-const currentCsvData = computed(() => {
-  if (visualizationResult.value?.type === 'csv') {
-    return visualizationResult.value.data[selectedCsvTable.value] || [];
+// PDF URL 规范化工具
+const normalizePdfUrl = (url: string) => {
+  if (!url) return '';
+  const isHttpUrl = /^https?:\/\//i.test(url);
+  if (!isHttpUrl) return url;
+  try {
+    const pdfUrl = new URL(url);
+    const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
+    if (!serviceBase) return url;
+    const serviceUrl = new URL(serviceBase);
+    // 只有同源才走代理
+    if (pdfUrl.origin === serviceUrl.origin) {
+      const proxyPrefix = '/proxy-default'; // 确保这里前缀与后端Nginx配置一致
+      return `${proxyPrefix}${pdfUrl.pathname}${pdfUrl.search}`;
+    }
+    return url;
+  } catch {
+    return url;
   }
-  return [];
-});
-
-const imageList = computed(() => {
-  if (visualizationResult.value?.type === 'image') {
-    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
-  }
-  return [];
-});
-const imagePreviewUrls = computed(() => imageList.value.map((img: any) => img.url));
-
-// 工具：获取类型标签
-const getFileTypeLabel = (type: string) => {
-  const map: Record<string, string> = {
-    txt: 'TXT文本',
-    pdf: 'PDF报告',
-    vcf: 'VCF变异',
-    csv: 'CSV表格',
-    image: '结果图片',
-    graph: '关系图谱' // [新增]
-  };
-  return map[type] || type.toUpperCase();
 };
 
-// ==========================================
-// Part 2.1: Graph 图谱逻辑 (新增)
-// ==========================================
+// 加载可视化数据 (含 PDF Blob 修复逻辑)
+async function loadVisData(fileType: Api.Visualization.FileType) {
+  if (!currentVisTaskId.value) return;
 
-// 将graph数据转换为ECharts需要的nodes和links格式
-const transformGraphDataToECharts = (graphData: any[]) => {
-  const nodeMap = new Map<string, any>();
-  const links: any[] = [];
-
-  // 收集所有节点
-  graphData.forEach(item => {
-    if (!nodeMap.has(item.from)) {
-      nodeMap.set(item.from, {
-        id: item.from,
-        name: item.from,
-        symbolSize: 30
-      });
-    }
-    if (!nodeMap.has(item.to)) {
-      nodeMap.set(item.to, {
-        id: item.to,
-        name: item.to,
-        symbolSize: 30
-      });
-    }
-
-    // 添加边
-    links.push({
-      source: item.from,
-      target: item.to
-    });
-  });
-
-  return {
-    nodes: Array.from(nodeMap.values()),
-    links
-  };
-};
-
-// Graph 图表配置
-const graphChartOption = computed<any>(() => {
-  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
-    return null;
+  // 清理旧的 Blob URL 防止内存泄漏
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
   }
 
-  const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
+  visualizationLoading.value = true;
+  selectedFileType.value = fileType;
+  visualizationResult.value = null; // 清空旧数据
 
-  return {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'item',
-      formatter: (params: any) => {
-        if (params.dataType === 'node') {
-          return `节点: ${params.data.name}`;
-        }
-        if (params.dataType === 'edge') {
-          return `${params.data.source} → ${params.data.target}`;
-        }
-        return '';
-      }
-    },
-    animationDuration: 1500,
-    animationEasingUpdate: 'quinticInOut',
-    series: [
-      {
-        type: 'graph',
-        layout: 'force',
-        data: nodes,
-        links,
-        roam: true,
-        label: {
-          show: true,
-          position: 'bottom',
-          fontSize: 12,
-          color: '#333'
-        },
-        emphasis: {
-          focus: 'adjacency',
-          label: {
-            show: true,
-            fontSize: 14,
-            fontWeight: 'bold',
-            color: '#000'
-          },
-          lineStyle: {
-            width: 4,
-            color: '#4a90e2'
-          }
-        },
-        force: {
-          repulsion: 1000,
-          edgeLength: 150,
-          gravity: 0.1,
-          layoutAnimation: true
-        },
-        lineStyle: {
-          color: 'source',
-          width: 2,
-          curveness: 0.1,
-          opacity: 0.7
-        },
-        itemStyle: {
-          borderColor: '#2c5aa0',
-          borderWidth: 2,
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.1)'
-        },
-        symbol: 'circle',
-        symbolSize: (value: any, params: any) => {
-          // 根据节点连接数动态调整大小
-          const nodeId = params?.data?.id || value?.id || '';
-          const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
-          return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
-        }
-      }
-    ]
-  };
-});
+  try {
+    const { data: resultData } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
 
-// ==========================================
-// Part 2.2: 可视化交互逻辑
-// ==========================================
+    if (resultData && resultData.type === 'pdf') {
+      // === 核心修复：PDF 使用 Axios 下载流转 Blob ===
+      const pdfUrl = normalizePdfUrl(resultData.data);
+      const token = localStg.get('token');
 
-// 核心：点击“可视化”按钮
+      const response = await axios.get(pdfUrl, {
+        responseType: 'blob', // 关键：指定响应类型为 blob
+        headers: {
+          Authorization: token ? `Bearer ${token}` : ''
+        }
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const localPdfUrl = window.URL.createObjectURL(blob);
+
+      visualizationResult.value = {
+        type: 'pdf',
+        data: localPdfUrl // iframe 加载这个本地 blob url
+      };
+    } else {
+      // 其他类型 (TXT, CSV, Image, Graph) 直接使用
+      visualizationResult.value = resultData ?? null;
+    }
+  } catch (error) {
+    console.error('加载可视化数据失败:', error);
+    ElMessage.error('加载数据失败，请检查网络或权限');
+  } finally {
+    visualizationLoading.value = false;
+  }
+}
+
+// 点击“可视化”按钮触发
 async function handleVisualize(row: Api.Task.TaskListItem) {
-  if (currentVisTaskId.value === row.id) return;
+  if (currentVisTaskId.value === row.id) {
+    visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
 
   currentVisTaskId.value = row.id;
   currentVisProcessName.value = row.name;
   visualizationResult.value = null;
   selectedFileType.value = '';
-
-  // 1. 重置可用类型，确保旧数据被清除
   availableFileTypes.value = [];
 
   visualizationLoading.value = true;
 
-  // 滚动定位
   nextTick(() => {
     visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   try {
+    // 1. 获取任务信息以确定有哪些文件类型
     const { data } = await fetchTaskInfo();
     const targetTask = data?.find((t: any) => t.task_id === row.id);
 
-    // 2. 根据后端返回的实际 file_type 列表渲染 Tab
     if (targetTask && Array.isArray(targetTask.file_type) && targetTask.file_type.length > 0) {
       availableFileTypes.value = targetTask.file_type as Api.Visualization.FileType[];
-      // 默认加载第一个类型
+      // 2. 默认加载第一个类型
       loadVisData(availableFileTypes.value[0]);
     } else {
-      // 3. 如果列表为空，则不显示任何 Tab，并提示
       ElMessage.warning('该任务暂无生成的可视化文件');
-      availableFileTypes.value = [];
-      // 停止 loading
       visualizationLoading.value = false;
     }
   } catch {
-    ElMessage.error('获取可视化信息失败');
+    ElMessage.error('获取可视化配置失败');
     visualizationLoading.value = false;
   }
 }
 
-// 加载具体数据
-async function loadVisData(fileType: Api.Visualization.FileType) {
-  if (!currentVisTaskId.value) return;
-  visualizationLoading.value = true;
-  selectedFileType.value = fileType;
-
-  try {
-    const { data } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
-    visualizationResult.value = data;
-  } catch {
-    ElMessage.error('加载数据失败');
-  } finally {
-    visualizationLoading.value = false;
+// 关闭面板并清理
+const closeVisPanel = () => {
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
   }
-}
+  currentVisTaskId.value = null;
+  visualizationResult.value = null;
+};
+
+// 组件销毁时清理
+onUnmounted(() => {
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
+});
 
 // 处理下载
 const handleDownload = async () => {
@@ -413,7 +328,6 @@ const handleDownload = async () => {
       responseType: 'blob'
     });
 
-    // 从响应头获取文件名
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
 
@@ -424,23 +338,20 @@ const handleDownload = async () => {
       }
     }
 
-    // 如果没有在header中找到文件名，则使用默认名称
     if (!fileName) {
       const type = selectedFileType.value;
       fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
-      // 根据类型添加扩展名
       const extensions: Record<string, string> = {
         txt: '.txt',
         pdf: '.pdf',
         vcf: '.vcf',
         csv: '.csv',
         image: '.zip',
-        graph: '.json' // [新增]
+        graph: '.json'
       };
       fileName += extensions[type] || '';
     }
 
-    // 创建下载链接
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -448,11 +359,8 @@ const handleDownload = async () => {
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
-
-    // 清理
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-
     ElMessage.success('文件下载成功');
   } catch (error) {
     console.error('文件下载失败:', error);
@@ -460,29 +368,110 @@ const handleDownload = async () => {
   }
 };
 
-// 切换 CSV 类型时提示
-watch(selectedCsvTable, val => {
+// 工具：获取类型标签
+const getFileTypeLabel = (type: string) => {
+  const map: Record<string, string> = {
+    txt: '文本日志',
+    pdf: '分析报告',
+    vcf: '变异数据',
+    csv: '数据表格',
+    image: '结果图表',
+    graph: '关系图谱'
+  };
+  return map[type] || type.toUpperCase();
+};
+
+// CSV 选项
+const csvTableOptions = [
+  { label: 'Count CSV', value: 'count_csv' },
+  { label: 'FPK CSV', value: 'fpk_csv' },
+  { label: 'TPM CSV', value: 'tpm_csv' }
+];
+
+// Computed
+const currentCsvData = computed(() => {
   if (visualizationResult.value?.type === 'csv') {
-    // 仅做提示，数据通过 computed 自动更新
-    const label = csvTableOptions.find(o => o.value === val)?.label;
-    ElMessage.success(`切换至: ${label}`);
+    return visualizationResult.value.data[selectedCsvTable.value] || [];
   }
+  return [];
 });
 
-// 通用：表格列获取
+const imageList = computed(() => {
+  if (visualizationResult.value?.type === 'image') {
+    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
+  }
+  return [];
+});
+const imagePreviewUrls = computed(() => imageList.value.map((img: any) => img.url));
+
 const getTableColumns = (data: any[]) => {
   if (!data || !data.length) return [];
-  return Object.keys(data[0]);
+  const allKeys = new Set<string>();
+  data.forEach(row => Object.keys(row).forEach(key => allKeys.add(key)));
+  return Array.from(allKeys);
 };
-// 通用：PDF打开
+
 const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank');
 };
-// 关闭面板
-const closeVisPanel = () => {
-  currentVisTaskId.value = null;
-  visualizationResult.value = null;
+
+// ==========================================
+// Part 2.1: Graph 图谱逻辑
+// ==========================================
+
+const transformGraphDataToECharts = (graphData: any[]) => {
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+
+  graphData.forEach(item => {
+    if (!nodeMap.has(item.from)) nodeMap.set(item.from, { id: item.from, name: item.from, symbolSize: 30 });
+    if (!nodeMap.has(item.to)) nodeMap.set(item.to, { id: item.to, name: item.to, symbolSize: 30 });
+    links.push({ source: item.from, target: item.to });
+  });
+
+  return { nodes: Array.from(nodeMap.values()), links };
 };
+
+const graphChartOption = computed<any>(() => {
+  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') return null;
+  const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'node') return `节点: ${params.data.name}`;
+        if (params.dataType === 'edge') return `${params.data.source} → ${params.data.target}`;
+        return '';
+      }
+    },
+    animationDuration: 1500,
+    animationEasingUpdate: 'quinticInOut',
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        data: nodes,
+        links,
+        roam: true,
+        label: { show: true, position: 'bottom', fontSize: 12, color: '#333' },
+        emphasis: {
+          focus: 'adjacency',
+          label: { show: true, fontSize: 14, fontWeight: 'bold' }
+        },
+        force: { repulsion: 1000, edgeLength: 150 },
+        lineStyle: { color: 'source', width: 2, curveness: 0.1, opacity: 0.7 },
+        itemStyle: { borderColor: '#2c5aa0', borderWidth: 2, shadowBlur: 10 },
+        symbol: 'circle',
+        symbolSize: (value: any, params: any) => {
+          const nodeId = params?.data?.id || value?.id || '';
+          const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
+          return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
+        }
+      }
+    ]
+  };
+});
 
 // ==========================================
 // Part 3: 清理文件逻辑
@@ -519,7 +508,9 @@ async function handleDeleteSubmit() {
   try {
     const res = await cleanTaskFiles(currentDeleteTaskId.value, deleteLevel.value);
     if (res) {
-      ElMessage.success('清理成功');
+      const freedSpace =
+        res.data && res.data.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
+      ElMessage.success(`清理成功！已释放空间：${freedSpace}`);
       isDeleteDialogVisible.value = false;
       getTaskSize();
     }
@@ -534,7 +525,12 @@ const getPreviewSizeText = (level: number) => {
   return s !== undefined ? `(预计释放 ${formatBytes(s)})` : '';
 };
 
-onMounted(() => {
+// 页面初始化
+onMounted(async () => {
+  const { checkPermissionAndNotify } = usePermissionGuard();
+  const hasPermission = await checkPermissionAndNotify('scene'); // 或 'task'
+  if (!hasPermission) return;
+
   if (route.query.task_id) {
     filterParams.id = Number(route.query.task_id);
     ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
@@ -608,7 +604,9 @@ onMounted(() => {
         </ElTableColumn>
         <ElTableColumn prop="name" label="流程名称" min-width="150">
           <template #default="{ row }">
-            <span class="text-gray-700 font-medium">{{ row.name }}</span>
+            <div class="flex flex-col">
+              <span class="text-gray-700 font-medium">{{ row.name }}</span>
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="file_ids" label="文件ID" min-width="120">
@@ -640,7 +638,7 @@ onMounted(() => {
               </ElButton>
 
               <ElButton
-                v-if="row.status && row.status.toUpperCase() === 'SUCCESS'"
+                v-if="row.status?.toUpperCase() === 'SUCCESS'"
                 link
                 type="primary"
                 class="action-btn is-vis"
@@ -651,7 +649,7 @@ onMounted(() => {
               </ElButton>
 
               <ElButton
-                v-if="row.status !== 'RUNNING'"
+                v-if="row.status?.toUpperCase() !== 'RUNNING'"
                 link
                 type="warning"
                 class="action-btn"
@@ -714,7 +712,7 @@ onMounted(() => {
 
           <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="vis-sub-filter">
             <span class="sub-label">数据视图：</span>
-            <ElSelect v-model="selectedCsvTable" size="small" style="width: 160px">
+            <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
               <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </ElSelect>
           </div>
@@ -743,7 +741,7 @@ onMounted(() => {
                 border
                 stripe
                 height="500px"
-                :style="{ width: '100%' }"
+                class="full-width-table"
               >
                 <ElTableColumn
                   v-for="col in getTableColumns(
@@ -834,8 +832,10 @@ onMounted(() => {
       </div>
       <template #footer>
         <div class="dialog-footer-actions">
-          <ElButton @click="isDeleteDialogVisible = false">取消</ElButton>
-          <ElButton type="danger" :loading="deleteLoading" @click="handleDeleteSubmit">确认清理</ElButton>
+          <ElButton class="cancel-btn" @click="isDeleteDialogVisible = false">取消</ElButton>
+          <ElButton type="danger" :loading="deleteLoading" class="confirm-btn" @click="handleDeleteSubmit">
+            确认清理
+          </ElButton>
         </div>
       </template>
     </ElDialog>
@@ -1011,17 +1011,16 @@ onMounted(() => {
   padding: 8px 0;
 }
 
-/* [修改] Tab 切换布局 */
+/* Tab 切换布局 */
 .vis-tabs {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* 两端对齐 */
+  justify-content: space-between;
   margin-bottom: 20px;
   border-bottom: 1px solid #f0f2f5;
   padding-bottom: 12px;
 }
 
-/* [新增] 左侧 Tabs 容器 */
 .vis-tabs-left {
   display: flex;
   align-items: center;
@@ -1131,7 +1130,7 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* [新增] Graph 样式 */
+/* Graph 样式 */
 .graph-viewer {
   background: #fff;
   border: 1px solid #e4e7ed;
@@ -1272,6 +1271,8 @@ onMounted(() => {
 .confirm-btn {
   padding: 8px 24px;
 }
+
+/* 工具类 */
 .text-muted {
   color: #c0c4cc;
 }
@@ -1280,5 +1281,11 @@ onMounted(() => {
 }
 .ml-2 {
   margin-left: 8px;
+}
+.csv-select-width {
+  width: 160px;
+}
+.full-width-table {
+  width: 100%;
 }
 </style>
