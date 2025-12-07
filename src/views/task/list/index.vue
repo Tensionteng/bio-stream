@@ -330,11 +330,18 @@ const handleDownload = async () => {
 
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
-
     if (contentDisposition) {
-      const fileNameMatch = contentDisposition.match(/filename="?(.+?)"?$/);
-      if (fileNameMatch && fileNameMatch.length === 2) {
-        fileName = decodeURIComponent(fileNameMatch[1]);
+      // 优先尝试匹配 RFC 5987 标准的 UTF-8 文件名 (filename*=utf-8''...)
+      const filenameStarMatch = contentDisposition.match(/filename\*=utf-8''(.+?)(;|$)/);
+
+      if (filenameStarMatch && filenameStarMatch[1]) {
+        fileName = decodeURIComponent(filenameStarMatch[1]);
+      } else {
+        // 如果没有，再尝试匹配普通文件名 (filename="...")
+        const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/);
+        if (filenameMatch && filenameMatch[1]) {
+          fileName = decodeURIComponent(filenameMatch[1]);
+        }
       }
     }
 
