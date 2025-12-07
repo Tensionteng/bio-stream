@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
   ElAlert,
   ElButton,
@@ -99,7 +99,7 @@ const fetchTasks = async () => {
   }
 };
 
-// 获取可视化结果
+// 获取可视化结果 - URL 规范化工具
 const normalizePdfUrl = (url: string) => {
   if (!url) return '';
 
@@ -126,18 +126,41 @@ const normalizePdfUrl = (url: string) => {
   }
 };
 
+// [核心修改] 获取可视化数据
 const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
   if (!selectedTaskId.value || !fileType) return;
+
+  // 1. 清理之前的 Blob 资源，防止内存泄漏
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
 
   try {
     visualizationLoading.value = true;
     selectedFileType.value = fileType;
+    // 先置空，给用户加载中的反馈
+    visualizationResult.value = null;
+
     const { data: resultData } = await fetchTaskResult(selectedTaskId.value.toString(), fileType);
 
     if (resultData && resultData.type === 'pdf') {
+      // 2. [修改点] PDF 使用 Axios 下载 Blob 并创建本地 URL
+      const pdfUrl = normalizePdfUrl(resultData.data);
+      const token = localStg.get('token');
+
+      const response = await axios.get(pdfUrl, {
+        responseType: 'blob', // 关键
+        headers: {
+          Authorization: token ? `Bearer ${token}` : ''
+        }
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const blobUrl = window.URL.createObjectURL(blob);
+
       visualizationResult.value = {
         type: 'pdf',
-        data: normalizePdfUrl(resultData.data)
+        data: blobUrl
       };
     } else {
       visualizationResult.value = resultData ?? null;
@@ -164,9 +187,20 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
 
 // 当任务ID变化时，清空选择的文件类型和可视化结果
 watch(selectedTaskId, () => {
+  // 切换任务时也要清理旧的 Blob
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
   selectedFileType.value = '';
   visualizationResult.value = null;
   selectedCsvTable.value = 'count_csv'; // 重置CSV表格选择
+});
+
+// 组件销毁时清理
+onUnmounted(() => {
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
 });
 
 // 当可视化结果变化时，重置CSV表格选择
@@ -228,7 +262,7 @@ const handleDownload = async () => {
       const type = selectedFileType.value;
       fileName = `task_${selectedTaskId.value}_${type}_${Date.now()}`;
       // 根据类型添加扩展名
-      const extensions: Record<Api.Visualization.FileType, string> = {
+      const extensions: Record<string, string> = {
         txt: '.txt',
         pdf: '.pdf',
         vcf: '.vcf',
@@ -236,7 +270,7 @@ const handleDownload = async () => {
         image: '.zip',
         graph: '.json'
       };
-      fileName += (extensions as any)[type] || '';
+      fileName += extensions[type] || '';
     }
 
     // 创建下载链接
@@ -400,7 +434,7 @@ const graphChartOption = computed<any>(() => {
   };
 });
 
-// 处理PDF在新窗口打开 - 移除iframe，直接打开新窗口
+// 处理PDF在新窗口打开
 const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
 };
@@ -420,14 +454,11 @@ onMounted(async () => {
 
 <template>
   <div v-loading="loading" class="h-full flex flex-col gap-4">
-    <!-- 空状态页面 -->
     <template v-if="!loading && !hasData">
       <ExceptionBase type="111" />
     </template>
 
-    <!-- 有数据时的正常页面 -->
     <template v-else>
-      <!-- 上部分：选择区域 -->
       <ElCard class="flex-shrink-0" shadow="never">
         <div class="flex flex-wrap items-center gap-6">
           <div class="flex items-center gap-2">
@@ -451,7 +482,6 @@ onMounted(async () => {
             </ElButtonGroup>
           </div>
 
-          <!-- CSV表格类型选择 - 只在选择CSV类型且有结果时显示 -->
           <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="flex items-center gap-2">
             <label class="whitespace-nowrap text-gray-600 font-medium">CSV表格类型:</label>
             <ElSelect v-model="selectedCsvTable" placeholder="请选择表格类型" style="width: 150px">
@@ -464,19 +494,15 @@ onMounted(async () => {
             </ElSelect>
           </div>
 
-          <!-- 下载按钮 - 在选择了任务和文件类型后显示 -->
           <div v-if="selectedTaskId && selectedFileType" class="flex items-center gap-2">
             <ElButton type="primary" :icon="Download" @click="handleDownload">下载文件</ElButton>
           </div>
         </div>
       </ElCard>
 
-      <!-- 下部分：可视化内容 -->
       <ElCard class="min-h-0 flex-1" shadow="never">
         <div v-loading="visualizationLoading" class="min-h-96">
-          <!-- 有可视化结果时展示 -->
           <div v-if="!visualizationLoading && visualizationResult">
-            <!-- TXT 文件展示 -->
             <template v-if="visualizationResult.type === 'txt'">
               <div class="max-h-screen overflow-auto rounded bg-gray-50 p-4">
                 <pre class="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed font-mono">{{
@@ -485,7 +511,6 @@ onMounted(async () => {
               </div>
             </template>
 
-            <!-- PDF 文件展示 - 改回iframe -->
             <template v-else-if="visualizationResult.type === 'pdf'">
               <div class="overflow-hidden rounded">
                 <div class="mb-4">
@@ -504,14 +529,12 @@ onMounted(async () => {
                   </ElAlert>
                 </div>
 
-                <!-- iframe显示PDF -->
                 <div class="overflow-hidden border border-gray-300 rounded bg-gray-50">
                   <iframe :src="visualizationResult.data" frameborder="0" width="100%" height="600px" />
                 </div>
               </div>
             </template>
 
-            <!-- VCF 表格展示 -->
             <template v-else-if="visualizationResult.type === 'vcf'">
               <ElTable :data="visualizationResult.data" border stripe class="max-h[600px] w-full">
                 <ElTableColumn
@@ -525,7 +548,6 @@ onMounted(async () => {
               </ElTable>
             </template>
 
-            <!-- CSV 表格展示 -->
             <template v-else-if="visualizationResult.type === 'csv'">
               <div class="flex flex-col">
                 <ElTable :data="currentCsvData" border stripe class="max-h-[600px] w-full">
@@ -541,7 +563,6 @@ onMounted(async () => {
               </div>
             </template>
 
-            <!-- 图片展示 -->
             <template v-else-if="visualizationResult.type === 'image'">
               <div v-if="imageList.length" class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
                 <div
@@ -570,7 +591,6 @@ onMounted(async () => {
               </div>
             </template>
 
-            <!-- Graph 关系图谱展示 -->
             <template v-else-if="visualizationResult.type === 'graph'">
               <VChart
                 v-if="graphChartOption"
@@ -582,12 +602,10 @@ onMounted(async () => {
             </template>
           </div>
 
-          <!-- 未选择任务时的提示 -->
           <div v-else-if="!visualizationLoading && !selectedTaskId" class="min-h-48 flex items-center justify-center">
             <ElAlert title="请先选择一个任务" type="info" :closable="false" show-icon />
           </div>
 
-          <!-- 未选择可视化类型时的提示 -->
           <div
             v-else-if="!visualizationLoading && selectedTaskId && !selectedFileType && availableFileTypes.length > 0"
             class="min-h-48 flex items-center justify-center"
@@ -595,7 +613,6 @@ onMounted(async () => {
             <ElAlert title="请选择可视化类型来查看内容" type="info" :closable="false" show-icon />
           </div>
 
-          <!-- 无可用的可视化类型 -->
           <div
             v-else-if="!visualizationLoading && selectedTaskId && availableFileTypes.length === 0"
             class="min-h-48 flex items-center justify-center"
