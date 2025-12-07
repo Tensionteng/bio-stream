@@ -5,6 +5,7 @@ import {
   cancelUploadTask as cancelUploadTaskGlobal
 } from './FileUploadHandler';
 import { FileBatchUploadInit } from '@/service/api/file';
+import { getSampleIdValue } from './FileUploadHandler';
 
 export function useFileUpload() {
   const uploadLoading = ref(false);
@@ -265,7 +266,7 @@ export function useFileUpload() {
         selectedSchema.id,
         textFields,
         taskIds, // 传入 batch taskIds
-        dynamicForm.sample_id, // 传入用户填写的 sample_id
+        getSampleIdValue(dynamicForm), // 传入用户填写的样本唯一标识符（支持多种字段名）
         // onTaskProgress callback
         (taskId: string, progress: number) => {
           updateUploadTaskProgress(taskId, progress);

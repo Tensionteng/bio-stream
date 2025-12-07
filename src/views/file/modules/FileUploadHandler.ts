@@ -135,12 +135,30 @@ export function buildDescriptionJson(uploadedFiles: any[], textFields: any[], dy
   return descriptionJson;
 }
 
-// 获取文件名（根据schema中的sample_id）
-export function getFileNameFromSchema(dynamicForm: any): string {
-  if (dynamicForm.sample_id && dynamicForm.sample_id.trim()) {
-    return dynamicForm.sample_id.trim();
+// 获取样本唯一标识符字段名（支持 sample_id、cov_info_csv_id 等多种字段名）
+export function getSampleIdFieldName(dynamicForm: any): string {
+  // 可能的字段名列表（按优先级排序）
+  const possibleFieldNames = ['sample_id', 'cov_info_csv_id'];
+  
+  for (const fieldName of possibleFieldNames) {
+    if (dynamicForm[fieldName] && String(dynamicForm[fieldName]).trim()) {
+      return fieldName;
+    }
   }
+  
+  // 如果都没有找到，返回默认的 sample_id
+  return 'sample_id';
+}
 
+// 获取样本唯一标识符的值
+export function getSampleIdValue(dynamicForm: any): string {
+  const fieldName = getSampleIdFieldName(dynamicForm);
+  const value = dynamicForm[fieldName];
+  
+  if (value && String(value).trim()) {
+    return String(value).trim();
+  }
+  
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).slice(2, 8);
   return `bioFile_${timestamp}_${randomSuffix}`;
@@ -269,7 +287,7 @@ export async function processBatchFileUploads(
   selectedSchemaId?: string | number,
   textFields?: any[],
   batchTaskIds?: string[], // 新增：batch 任务 ID 列表
-  userProvidedSampleId?: string, // 新增：用户填写的 sample_id，用于 complete 接口
+  userProvidedSampleId?: string, // 新增：用户填写的样本唯一标识符（可能是 sample_id、cov_info_csv_id 等），用于 complete 接口
   onTaskProgress?: (taskId: string, progress: number) => void,
   onTaskCompleted?: (taskId: string, status: 'success' | 'error', error?: string) => void
 ): Promise<any> {
@@ -333,6 +351,22 @@ export async function processBatchFileUploads(
       }
     }
 
+    // 为每个批次构建该批次的 field_name -> 对应文件索引的映射
+    // 这是必需的，因为轮询分配确保了每个批次获得不同的文件
+    const batchFileIndexMap = new Map<number, Map<string, number>>();
+    for (let batchIndex = 0; batchIndex < uploads.length; batchIndex++) {
+      const fieldIndexMap = new Map<string, number>();
+      for (let i = 0; i < batchIndex; i++) {
+        // 统计前面的批次中每个字段有多少个
+        for (const field of uploads[i].fields) {
+          fieldIndexMap.set(field.field_name, (fieldIndexMap.get(field.field_name) || 0) + 1);
+        }
+      }
+      batchFileIndexMap.set(batchIndex, fieldIndexMap);
+    }
+
+    console.log('批次文件索引映射:', batchFileIndexMap);
+
     // 为每个 batch 创建处理Promise，使得所有批次异步并行执行
     const batchProcessPromises: Promise<any>[] = [];
 
@@ -345,7 +379,8 @@ export async function processBatchFileUploads(
           const uploadedFilesForBatch: any[] = [];
           const batchUploadPromises: Promise<void>[] = [];
           const uploadErrorMap = new Map<string, string>(); // 记录上传失败的任务
-          const fileUsageIndex = new Map<string, number>(); // 为该 batch 追踪每个字段的文件使用索引
+          const batchFieldIndexMap = batchFileIndexMap.get(batchIndex) || new Map(); // 该批次的字段索引基础值
+          const fileIndexOffset = new Map<string, number>(); // 追踪该批次中每个字段已处理的文件数
 
           console.log(`\n开始处理批次 ${batchIndex + 1} (sample_id: ${sample_id})`);
 
@@ -357,28 +392,30 @@ export async function processBatchFileUploads(
             const content_type = field.content_type; // 从请求中获取指定的 content_type
 
             // 从 dynamicForm 中找到对应的文件对象
-            // 使用索引确保多个批次不会使用同一个文件
-            const currentIndex = fileUsageIndex.get(field_name) || 0;
+            // 计算该批次中该字段应该使用的全局文件索引
+            const fieldBaseIndex = batchFieldIndexMap.get(field_name) || 0; // 前面批次已用过的该字段文件数
+            const fieldOffsetInBatch = fileIndexOffset.get(field_name) || 0; // 当前批次中该字段已处理的文件数
+            const globalFileIndex = fieldBaseIndex + fieldOffsetInBatch;
             
             // 根据 sample_id、field_name 和当前索引查找对应的上传URL
-            const mapKey = `${sample_id}|${field_name}|${currentIndex}`;
+            const mapKey = `${sample_id}|${field_name}|${fieldOffsetInBatch}`;
             const uploadUrlInfo = uploadUrlMap.get(mapKey);
-            console.log(`处理样本 ${sample_id} 字段 ${field_name} 第 ${currentIndex + 1} 个文件，查询key: ${mapKey}, 上传URL:`, uploadUrlInfo);
+            console.log(`处理样本 ${sample_id} 字段 ${field_name}，全局文件索引=${globalFileIndex}，批次内偏移=${fieldOffsetInBatch}，查询key: ${mapKey}, 上传URL:`, uploadUrlInfo);
 
             if (!uploadUrlInfo) {
-              const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name}, index=${currentIndex} 的上传URL`;
+              const errorMsg = `未找到 sample_id=${sample_id}, field_name=${field_name}, index=${fieldOffsetInBatch} 的上传URL`;
               console.error(errorMsg);
-              uploadErrorMap.set(`${field_name}_url_missing_${currentIndex}`, errorMsg);
+              uploadErrorMap.set(`${field_name}_url_missing_${fieldOffsetInBatch}`, errorMsg);
               continue;
             }
 
-            // 从 fileEntries 中查找对应索引的文件
+            // 从 fileEntries 中查找对应索引的文件（使用全局索引，确保批次之间不会共享同一个文件）
             let fileEntryCount = 0;
             let fileEntry: any = null;
             
             for (const entry of fileEntries) {
               if (entry.field_name === field_name) {
-                if (fileEntryCount === currentIndex) {
+                if (fileEntryCount === globalFileIndex) {
                   fileEntry = entry;
                   break;
                 }
@@ -386,13 +423,13 @@ export async function processBatchFileUploads(
               }
             }
             
-            // 更新该字段的使用索引，指向下一个文件
-            fileUsageIndex.set(field_name, currentIndex + 1);
+            // 更新该字段在当前批次中的处理数量
+            fileIndexOffset.set(field_name, fieldOffsetInBatch + 1);
 
             if (!fileEntry) {
-              const errorMsg = `未找到字段 ${field_name} 的第 ${currentIndex + 1} 个文件数据`;
+              const errorMsg = `未找到字段 ${field_name} 的第 ${globalFileIndex + 1} 个文件数据（全局索引）`;
               console.error(errorMsg);
-              uploadErrorMap.set(`${field_name}_file_missing_${currentIndex}`, errorMsg);
+              uploadErrorMap.set(`${field_name}_file_missing_${globalFileIndex}`, errorMsg);
               continue;
             }
 
