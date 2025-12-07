@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { onMounted, ref } from 'vue';
-import { UploadFilled } from '@element-plus/icons-vue';
 import { ElIcon } from 'element-plus';
+import { UploadFilled } from '@element-plus/icons-vue';
 import { fetchFileStatistics } from '@/service/api/file';
 
 // 统计数据
@@ -9,10 +9,29 @@ const totalFileCount = ref(0);
 const totalFileSize = ref(0);
 const lastUploadTime = ref('');
 
+/**
+ * 格式化文件大小，自适应 B, KB, MB, GB, TB
+ *
+ * @param bytes 文件大小（字节）
+ * @param decimals 小数位，默认为 2
+ */
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 B';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+  // 计算单位的索引：0=B, 1=KB, 2=MB, 3=GB, 4=TB
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
+};
+
 // 2. 获取文件统计信息
 async function fetchFileStats() {
   try {
-    // 假设接口返回 { total_files: 123, total_size: 4567890 }
+    // 假设接口返回 { total_files: 123, total_size: 4567890 (单位是字节) }
     const res = await fetchFileStatistics();
     totalFileCount.value = res.data?.total_files || 0;
     totalFileSize.value = res.data?.total_size || 0;
@@ -39,13 +58,14 @@ defineExpose({
       <ElIcon class="title-icon" color="#409EFF"><UploadFilled /></ElIcon>
       <span class="main-title main-title-text">数据入湖</span>
     </div>
-    
-    <!-- 新增统计信息 -->
+
     <div class="stats-line">
       <span>入湖数据总数：</span>
       <b class="stats-num">{{ totalFileCount }}</b>
       <span class="stats-gap">总数据量：</span>
-      <b class="stats-num">{{ (totalFileSize / 1024 / 1024).toFixed(2) }} MB</b>
+
+      <b class="stats-num">{{ formatBytes(totalFileSize) }}</b>
+
       <span class="stats-gap">最后上传时间：</span>
       <b class="stats-num">{{ lastUploadTime }}</b>
     </div>
