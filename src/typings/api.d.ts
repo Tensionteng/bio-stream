@@ -688,5 +688,13 @@ declare namespace Api {
     interface FileSchemaListResponse {
       schemas: FileSchemaItem[];
     }
+
+    /** 任务列表响应结构 (匹配后端 { count, results, ... }) */
+    interface TaskListResponse {
+      count: number;
+      page: number;
+      page_size: number;
+      results: TaskListItem[];
+    }
   }
 }

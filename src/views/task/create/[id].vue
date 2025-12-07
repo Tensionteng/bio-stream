@@ -200,7 +200,6 @@ const openFileDialog = (inputName: string) => {
   fileDialogVisible.value = true;
 };
 
-// 【修复核心】：加载文件列表逻辑修改
 async function loadFilesPage() {
   if (loadingFiles.value) return;
   loadingFiles.value = true;
@@ -340,18 +339,20 @@ const handleSubmit = async () => {
       submitting.value = true;
       try {
         const res = await startTaskChainAnalysis(payload);
-        const data = res.data;
-        if (res.response.data.code !== '0000') {
-          ElMessage.error(res.response.data.message);
+        const apiResponse = (res.data || (res as any).response?.data) as Api.Task.NewTaskResponse;
+        if (apiResponse?.code !== '0000') {
+          ElMessage.error(apiResponse.message || '创建失败');
           return;
         }
-        ElMessage.success(data?.message || '任务创建成功！');
+        const taskInfo = apiResponse?.data;
+        ElMessage.success(apiResponse?.message || '任务创建成功！');
         router.push({
           path: '/task/list',
-          query: { task_id: data?.task_id }
+          query: { task_id: taskInfo?.task_id }
         });
-      } catch {
-        ElMessage.error('提交失败');
+      } catch (error: any) {
+        const msg = error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
+        ElMessage.error(msg);
       } finally {
         submitting.value = false;
       }

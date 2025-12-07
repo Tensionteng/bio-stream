@@ -3,13 +3,12 @@ import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElCol, ElIcon, ElMessage, ElRow } from 'element-plus';
 import { DataAnalysis, Files, Help, Monitor, Right, Share, TrendCharts } from '@element-plus/icons-vue';
-// 【修改点 1】恢复引用 task.ts 中的接口和类型
-import { type ProcessListItem, fetchProcessList } from '@/service/api/task';
+import { fetchProcessList } from '@/service/api/task';
 
 const router = useRouter();
 const loading = ref(false);
 // 【修改点 2】类型改回 ProcessListItem
-const sceneList = ref<ProcessListItem[]>([]);
+const sceneList = ref<Api.Task.ProcessListItem[]>([]);
 
 // 顺序：绿、紫、粉、蓝、青
 const gradients = [
@@ -48,7 +47,7 @@ async function loadScenes() {
 }
 
 /** 跳转向导页 */
-function handleRunScene(scene: ProcessListItem) {
+function handleRunScene(scene: Api.Task.ProcessListItem) {
   router.push({
     path: `/scene/create/${scene.process_id}`,
     query: { name: scene.name }

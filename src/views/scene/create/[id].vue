@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElButton, ElCard, ElMessage } from 'element-plus';
 import { ArrowLeft, Promotion } from '@element-plus/icons-vue';
-import { type NewTaskPayload, type ProcessSchema, createNewTask, fetchProcessSchema } from '@/service/api/task';
+import { createNewTask, fetchProcessSchema } from '@/service/api/task';
 import DynamicForm from './components/DynamicForm.vue';
 
 const route = useRoute();
@@ -11,7 +11,7 @@ const router = useRouter();
 
 const loadingSchema = ref(true);
 const submitting = ref(false);
-const processSchema = ref<ProcessSchema | null>(null);
+const processSchema = ref<Api.Task.ProcessSchema | null>(null);
 const formData = ref<Record<string, any>>({});
 const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
 
@@ -39,7 +39,7 @@ async function handleSubmit() {
     return;
   }
 
-  const payload: NewTaskPayload = {
+  const payload: Api.Task.NewTaskPayload = {
     process_id: processId,
     parameter_json: formData.value
   };
@@ -47,15 +47,16 @@ async function handleSubmit() {
   submitting.value = true;
   try {
     const res = await createNewTask(payload);
-    const data = res.data;
-    if (res.response.data.code !== '0000') {
-      ElMessage.error(res.response.data.message);
+    const apiResponse = (res.data || (res as any).response?.data) as Api.Task.NewTaskResponse;
+    if (apiResponse?.code !== '0000') {
+      ElMessage.error(apiResponse.message || '创建失败');
       return;
     }
-    ElMessage.success(data?.message || '任务创建成功！');
+    const taskInfo = apiResponse?.data;
+    ElMessage.success(apiResponse?.message || '任务创建成功！');
     router.push({
       path: '/scene/list',
-      query: { task_id: data?.task_id }
+      query: { task_id: taskInfo.task_id }
     });
   } catch (error: any) {
     const msg = error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';

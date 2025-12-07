@@ -20,15 +20,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
-import {
-  type TaskListItem,
-  type TaskListParams,
-  type TaskStatus,
-  cleanTaskFiles,
-  fetchTaskFileSize,
-  fetchTaskList,
-  fetchTotalFileSize
-} from '@/service/api/task';
+import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
 import { getServiceBaseURL } from '@/utils/service';
@@ -45,14 +37,14 @@ use([CanvasRenderer, GraphChart, TooltipComponent]);
 // =======================
 
 const loading = ref(false);
-const tasks = ref<TaskListItem[]>([]);
+const tasks = ref<Api.Task.TaskListItem[]>([]);
 const totalSize = ref(0);
 const route = useRoute();
 // 筛选状态
 const filterParams = reactive({
   id: undefined as number | undefined,
   name: '',
-  status: '' as TaskStatus | ''
+  status: '' as Api.Task.TaskStatus | ''
 });
 
 // 对话框控制 (详情)
@@ -97,7 +89,7 @@ const getPreviewSizeText = (level: number) => {
 };
 
 // 打开清理弹窗
-function openDeleteDialog(row: TaskListItem) {
+function openDeleteDialog(row: Api.Task.TaskListItem) {
   currentDeleteTaskId.value = row.id;
   deleteLevel.value = 2; // 重置为默认推荐值
   isDeleteDialogVisible.value = true;
@@ -175,7 +167,7 @@ function formatDateTime(isoString: string | null | undefined): string {
   }
 }
 
-const statusTagType = (status: string | TaskStatus | undefined | null) => {
+const statusTagType = (status: string | Api.Task.TaskStatus | undefined | null) => {
   if (!status) return 'info';
   const upperStatus = status.toString().toUpperCase();
   switch (upperStatus) {
@@ -203,7 +195,7 @@ const pagination = reactive({
 async function getTasks() {
   loading.value = true;
   try {
-    const params: TaskListParams = {
+    const params: Api.Task.TaskListParams = {
       page: pagination.page,
       page_size: pagination.pageSize,
       status: filterParams.status || undefined,
@@ -212,6 +204,7 @@ async function getTasks() {
       task_source_type: 'process'
     };
     const { data } = await fetchTaskList(params);
+    console.log(data);
     if (data) {
       tasks.value = data.results || [];
       pagination.itemCount = data.count || 0;

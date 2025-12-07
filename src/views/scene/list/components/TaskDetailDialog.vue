@@ -3,10 +3,6 @@ import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Collection, DocumentCopy, FolderOpened, InfoFilled, Refresh, Setting, Upload } from '@element-plus/icons-vue';
 import {
-  type FileSchemaItem,
-  type SelectFileUploadPayload,
-  type TaskDetail,
-  type UploadMapItem,
   fetchFileSchemaList,
   fetchTaskDetail,
   restartTask,
@@ -29,16 +25,16 @@ const emit = defineEmits<{
 
 // -- State Management --
 const loading = ref(false);
-const taskDetails = ref<TaskDetail | null>(null);
+const taskDetails = ref<Api.Task.TaskDetail | null>(null);
 
 // -- Upload Dialog State --
 const isUploadDialogVisible = ref(false);
 const uploadLoading = ref(false);
 const metaFileLoading = ref(false);
-const metaFileOptions = ref<FileSchemaItem[]>([]);
+const metaFileOptions = ref<Api.Task.FileSchemaItem[]>([]);
 
 // 当前选中的 Schema
-const currentSchema = ref<FileSchemaItem | null>(null);
+const currentSchema = ref<Api.Task.FileSchemaItem | null>(null);
 
 // 动态表单数据
 const dynamicForm = reactive({
@@ -280,7 +276,7 @@ async function getTaskDetails(id: number) {
   taskDetails.value = null;
   try {
     const detailRes = await fetchTaskDetail(id);
-    taskDetails.value = detailRes.data as TaskDetail;
+    taskDetails.value = detailRes.data as Api.Task.TaskDetail;
   } catch {
     ElMessage.error('获取任务详情失败');
     isDialogVisible.value = false;
@@ -396,14 +392,14 @@ async function submitUpload() {
     }
   }
 
-  const uploadsPayload: UploadMapItem[] = Object.keys(dynamicForm.files)
+  const uploadsPayload: Api.Task.UploadMapItem[] = Object.keys(dynamicForm.files)
     .filter(key => Boolean(dynamicForm.files[key]))
     .map(key => {
       const apiFiledName = key === 'filePaths' ? 'filepath' : key;
       return { filed_name: apiFiledName, file_dir: dynamicForm.files[key] };
     });
 
-  const payload: SelectFileUploadPayload = {
+  const payload: Api.Task.SelectFileUploadPayload = {
     meta_file_id: dynamicForm.meta_file_id,
     uploads: uploadsPayload,
     content_json: dynamicForm.content

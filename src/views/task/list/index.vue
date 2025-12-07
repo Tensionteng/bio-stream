@@ -20,15 +20,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
-import {
-  type TaskListItem,
-  type TaskListParams,
-  type TaskStatus,
-  cleanTaskFiles,
-  fetchTaskFileSize,
-  fetchTaskList,
-  fetchTotalFileSize
-} from '@/service/api/task';
+import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
@@ -42,14 +34,14 @@ use([CanvasRenderer, GraphChart, TooltipComponent]);
 // ==========================================
 
 const loading = ref(false);
-const tasks = ref<TaskListItem[]>([]);
+const tasks = ref<Api.Task.TaskListItem[]>([]);
 const totalSize = ref(0);
 const route = useRoute();
 // 筛选表单
 const filterParams = reactive({
   id: undefined as number | undefined,
   name: '',
-  status: '' as TaskStatus | ''
+  status: '' as Api.Task.TaskStatus | ''
 });
 
 // 详情弹窗控制
@@ -76,7 +68,7 @@ const statusOptions = [
 async function getTasks() {
   loading.value = true;
   try {
-    const params: TaskListParams = {
+    const params: Api.Task.TaskListParams = {
       page: pagination.page,
       page_size: pagination.pageSize,
       status: filterParams.status || undefined,
@@ -128,7 +120,7 @@ function formatDateTime(isoString: string | null | undefined): string {
   }
 }
 
-const statusTagType = (status: string | TaskStatus | undefined | null) => {
+const statusTagType = (status: string | Api.Task.TaskStatus | undefined | null) => {
   const s = status?.toString().toUpperCase();
   if (s === 'SUCCESS') return 'success';
   if (s === 'RUNNING') return 'primary';
@@ -342,7 +334,7 @@ const graphChartOption = computed<any>(() => {
 // ==========================================
 
 // 核心：点击“可视化”按钮
-async function handleVisualize(row: TaskListItem) {
+async function handleVisualize(row: Api.Task.TaskListItem) {
   if (currentVisTaskId.value === row.id) return;
 
   currentVisTaskId.value = row.id;
@@ -509,7 +501,7 @@ const deleteOptions = [
   { value: 0, label: '彻底清理 (全部删除)' }
 ];
 
-function openDeleteDialog(row: TaskListItem) {
+function openDeleteDialog(row: Api.Task.TaskListItem) {
   currentDeleteTaskId.value = row.id;
   deleteLevel.value = 2;
   isDeleteDialogVisible.value = true;
