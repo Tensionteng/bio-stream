@@ -1119,7 +1119,6 @@ onMounted(async () => {
 }
 .image-card:hover {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
 }
 .image-entity {
   width: 100%;
