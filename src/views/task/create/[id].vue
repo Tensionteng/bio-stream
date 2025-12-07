@@ -297,7 +297,20 @@ const goNextPage = () => {
   pagination.value.page += 1;
   loadFilesPage();
 };
+/**
+ * 标准化 API 响应数据 兼容两种情况：
+ *
+ * 1. 成功且拦截器已解包：直接返回数据对象 (无 code 或 code 为空)
+ * 2. 失败或未解包：返回包含 code/message 的对象 (通常在 res.response.data 中)
+ */
+function normalizeApiResponse(res: any): any {
+  return res.data || (res as any).response?.data;
+}
 
+/** 统一提取错误信息 */
+function getErrorMessage(error: any): string {
+  return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
+}
 // --- 提交逻辑 ---
 const handleSubmit = async () => {
   // 1. 校验文件必填
@@ -337,21 +350,23 @@ const handleSubmit = async () => {
       };
 
       submitting.value = true;
+
       try {
         const res = await startTaskChainAnalysis(payload);
-        const apiResponse = (res.data || (res as any).response?.data) as Api.Task.NewTaskResponse;
-        if (apiResponse?.code !== '0000') {
+        // 1. 获取响应体 (兼容正常和异常结构)
+        const apiResponse = normalizeApiResponse(res);
+        if (apiResponse?.code && apiResponse.code !== '0000') {
           ElMessage.error(apiResponse.message || '创建失败');
           return;
         }
-        const taskInfo = apiResponse?.data;
+        const taskInfo = apiResponse.data || apiResponse;
         ElMessage.success(apiResponse?.message || '任务创建成功！');
         router.push({
           path: '/task/list',
-          query: { task_id: taskInfo?.task_id }
+          query: { taskId: taskInfo?.task_id }
         });
       } catch (error: any) {
-        const msg = error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
+        const msg = getErrorMessage(error);
         ElMessage.error(msg);
       } finally {
         submitting.value = false;
