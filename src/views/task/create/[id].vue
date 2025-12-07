@@ -363,7 +363,7 @@ const handleSubmit = async () => {
         ElMessage.success(apiResponse?.message || '任务创建成功！');
         router.push({
           path: '/task/list',
-          query: { taskId: taskInfo?.task_id }
+          query: { task_id: taskInfo?.task_id }
         });
       } catch (error: any) {
         const msg = getErrorMessage(error);

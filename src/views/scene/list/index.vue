@@ -850,7 +850,6 @@ onMounted(async () => {
                     :initial-index="idx"
                     fit="contain"
                     class="image-entity"
-                    loading="lazy"
                   />
                   <div class="image-name">{{ img.name }}</div>
                 </div>

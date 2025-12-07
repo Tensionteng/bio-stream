@@ -68,7 +68,7 @@ async function handleSubmit() {
     ElMessage.success(apiResponse?.message || '任务创建成功！');
     router.push({
       path: '/scene/list',
-      query: { taskId: taskInfo?.task_id }
+      query: { task_id: taskInfo?.task_id }
     });
   } catch (error: any) {
     ElMessage.error(getErrorMessage(error));
