@@ -186,7 +186,7 @@ export interface NewTaskPayload {
 }
 
 export interface NewTaskResponse {
-  new_task_id: number;
+  task_id: number;
   status: string;
   message: string;
 }

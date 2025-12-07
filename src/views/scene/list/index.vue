@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import axios from 'axios'; // [新增]
+import axios from 'axios';
 import {
   Close,
   DataAnalysis,
   Delete,
   Document,
-  Download, // [新增]
+  Download,
   Odometer,
   Refresh,
   Search,
   View,
   Warning
 } from '@element-plus/icons-vue';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { GraphChart } from 'echarts/charts';
+import { TooltipComponent } from 'echarts/components';
+import VChart from 'vue-echarts';
 import {
   type TaskListItem,
   type TaskListParams,
@@ -25,10 +31,14 @@ import {
 } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
-// [新增] 引入工具函数
 import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
+
+// === [新增] ECharts 相关引入 ===
+
+// [新增] 注册 ECharts 组件
+use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 // =======================
 // Part 1: 任务列表逻辑
@@ -37,7 +47,7 @@ import TaskDetailDialog from './components/TaskDetailDialog.vue';
 const loading = ref(false);
 const tasks = ref<TaskListItem[]>([]);
 const totalSize = ref(0);
-
+const route = useRoute();
 // 筛选状态
 const filterParams = reactive({
   id: undefined as number | undefined,
@@ -201,7 +211,6 @@ async function getTasks() {
       name: filterParams.name || undefined,
       task_source_type: 'process'
     };
-
     const { data } = await fetchTaskList(params);
     if (data) {
       tasks.value = data.results || [];
@@ -325,7 +334,7 @@ function handleFileTypeClick(fileType: Api.Visualization.FileType) {
   }
 }
 
-// [新增] 处理下载
+// 处理下载
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
@@ -370,7 +379,8 @@ const handleDownload = async () => {
         pdf: '.pdf',
         vcf: '.vcf',
         csv: '.csv',
-        image: '.zip'
+        image: '.zip',
+        graph: '.json' // [新增] graph 扩展名
       };
       fileName += extensions[type] || '';
     }
@@ -431,16 +441,139 @@ function scrollToVis() {
   visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// [修改] 增加 graph 类型标签
 const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
   const labels: Record<string, string> = {
     txt: '文本日志',
     pdf: '分析报告 (PDF)',
     vcf: '变异数据 (VCF)',
     csv: '数据表格',
-    image: '结果图表'
+    image: '结果图表',
+    graph: '关系图谱' // [新增]
   };
   return labels[fileType] || fileType.toUpperCase();
 };
+
+// ==========================================
+// Part 2.1: Graph 图谱逻辑 (新增)
+// ==========================================
+
+// 将graph数据转换为ECharts需要的nodes和links格式
+const transformGraphDataToECharts = (graphData: any[]) => {
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+
+  // 收集所有节点
+  graphData.forEach(item => {
+    if (!nodeMap.has(item.from)) {
+      nodeMap.set(item.from, {
+        id: item.from,
+        name: item.from,
+        symbolSize: 30
+      });
+    }
+    if (!nodeMap.has(item.to)) {
+      nodeMap.set(item.to, {
+        id: item.to,
+        name: item.to,
+        symbolSize: 30
+      });
+    }
+
+    // 添加边
+    links.push({
+      source: item.from,
+      target: item.to
+    });
+  });
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    links
+  };
+};
+
+// Graph 图表配置
+const graphChartOption = computed<any>(() => {
+  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
+    return null;
+  }
+
+  const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
+
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          return `节点: ${params.data.name}`;
+        }
+        if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}`;
+        }
+        return '';
+      }
+    },
+    animationDuration: 1500,
+    animationEasingUpdate: 'quinticInOut',
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        data: nodes,
+        links,
+        roam: true,
+        label: {
+          show: true,
+          position: 'bottom',
+          fontSize: 12,
+          color: '#333'
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: {
+            show: true,
+            fontSize: 14,
+            fontWeight: 'bold',
+            color: '#000'
+          },
+          lineStyle: {
+            width: 4,
+            color: '#4a90e2'
+          }
+        },
+        force: {
+          repulsion: 1000,
+          edgeLength: 150,
+          gravity: 0.1,
+          layoutAnimation: true
+        },
+        lineStyle: {
+          color: 'source',
+          width: 2,
+          curveness: 0.1,
+          opacity: 0.7
+        },
+        itemStyle: {
+          borderColor: '#2c5aa0',
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.1)'
+        },
+        symbol: 'circle',
+        symbolSize: (value: any, params: any) => {
+          // 根据节点连接数动态调整大小
+          const nodeId = params?.data?.id || value?.id || '';
+          const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
+          return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
+        }
+      }
+    ]
+  };
+});
+
+// ==========================================
 
 const getTableColumns = (data: any[]) => {
   if (!data || data.length === 0) return [];
@@ -467,7 +600,10 @@ onMounted(async () => {
   if (!hasPermission) {
     return;
   }
-
+  if (route.query.task_id) {
+    filterParams.id = Number(route.query.task_id);
+    ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
+  }
   getTasks();
   getTaskSize(); // 获取总大小
 });
@@ -708,6 +844,17 @@ onMounted(async () => {
               </div>
               <ElEmpty v-else description="暂无图片数据" />
             </div>
+
+            <div v-else-if="visualizationResult?.type === 'graph'" class="graph-viewer">
+              <VChart
+                v-if="graphChartOption"
+                :option="graphChartOption"
+                autoresize
+                class="w-full border border-gray-200 rounded bg-white"
+                style="height: 600px; width: 100%"
+              />
+            </div>
+
             <ElEmpty v-else-if="!visualizationLoading && !visualizationResult" description="请选择上方类型以查看数据" />
           </div>
         </div>
@@ -1059,6 +1206,14 @@ onMounted(async () => {
 .flex-col {
   flex-direction: column;
   display: flex;
+}
+/* [新增] Graph 样式 */
+.graph-viewer {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 10px;
 }
 
 /* === 清理弹窗样式 (UI优化) === */

@@ -46,11 +46,20 @@ async function handleSubmit() {
 
   submitting.value = true;
   try {
-    await createNewTask(payload);
-    ElMessage.success('任务创建成功！');
-    router.push('/scene/list');
-  } catch {
-    ElMessage.error('任务创建失败');
+    const res = await createNewTask(payload);
+    const data = res.data;
+    if (res.response.data.code !== '0000') {
+      ElMessage.error(res.response.data.message);
+      return;
+    }
+    ElMessage.success(data?.message || '任务创建成功！');
+    router.push({
+      path: '/scene/list',
+      query: { task_id: data?.task_id }
+    });
+  } catch (error: any) {
+    const msg = error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
+    ElMessage.error(msg);
   } finally {
     submitting.value = false;
   }

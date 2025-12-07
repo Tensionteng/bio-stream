@@ -11,6 +11,7 @@ import {
   ElInputNumber,
   ElMessage,
   ElOption,
+  ElPagination, // [新增] 引入分页组件
   ElRow,
   ElSelect,
   ElSwitch,
@@ -80,7 +81,13 @@ const tempSelection = ref<FileInfo[]>([]);
 const selectedFileType = ref<string>(''); // 手动输入的类型
 const searchKeyword = ref<string>('');
 
-const pagination = ref({ page: 1, pageSize: 20, total: 0, hasNextPage: false });
+// [修改] 分页状态：移除 hasNextPage，仅保留标准分页所需字段
+const pagination = ref({
+  page: 1,
+  pageSize: 10, // 建议弹窗内一页显示10条，避免太长
+  total: 0
+});
+
 const dialogTableRef = ref();
 
 // --- Watchers ---
@@ -172,8 +179,9 @@ const fileIdMap = computed(() => {
 const getFileName = (id: number) => fileIdMap.value.get(id)?.file_name ?? `ID: ${id}`;
 
 // --- Logic ---
+
+// [修改] 加载逻辑：标准分页模式（覆盖数据）
 async function loadFilesPage() {
-  if (loadingFiles.value || (!pagination.value.hasNextPage && availableFiles.value.length > 0)) return;
   loadingFiles.value = true;
   try {
     const res = await fetchFileList({
@@ -184,33 +192,48 @@ async function loadFilesPage() {
     });
 
     if (res?.data?.results) {
-      availableFiles.value.push(...res.data.results);
+      // 覆盖当前列表
+      availableFiles.value = res.data.results;
+      // 更新总数
       pagination.value.total = res.data.count;
-      pagination.value.hasNextPage = availableFiles.value.length < res.data.count;
-      if (pagination.value.hasNextPage) pagination.value.page += 1;
+    } else {
+      availableFiles.value = [];
+      pagination.value.total = 0;
     }
   } catch {
     ElMessage.error('加载文件失败');
+    availableFiles.value = [];
   } finally {
     loadingFiles.value = false;
   }
 }
 
-// 触发搜索（重置列表）
-const handleSearch = () => {
-  availableFiles.value = [];
-  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
+// [新增] 页码切换事件
+const handlePageChange = (newPage: number) => {
+  pagination.value.page = newPage;
   loadFilesPage();
 };
 
+// [修改] 搜索：重置到第一页并加载
+const handleSearch = () => {
+  pagination.value.page = 1;
+  loadFilesPage();
+};
+
+// [修改] 打开弹窗：重置状态并立即加载
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
   selectedFileType.value = '';
   searchKeyword.value = '';
+
+  // 重置分页和数据
+  pagination.value.page = 1;
   availableFiles.value = [];
-  pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
-  loadFilesPage();
+
   fileDialogVisible.value = true;
+
+  // 必须手动加载一次，因为不再依赖无限滚动指令
+  loadFilesPage();
 };
 
 const confirmFileSelection = () => {
@@ -374,13 +397,10 @@ defineExpose({ validate });
 
       <ElTable
         ref="dialogTableRef"
-        v-loading="loadingFiles && availableFiles.length === 0"
-        v-infinite-scroll="loadFilesPage"
+        v-loading="loadingFiles"
         :data="availableFiles"
         height="400px"
         :row-key="r => String(r.file_id)"
-        :infinite-scroll-disabled="loadingFiles || !pagination.hasNextPage"
-        :infinite-scroll-distance="20"
         class="dialog-table"
         @selection-change="val => (tempSelection = val)"
         @row-click="handleRowClick"
@@ -404,6 +424,20 @@ defineExpose({ validate });
         </ElTableColumn>
         <ElTableColumn property="upload_user.username" label="上传者" width="120" />
       </ElTable>
+
+      <div class="pagination-wrapper">
+        <ElPagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :pager-count="5"
+          layout="total, prev, pager, next, jumper"
+          background
+          small
+          @current-change="handlePageChange"
+        />
+      </div>
+
       <template #footer>
         <span class="dialog-footer">
           <ElButton @click="fileDialogVisible = false">取消</ElButton>
@@ -675,12 +709,10 @@ defineExpose({ validate });
   width: 280px;
 }
 
-/* 修改点：新样式，适配短输入框 */
 .pretty-input-short {
   width: 160px;
 }
 
-/* 通用输入框样式 (Select wrapper 和 Input wrapper) */
 .pretty-select :deep(.el-select__wrapper),
 .pretty-input :deep(.el-input__wrapper),
 .pretty-input-short :deep(.el-input__wrapper) {
@@ -696,15 +728,14 @@ defineExpose({ validate });
     0 2px 8px rgba(64, 158, 255, 0.15);
 }
 
-/* === 重点：美化后的搜索按钮 === */
 .pretty-search-btn {
   height: 32px;
   padding: 0 20px;
-  border-radius: 20px; /* 胶囊形状 */
+  border-radius: 20px;
   border: none;
-  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%); /* 细微渐变 */
-  box-shadow: 0 4px 10px rgba(64, 158, 255, 0.3); /* 投影让按钮浮起来 */
-  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* 弹性动画 */
+  background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
+  box-shadow: 0 4px 10px rgba(64, 158, 255, 0.3);
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -714,8 +745,8 @@ defineExpose({ validate });
 
 .pretty-search-btn:hover {
   background: linear-gradient(135deg, #66b1ff 0%, #409eff 100%);
-  transform: translateY(-2px); /* 悬浮上移 */
-  box-shadow: 0 6px 15px rgba(64, 158, 255, 0.4); /* 加深阴影 */
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(64, 158, 255, 0.4);
 }
 
 .pretty-search-btn:active {
@@ -726,13 +757,14 @@ defineExpose({ validate });
 .input-icon {
   color: #909399;
 }
-/* 底部整体区域，增加上边框 & 内边距 */
+
+/* 底部区域 */
 .file-dialog :deep(.el-dialog__footer) {
   border-top: 1px solid #ebeef5;
   padding: 14px 20px;
+  margin-top: 0;
 }
 
-/* 右下角对齐 + 间距 */
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -740,7 +772,6 @@ defineExpose({ validate });
   gap: 12px;
 }
 
-/* 通用按钮风格：圆角胶囊 + 稍微大一点 */
 .dialog-footer :deep(.el-button) {
   height: 32px;
   padding: 0 18px;
@@ -748,7 +779,6 @@ defineExpose({ validate });
   font-size: 13px;
 }
 
-/* 取消按钮：浅色边框 */
 .dialog-footer :deep(.el-button--default) {
   background-color: #fff;
   border-color: #dcdfe6;
@@ -759,7 +789,6 @@ defineExpose({ validate });
   background-color: #f5f7fa;
 }
 
-/* 确认按钮：跟上面 pretty-search-btn 保持一致 */
 .dialog-footer :deep(.el-button--primary) {
   border: none;
   background: linear-gradient(135deg, #409eff 0%, #3a8ee6 100%);
@@ -776,5 +805,20 @@ defineExpose({ validate });
 .dialog-footer :deep(.el-button--primary:active) {
   transform: translateY(1px);
   box-shadow: 0 2px 5px rgba(64, 158, 255, 0.2);
+}
+
+/* [新增] 分页容器样式 */
+.pagination-wrapper {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end; /* 靠右对齐 */
+  padding: 0 8px;
+}
+
+/* 调整表格样式 */
+.dialog-table {
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
 }
 </style>

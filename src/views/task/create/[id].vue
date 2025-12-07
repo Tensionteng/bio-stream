@@ -220,8 +220,6 @@ async function loadFilesPage() {
       // 2. 重新计算是否有下一页
       const currentLoadedCount = pagination.value.page * pagination.value.pageSize;
       pagination.value.hasNextPage = currentLoadedCount < res.data.count;
-
-      // 3. 【已删除】 pagination.value.page += 1;  <-- 这里之前是导致显示第2页的原因
     }
   } catch {
     ElMessage.error('加载文件失败');
@@ -341,9 +339,17 @@ const handleSubmit = async () => {
 
       submitting.value = true;
       try {
-        await startTaskChainAnalysis(payload);
-        ElMessage.success('任务创建成功！');
-        router.push('/task/list');
+        const res = await startTaskChainAnalysis(payload);
+        const data = res.data;
+        if (res.response.data.code !== '0000') {
+          ElMessage.error(res.response.data.message);
+          return;
+        }
+        ElMessage.success(data?.message || '任务创建成功！');
+        router.push({
+          path: '/task/list',
+          query: { task_id: data?.task_id }
+        });
       } catch {
         ElMessage.error('提交失败');
       } finally {

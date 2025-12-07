@@ -501,4 +501,192 @@ declare namespace Api {
       size: number;
     }
   }
+  namespace Task {
+    /** 任务状态类型 */
+    type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
+
+    /** 单个任务单元详情 */
+    interface ExecutionUnit {
+      name: string;
+      description: string;
+      type: string;
+      start_time: string | null;
+      end_time: string | null;
+      status: 'success' | 'running' | 'failed' | string;
+      upload_status: 'Success' | 'Running' | 'Failed' | 'Pending';
+      message: string;
+      result: string | null;
+    }
+
+    /** 流程图节点 */
+    interface ExecutionFlowStep {
+      name: string;
+      status: string;
+      message: string | null;
+      /** 该步骤涉及的文件列表 */
+      files: string[];
+    }
+
+    /** 任务详情的完整类型 */
+    interface TaskDetail {
+      id: number;
+      /** 任务/流程名称 */
+      name: string;
+      /** 任务来源类型 */
+      task_source_type: string;
+      file_ids: number[];
+      start_time: string;
+      end_time: string | null;
+      status: string;
+      upload_status: 'Success' | 'Running' | 'Failed' | 'Pending' | string;
+      total_units?: number;
+      success_units?: number;
+      error_summary: string | null;
+      execution_flow: ExecutionFlowStep[];
+      result_json: {
+        process_name: string;
+        total_units: number;
+        success_units: number;
+        execution_units: Record<string, ExecutionUnit>;
+      };
+    }
+
+    /** 任务列表项 */
+    interface TaskListItem {
+      id: number;
+      name: string;
+      task_source_type: string;
+      file_ids: number[];
+      file_name: string;
+      start_time: string;
+      end_time: string | null;
+      status: TaskStatus;
+      error_summary: string | null;
+    }
+
+    /** 任务列表查询参数 */
+    interface TaskListParams {
+      page?: number;
+      page_size?: number;
+      /** 运行状态 */
+      status?: TaskStatus;
+      /** task_chain或者process名字 */
+      name?: string;
+      /** 任务ID */
+      task_id?: number;
+      /** 任务来源：只支持 process 和 task_chain */
+      task_source_type?: string;
+    }
+
+    /** 停止任务响应 */
+    interface StopTaskResponse {
+      status: string;
+      message: string;
+    }
+
+    /** 重启任务响应 */
+    interface RestartTaskResponse {
+      new_task_id: number;
+      status: string;
+      message: string;
+    }
+
+    /** 上传状态 Payload */
+    interface UploadStatusPayload {
+      task_id: number;
+      upload_status: 'Success' | 'Failed' | 'Running' | 'Pending';
+    }
+
+    /** 流程描述信息 */
+    interface ProcessDescription {
+      process_name: string;
+      total_units: number;
+      execution_units: ExecutionUnit[];
+      execution_strategy: Record<string, any>;
+    }
+
+    /** 流程列表项 */
+    interface ProcessListItem {
+      process_id: number;
+      name: string;
+      description: ProcessDescription;
+    }
+
+    /** 流程 Schema 定义 */
+    interface ProcessSchema {
+      process_id: number;
+      parameter_schema: Record<string, any>;
+      input_file_type: number;
+    }
+
+    /** 创建新任务 Payload */
+    interface NewTaskPayload {
+      process_id: number;
+      parameter_json: Record<string, any>;
+    }
+
+    /** 创建新任务响应数据 */
+    interface NewTaskData {
+      task_id: number;
+      status: string;
+      message: string;
+    }
+
+    /** 创建新任务响应包装 */
+    interface NewTaskResponse {
+      code: string;
+      message: string;
+      data: NewTaskData;
+    }
+
+    /** 手动上传文件项 */
+    interface UploadMapItem {
+      filed_name: string;
+      file_dir: string;
+    }
+
+    /** 选择文件上传 Payload */
+    interface SelectFileUploadPayload {
+      meta_file_id: number;
+      uploads: UploadMapItem[];
+      content_json: Record<string, any>;
+    }
+
+    /** 文件上传响应 */
+    interface UploadTaskResponse {
+      message: string;
+      code: string;
+    }
+
+    /** 任务清理响应 */
+    interface TaskCleanupResponse {
+      free_size_size: number;
+    }
+
+    /** 任务总大小响应 */
+    interface TaskTotalSizeResponse {
+      total_size: number;
+    }
+
+    /** 任务各级别大小响应 */
+    interface TaskFileSizeResponse {
+      size_0: number;
+      size_1: number;
+      size_2: number;
+      size_3: number;
+      [key: string]: number;
+    }
+
+    /** 文件 Schema 项 */
+    interface FileSchemaItem {
+      id: number;
+      name: string;
+      schema_json: Record<string, any>;
+    }
+
+    /** 文件 Schema 列表响应 */
+    interface FileSchemaListResponse {
+      schemas: FileSchemaItem[];
+    }
+  }
 }

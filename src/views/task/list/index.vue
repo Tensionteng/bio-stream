@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-// [新增] 引入 axios 用于下载
 import axios from 'axios';
 import {
   Close,
@@ -15,7 +15,11 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
-// === API 导入 ===
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { GraphChart } from 'echarts/charts';
+import { TooltipComponent } from 'echarts/components';
+import VChart from 'vue-echarts';
 import {
   type TaskListItem,
   type TaskListParams,
@@ -26,10 +30,12 @@ import {
   fetchTotalFileSize
 } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
-// [新增] 工具函数引入
 import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
+
+// [新增] 注册 ECharts 组件
+use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 // ==========================================
 // Part 1: 任务列表 & 基础逻辑
@@ -38,7 +44,7 @@ import TaskDetailDialog from './components/TaskDetailDialog.vue';
 const loading = ref(false);
 const tasks = ref<TaskListItem[]>([]);
 const totalSize = ref(0);
-
+const route = useRoute();
 // 筛选表单
 const filterParams = reactive({
   id: undefined as number | undefined,
@@ -206,12 +212,136 @@ const getFileTypeLabel = (type: string) => {
     pdf: 'PDF报告',
     vcf: 'VCF变异',
     csv: 'CSV表格',
-    image: '结果图片'
+    image: '结果图片',
+    graph: '关系图谱' // [新增]
   };
   return map[type] || type.toUpperCase();
 };
 
-// 核心：点击“可视化”按钮 (已修改)
+// ==========================================
+// Part 2.1: Graph 图谱逻辑 (新增)
+// ==========================================
+
+// 将graph数据转换为ECharts需要的nodes和links格式
+const transformGraphDataToECharts = (graphData: any[]) => {
+  const nodeMap = new Map<string, any>();
+  const links: any[] = [];
+
+  // 收集所有节点
+  graphData.forEach(item => {
+    if (!nodeMap.has(item.from)) {
+      nodeMap.set(item.from, {
+        id: item.from,
+        name: item.from,
+        symbolSize: 30
+      });
+    }
+    if (!nodeMap.has(item.to)) {
+      nodeMap.set(item.to, {
+        id: item.to,
+        name: item.to,
+        symbolSize: 30
+      });
+    }
+
+    // 添加边
+    links.push({
+      source: item.from,
+      target: item.to
+    });
+  });
+
+  return {
+    nodes: Array.from(nodeMap.values()),
+    links
+  };
+};
+
+// Graph 图表配置
+const graphChartOption = computed<any>(() => {
+  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
+    return null;
+  }
+
+  const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
+
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      formatter: (params: any) => {
+        if (params.dataType === 'node') {
+          return `节点: ${params.data.name}`;
+        }
+        if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}`;
+        }
+        return '';
+      }
+    },
+    animationDuration: 1500,
+    animationEasingUpdate: 'quinticInOut',
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        data: nodes,
+        links,
+        roam: true,
+        label: {
+          show: true,
+          position: 'bottom',
+          fontSize: 12,
+          color: '#333'
+        },
+        emphasis: {
+          focus: 'adjacency',
+          label: {
+            show: true,
+            fontSize: 14,
+            fontWeight: 'bold',
+            color: '#000'
+          },
+          lineStyle: {
+            width: 4,
+            color: '#4a90e2'
+          }
+        },
+        force: {
+          repulsion: 1000,
+          edgeLength: 150,
+          gravity: 0.1,
+          layoutAnimation: true
+        },
+        lineStyle: {
+          color: 'source',
+          width: 2,
+          curveness: 0.1,
+          opacity: 0.7
+        },
+        itemStyle: {
+          borderColor: '#2c5aa0',
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.1)'
+        },
+        symbol: 'circle',
+        symbolSize: (value: any, params: any) => {
+          // 根据节点连接数动态调整大小
+          const nodeId = params?.data?.id || value?.id || '';
+          const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
+          return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
+        }
+      }
+    ]
+  };
+});
+
+// ==========================================
+// Part 2.2: 可视化交互逻辑
+// ==========================================
+
+// 核心：点击“可视化”按钮
 async function handleVisualize(row: TaskListItem) {
   if (currentVisTaskId.value === row.id) return;
 
@@ -268,7 +398,7 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
   }
 }
 
-// [新增] 处理下载
+// 处理下载
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
@@ -312,7 +442,8 @@ const handleDownload = async () => {
         pdf: '.pdf',
         vcf: '.vcf',
         csv: '.csv',
-        image: '.zip'
+        image: '.zip',
+        graph: '.json' // [新增]
       };
       fileName += extensions[type] || '';
     }
@@ -412,6 +543,10 @@ const getPreviewSizeText = (level: number) => {
 };
 
 onMounted(() => {
+  if (route.query.task_id) {
+    filterParams.id = Number(route.query.task_id);
+    ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
+  }
   getTasks();
   getTaskSize();
 });
@@ -646,6 +781,16 @@ onMounted(() => {
                 </div>
               </div>
               <ElEmpty v-else description="暂无图片数据" />
+            </div>
+
+            <div v-else-if="visualizationResult?.type === 'graph'" class="graph-viewer">
+              <VChart
+                v-if="graphChartOption"
+                :option="graphChartOption"
+                autoresize
+                class="w-full border border-gray-200 rounded bg-white"
+                style="height: 600px; width: 100%"
+              />
             </div>
 
             <ElEmpty v-else-if="!visualizationLoading && !visualizationResult" description="请选择上方类型以查看数据" />
@@ -993,6 +1138,14 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* [新增] Graph 样式 */
+.graph-viewer {
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 10px;
 }
 
 /* 清理弹窗 */
