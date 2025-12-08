@@ -23,7 +23,11 @@ import type { FormInstance, FormRules } from 'element-plus';
 import { Document, FolderOpened, Search, UploadFilled } from '@element-plus/icons-vue';
 import { request } from '@/service/request';
 
-// --- 类型定义 ---
+/**
+ * # ==========================================
+ *
+ * 类型定义
+ */
 interface UploadUser {
   user_id: number;
   username: string;
@@ -50,7 +54,11 @@ interface FetchFileListParams {
   keyword?: string;
 }
 
-// --- API ---
+/**
+ * # ==========================================
+ *
+ * API
+ */
 function fetchFileList({ page, pageSize, fileType, keyword }: FetchFileListParams) {
   const params: any = { page, page_size: pageSize };
   if (fileType) params.file_type = fileType;
@@ -58,7 +66,11 @@ function fetchFileList({ page, pageSize, fileType, keyword }: FetchFileListParam
   return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
 }
 
-// --- Props & Emits ---
+/**
+ * # ==========================================
+ *
+ * Props & Emits
+ */
 const props = defineProps<{
   schema: Record<string, any>;
   modelValue: Record<string, any>;
@@ -68,7 +80,11 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, any>): void;
 }>();
 
-// --- State ---
+/**
+ * # ==========================================
+ *
+ * 表单状态 & 弹窗状态
+ */
 const formRef = ref<FormInstance | null>(null);
 const localModel = ref<Record<string, any>>({});
 const fileDialogVisible = ref(false);
@@ -90,7 +106,13 @@ const pagination = ref({
 
 const dialogTableRef = ref();
 
-// --- Watchers ---
+/**
+ * # ==========================================
+ *
+ * Watchers
+ *
+ * 负责同步外部表单数据、控制弹窗选择状态
+ */
 watch(
   () => props.modelValue,
   newModel => {
@@ -124,7 +146,11 @@ watch(fileDialogVisible, isVisible => {
   }
 });
 
-// --- Helpers ---
+/**
+ * # ==========================================
+ *
+ * 工具方法
+ */
 const isNumericType = (p: any) =>
   Array.isArray(p.type)
     ? p.type.some((t: string) => ['number', 'integer'].includes(t))
@@ -140,7 +166,11 @@ const formatFileSize = (b: number) =>
     ? '0 B'
     : `${(b / 1024 ** Math.floor(Math.log(b) / Math.log(1024))).toFixed(2)} ${['B', 'KB', 'MB', 'GB', 'TB'][Math.floor(Math.log(b) / Math.log(1024))]}`;
 
-// --- Computed ---
+/**
+ * # ==========================================
+ *
+ * 计算属性
+ */
 const formRules = computed<FormRules>(() => {
   const rules: FormRules = {};
   if (!props.schema?.properties) return {};
@@ -178,9 +208,13 @@ const fileIdMap = computed(() => {
 
 const getFileName = (id: number) => fileIdMap.value.get(id)?.file_name ?? `ID: ${id}`;
 
-// --- Logic ---
+/**
+ * # ==========================================
+ *
+ * 文件选择弹窗逻辑
+ */
 
-// [修改] 加载逻辑：标准分页模式（覆盖数据）
+// 加载逻辑：标准分页模式（覆盖数据）
 async function loadFilesPage() {
   loadingFiles.value = true;
   try {
@@ -253,6 +287,7 @@ const handleRowClick = (row: FileInfo) => {
   }
 };
 
+/** 对外暴露的校验方法，供父组件调用 */
 const validate = async () => {
   if (!formRef.value) return false;
   try {
@@ -268,6 +303,7 @@ defineExpose({ validate });
 
 <template>
   <div class="dynamic-form-wrapper">
+    <!-- 参数渲染区：根据 schema properties 循环绘制 -->
     <ElForm ref="formRef" :model="localModel" :rules="formRules" label-position="top" class="modern-form">
       <ElRow :gutter="24">
         <template v-for="(property, key) in schema.properties" :key="String(key)">
@@ -349,6 +385,7 @@ defineExpose({ validate });
       </ElRow>
     </ElForm>
 
+    <!-- 文件选择弹窗：支持筛选/搜索/分页 -->
     <ElDialog
       v-model="fileDialogVisible"
       title="选择文件"

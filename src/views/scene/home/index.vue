@@ -5,6 +5,12 @@ import { ElCol, ElIcon, ElMessage, ElRow } from 'element-plus';
 import { DataAnalysis, Files, Help, Monitor, Right, Share, TrendCharts } from '@element-plus/icons-vue';
 import { fetchProcessList } from '@/service/api/task';
 
+/**
+ * # ==========================================
+ *
+ * 页面级状态 & 常量
+ */
+
 const router = useRouter();
 const loading = ref(false);
 // 【修改点 2】类型改回 ProcessListItem
@@ -23,6 +29,7 @@ const gradients = [
 // 随机图标映射
 const icons = [DataAnalysis, TrendCharts, Monitor, Share, Help];
 
+/** 生成该卡片使用的渐变背景与图标，避免列表视觉重复 */
 function getStyle(index: number) {
   return {
     background: gradients[index % gradients.length],
@@ -30,7 +37,7 @@ function getStyle(index: number) {
   };
 }
 
-/** 获取列表 */
+/** 拉取场景列表卡片，展示预设流程 */
 async function loadScenes() {
   loading.value = true;
   try {
@@ -46,7 +53,7 @@ async function loadScenes() {
   }
 }
 
-/** 跳转向导页 */
+/** 进入场景执行页，并将流程 ID/名称写入路由 */
 function handleRunScene(scene: Api.Task.ProcessListItem) {
   router.push({
     path: `/scene/create/${scene.process_id}`,
@@ -54,6 +61,11 @@ function handleRunScene(scene: Api.Task.ProcessListItem) {
   });
 }
 
+/**
+ * # ==========================================
+ *
+ * 生命周期
+ */
 onMounted(() => {
   loadScenes();
 });
@@ -61,6 +73,7 @@ onMounted(() => {
 
 <template>
   <div class="scene-list-container">
+    <!-- 顶部标题，提示场景库用途 -->
     <div class="page-header">
       <div class="header-left">
         <div class="header-title">分析场景库</div>
@@ -68,6 +81,7 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 卡片网格区：展示所有可运行的流程 -->
     <div v-loading="loading" class="scene-content">
       <ElRow :gutter="24">
         <ElCol v-for="(scene, index) in sceneList" :key="scene.process_id" :xs="24" :sm="12" :md="8" :lg="6" :xl="6">

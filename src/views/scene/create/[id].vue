@@ -6,6 +6,11 @@ import { ArrowLeft, Promotion } from '@element-plus/icons-vue';
 import { createNewTask, fetchProcessSchema } from '@/service/api/task';
 import DynamicForm from './components/DynamicForm.vue';
 
+/**
+ * # ==========================================
+ *
+ * 路由 & 页面级状态
+ */
 const route = useRoute();
 const router = useRouter();
 
@@ -17,6 +22,14 @@ const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
 
 const processId = Number(route.params.id);
 const processName = computed(() => (route.query.name as string) || '未命名流程');
+/**
+ * # ==========================================
+ *
+ * 数据处理工具函数
+ *
+ * 下方函数集中处理接口返回与异常信息，确保主流程更清晰
+ */
+
 /**
  * 标准化 API 响应数据 兼容两种情况：
  *
@@ -31,6 +44,7 @@ function normalizeApiResponse(res: any): any {
 function getErrorMessage(error: any): string {
   return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
 }
+/** 拉取流程 schema，用于渲染 DynamicForm */
 async function getSchema() {
   if (!processId) return;
   loadingSchema.value = true;
@@ -44,6 +58,7 @@ async function getSchema() {
   }
 }
 
+/** 表单校验 + 提交，创建任务后跳转到列表页 */
 async function handleSubmit() {
   if (!processId) return;
   const isFormValid = await dynamicFormRef.value?.validate();
@@ -77,6 +92,11 @@ async function handleSubmit() {
   }
 }
 
+/**
+ * # ==========================================
+ *
+ * 生命周期
+ */
 onMounted(() => {
   getSchema();
 });
@@ -85,6 +105,7 @@ onMounted(() => {
 <template>
   <div class="create-task-page">
     <div class="page-content">
+      <!-- 顶部返回 + 流程名称概览 -->
       <div class="page-header-nav">
         <ElButton class="back-btn" :icon="ArrowLeft" circle @click="router.back()" />
         <div class="header-text">
@@ -97,6 +118,7 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 主卡片：三步引导 + 动态参数表单 -->
       <ElCard v-loading="loadingSchema" class="main-card" shadow="never">
         <div class="steps-wrapper">
           <div class="step-indicator active">1. 选择流程</div>

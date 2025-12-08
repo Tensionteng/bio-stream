@@ -29,12 +29,18 @@ import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
-// 注册 ECharts 组件
+/**
+ * # ==========================================
+ *
+ * ECharts 初始化
+ */
 use([CanvasRenderer, GraphChart, TooltipComponent]);
 
-// ==========================================
-// Part 1: 任务列表 & 基础逻辑
-// ==========================================
+/**
+ * # ==========================================
+ *
+ * Part 1: 任务列表 & 基础逻辑
+ */
 
 const loading = ref(false);
 const tasks = ref<Api.Task.TaskListItem[]>([]);
@@ -68,7 +74,7 @@ const statusOptions = [
   { label: '等待中', value: 'PENDING' }
 ];
 
-// 获取任务列表
+/** 根据筛选条件加载任务列表 */
 async function getTasks() {
   loading.value = true;
   try {
@@ -93,7 +99,7 @@ async function getTasks() {
   }
 }
 
-// 获取总空间
+/** 拉取所有任务占用的总空间，用于顶部统计 */
 async function getTaskSize() {
   try {
     const res = await fetchTotalFileSize();
@@ -103,7 +109,7 @@ async function getTaskSize() {
   }
 }
 
-// 格式化工具
+/** 统一格式化下载大小 */
 function formatBytes(bytes: number, decimals = 2) {
   if (Number(bytes) === 0) return '0 B';
   const k = 1024;
@@ -113,6 +119,7 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
+/** 将 ISO 时间戳转换为友好的展示格式 */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   try {
@@ -170,9 +177,11 @@ function handleTaskRestarted() {
   getTasks();
 }
 
-// ==========================================
-// Part 2: 可视化逻辑 (核心修改)
-// ==========================================
+/**
+ * # ==========================================
+ *
+ * Part 2: 可视化逻辑 (核心展示区)
+ */
 
 const visSectionRef = ref<HTMLElement | null>(null);
 const currentVisTaskId = ref<number | null>(null);
@@ -204,7 +213,7 @@ const normalizePdfUrl = (url: string) => {
   }
 };
 
-// 加载可视化数据 (含 PDF Blob 修复逻辑)
+/** 加载可视化数据 (含 PDF Blob 修复逻辑) */
 async function loadVisData(fileType: Api.Visualization.FileType) {
   if (!currentVisTaskId.value) return;
 
@@ -251,7 +260,7 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
   }
 }
 
-// 点击“可视化”按钮触发
+/** 点击“可视化”按钮触发，滚动到面板并加载默认类型 */
 async function handleVisualize(row: Api.Task.TaskListItem) {
   if (currentVisTaskId.value === row.id) {
     visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -305,7 +314,7 @@ onUnmounted(() => {
   }
 });
 
-// 处理下载
+/** 下载当前选择的可视化文件 */
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
@@ -534,6 +543,7 @@ const getPreviewSizeText = (level: number) => {
 
 // 页面初始化
 onMounted(async () => {
+  // 进入页面先检查场景/任务权限
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('scene'); // 或 'task'
   if (!hasPermission) return;
@@ -549,6 +559,7 @@ onMounted(async () => {
 
 <template>
   <div class="page-container">
+    <!-- 列表卡片：筛选 + 表格 + 分页 -->
     <ElCard shadow="never" class="main-card list-card">
       <template #header>
         <div class="card-header">
@@ -564,6 +575,7 @@ onMounted(async () => {
         </div>
       </template>
 
+      <!-- 筛选表单 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务ID">
           <ElInput
@@ -603,6 +615,7 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
+      <!-- 任务记录表 -->
       <ElTable v-loading="loading" :data="tasks" empty-text="暂无任务数据">
         <ElTableColumn prop="id" label="ID" width="80" align="center">
           <template #default="{ row }">
@@ -683,6 +696,7 @@ onMounted(async () => {
       </div>
     </ElCard>
 
+    <!-- 可视化结果区域 -->
     <div v-if="currentVisTaskId" ref="visSectionRef" class="vis-section-wrapper">
       <ElCard shadow="never" class="main-card vis-card">
         <template #header>

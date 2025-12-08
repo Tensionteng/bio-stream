@@ -12,7 +12,11 @@ import {
 } from '@/service/api/task';
 import TaskFlow from './TaskFlow.vue';
 
-// -- Props and Emits --
+/**
+ * # ==========================================
+ *
+ * Props / Emits
+ */
 const props = defineProps<{
   modelValue: boolean;
   taskId: number | null;
@@ -23,7 +27,11 @@ const emit = defineEmits<{
   (e: 'taskRestarted'): void;
 }>();
 
-// -- State Management --
+/**
+ * # ==========================================
+ *
+ * Dialog & schema 状态
+ */
 const loading = ref(false);
 const taskDetails = ref<Api.Task.TaskDetail | null>(null);
 
@@ -55,7 +63,11 @@ const parsedFields = reactive({
   }[]
 });
 
-// -- Computed Properties --
+/**
+ * # ==========================================
+ *
+ * 计算属性：执行流/可选文件/按钮状态
+ */
 const isDialogVisible = computed({
   get: () => props.modelValue,
   set: val => emit('update:modelValue', val)
@@ -112,7 +124,11 @@ const canBeReuploaded = computed(() => {
   return Boolean(uploadStatus) && uploadStatus !== 'SUCCESS';
 });
 
-// -- Watchers --
+/**
+ * # ==========================================
+ *
+ * 监听 taskId / 弹窗开关，自动拉取详情
+ */
 watch(
   () => props.taskId,
   newId => {
@@ -184,7 +200,12 @@ watch(
   }
 );
 
-// -- Helper Functions --
+/**
+ * # ==========================================
+ *
+ * 工具函数 & 主要操作
+ */
+/** 将 ISO 时间格式化为可读字符串 */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   const date = new Date(isoString);
@@ -202,6 +223,7 @@ function formatDateTime(isoString: string | null | undefined): string {
     .replace(/\//g, '-');
 }
 
+/** 计算执行单元耗时，缺失值时返回 '-' */
 function calculateDuration(start: string | null, end: string | null): string {
   if (!start) return '-';
   const startTime = new Date(start).getTime();
@@ -259,6 +281,7 @@ const getUploadStatusInfo = (status: string | null) => {
 };
 
 /** 根据 pattern 过滤可用文件列表 用于下拉框只显示符合后缀名的文件 */
+/** 根据 schema pattern 过滤任务产出的文件名 */
 function getFilteredFiles(pattern?: string) {
   if (!pattern) return availableTaskFiles.value;
   try {
@@ -271,6 +294,7 @@ function getFilteredFiles(pattern?: string) {
 }
 
 // -- API Calls --
+/** 打开弹窗时加载任务详情和 schema 列表 */
 async function getTaskDetails(id: number) {
   loading.value = true;
   taskDetails.value = null;
@@ -285,6 +309,7 @@ async function getTaskDetails(id: number) {
   }
 }
 
+/** 停止 RUNNING/PENDING 状态的任务 */
 async function handleStopTask() {
   if (!props.taskId) return;
   try {
@@ -300,6 +325,7 @@ async function handleStopTask() {
   }
 }
 
+/** 在失败或取消后，允许重启任务 */
 async function handleRestartTask() {
   if (!props.taskId) return;
   try {
@@ -316,6 +342,7 @@ async function handleRestartTask() {
   }
 }
 
+/** 触发后端重新上传自动生成的文件 */
 async function handleReupload() {
   if (!props.taskId) return;
   try {
@@ -332,6 +359,7 @@ async function handleReupload() {
 }
 
 // -- Manual Upload Logic --
+/** 打开上传弹窗并预加载 meta schema */
 async function handleOpenUploadDialog() {
   dynamicForm.meta_file_id = undefined as unknown as number;
   dynamicForm.content = {};
@@ -351,6 +379,7 @@ async function handleOpenUploadDialog() {
   }
 }
 
+/** 提交手动上传表单，将选定文件映射到 schema */
 async function submitUpload() {
   if (!props.taskId) return;
   if (!dynamicForm.meta_file_id) {
@@ -421,6 +450,7 @@ async function submitUpload() {
 </script>
 
 <template>
+  <!-- 上传作业生成文件 -->
   <ElDialog
     v-model="isDialogVisible"
     :title="`任务详情：${taskId}`"
@@ -474,6 +504,7 @@ async function submitUpload() {
               @click="props.taskId && getTaskDetails(props.taskId)"
             />
           </div>
+          <!-- 任务详情主体：左侧流程流，右侧参数/文件 -->
           <TaskFlow :steps="flowNodes" />
         </div>
 

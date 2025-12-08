@@ -4,75 +4,115 @@ import { ElMessage, ElNotification, type UploadUserFile } from 'element-plus';
 import { UploadFilled } from '@element-plus/icons-vue';
 import { createTaskUnit } from '@/service/api/task_unit';
 
+/**
+ * # ==========================================
+ *
+ * 状态定义区域
+ */
+
+/** 存储用户选择的文件列表 使用 Element Plus 的 UploadUserFile 类型 */
 const fileList = ref<UploadUserFile[]>([]);
+
+/** 控制提交按钮的加载状态，防止重复提交 */
 const isLoading = ref(false);
 
+/** 计算属性：判断当前是否有已选择的文件 用于控制按钮的禁用/启用状态 */
 const hasFiles = computed(() => fileList.value.length > 0);
 
-/** 超出数量提示 */
+/**
+ * # ==========================================
+ *
+ * 事件处理与工具函数区域
+ */
+
+/** 处理文件超出限制的钩子函数 当用户一次性拖入或选择的文件超过 :limit 设定值（20个）时触发 */
 const handleExceed = () => {
   ElMessage.warning('一次最多上传 20 个文件，如需更多请分批上传');
 };
 
-/** 清空文件列表 */
+/** 清空文件列表 用于“重置”按钮或上传成功后的清理工作 */
 const clearFiles = () => {
   fileList.value = [];
 };
 
-/** 文件大小格式化（仅用于显示） */
+/**
+ * 文件大小格式化工具函数 将字节(bytes)转换为人类可读的格式 (B, KB, MB)
+ *
+ * @param size 文件大小（字节）
+ * @returns 格式化后的字符串
+ */
 const formatSize = (size: number) => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 };
 
-/** 点击 "提交创建" 按钮 */
+/**
+ * # ==========================================
+ *
+ * 核心业务逻辑区域
+ */
+
+/** 处理“提交创建”按钮点击事件 包含：前端校验、API调用、错误处理、结果反馈 */
 const handleSubmitUpload = async () => {
   const filesToUpload = fileList.value;
 
+  // 1. 基础非空校验
   if (filesToUpload.length === 0) {
     ElMessage.error('请至少选择一个 .py 文件');
     return;
   }
 
-  // 校验扩展名
+  // 2. 严格校验文件扩展名
+  // 虽然 el-upload 有 accept 属性，但手动校验更安全
   const invalid = filesToUpload.find(f => !f.name.toLowerCase().endsWith('.py'));
   if (invalid) {
     ElMessage.error(`文件 "${invalid.name}" 不是 .py 文件，请检查后重新选择`);
     return;
   }
 
+  // 开启加载状态
   isLoading.value = true;
 
   try {
+    // 3. 提取原始文件对象 (raw File)
+    // Element Plus 的 fileList 包含包装对象，API通常需要原始的 File 对象
     const rawFiles: File[] = filesToUpload.map(f => f.raw as File).filter(Boolean);
 
+    // 4. 调用后端 API 创建任务单元
     const response = await createTaskUnit(rawFiles);
 
+    // 5. 处理 API 返回的业务错误
     if (response.error) {
       console.error('Upload failed:', response.error);
       return;
     }
 
+    // 6. 处理成功响应，构建反馈信息
     const results = response.data?.task_unit_files || [];
-    // 显示：ID(文件名)，你后端返回的 status/message 也已经在 results 里了
+
+    // 提取成功创建的任务单元 ID 和文件名，拼接成字符串用于通知显示
+    // 过滤掉 ID 为 0 或无效的数据
     const resultInfo = results
       .filter(item => item.task_unit_id && item.task_unit_id !== 0)
       .map(item => `${item.task_unit_id} (${item.file_name})`)
       .join(', ');
 
+    // 7. 弹出成功通知
     ElNotification({
       title: '创建成功',
       message: resultInfo ? `任务单元已创建，${resultInfo}` : '任务单元已创建',
       type: 'success'
     });
 
+    // 8. 清理工作：清空列表并重置状态
     clearFiles();
-    // 如果需要刷新列表，可以在这里调用 fetchTaskUnits();
   } catch (e: any) {
+    // 9. 捕获网络异常或其他未预期的错误
     console.error('Unexpected error during upload:', e);
     ElMessage.error('上传时发生未知错误');
   } finally {
+    // 无论成功或失败，最后都要关闭加载状态
     isLoading.value = false;
   }
 };

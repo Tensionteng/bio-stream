@@ -13,7 +13,7 @@ import {
   DArrowLeft,
   Delete,
   Files,
-  InfoFilled, // [新增] 引入提示图标
+  InfoFilled,
   Plus,
   Search,
   Setting,
@@ -30,6 +30,8 @@ import {
 // Types
 import type { TaskUnitDetail, TaskUnitListItem } from '@/service/api/task_unit';
 import type { FileSchemaItem, TaskChainSubmitParams } from '@/service/api/task_chain';
+
+// 本页面负责“拖拽任务单元-配置参数-合法性校验-提交保存”的完整流程。
 
 // --- Interfaces ---
 interface ChainStepItem extends Omit<TaskUnitListItem, 'id'> {
@@ -49,6 +51,7 @@ interface LocalOutputConfig {
 const route = useRoute();
 const router = useRouter();
 
+// 路由中是否携带链路 ID，用于区分创建/编辑模式
 const chainId = computed(() => route.query.id as string);
 const isEditing = computed(() => Boolean(chainId.value));
 
@@ -62,6 +65,7 @@ const chainType = ref('');
 // [新增] 可视化类型选择
 const chainVisuals = ref<string[]>([]);
 
+// 拖拽面板中配置的整体链路输入/输出/步骤
 const chainInputs = ref<LocalInputConfig[]>([]);
 const chainOutputs = ref<LocalOutputConfig[]>([]);
 const chainSteps = ref<ChainStepItem[]>([]);
@@ -75,6 +79,7 @@ const isSubmitting = ref(false);
 const isChecking = ref(false);
 const isValidated = ref(false);
 
+// 弹窗：展示单个任务单元的详情
 const showDetailModal = ref(false);
 const selectedTaskDetail = ref<TaskUnitDetail | null>(null);
 const isLoadingDetail = ref(false);
@@ -82,6 +87,7 @@ const detailDialogTitle = computed(() =>
   selectedTaskDetail.value ? `单元详情: ${selectedTaskDetail.value.name}` : '详情'
 );
 
+// 合法性校验弹窗 & 结果列表
 const showValidationModal = ref(false);
 const validationResults = ref<any[]>([]);
 
@@ -122,10 +128,12 @@ async function loadTaskUnits() {
   }
 }
 
+// 搜索框点击/回车统一走加载逻辑，保持分页参数固定
 const handleSearchUnits = () => {
   loadTaskUnits();
 };
 
+// 初始化页面所需的基础数据：任务单元 + 文件 schema + 编辑态回填
 async function initData() {
   loadTaskUnits();
 
@@ -143,6 +151,7 @@ async function initData() {
   }
 }
 
+// 编辑状态下根据 ID 拉取链路详情，并回填至左/右侧面板
 async function loadChainData(id: string) {
   isLoadingChainData.value = true;
   try {
@@ -196,6 +205,7 @@ async function loadChainData(id: string) {
   }
 }
 
+// Draggable 的 clone 钩子：为同一个任务单元生成唯一 tempKey，避免冲突
 function cloneUnit(originUnit: TaskUnitListItem): ChainStepItem {
   return {
     ...originUnit,
@@ -206,6 +216,7 @@ function cloneUnit(originUnit: TaskUnitListItem): ChainStepItem {
 function removeStep(index: number) {
   chainSteps.value.splice(index, 1);
 }
+// 清空当前的编排结果，回到初始态
 function clearChain() {
   chainSteps.value = [];
   chainInputs.value = [];
@@ -230,6 +241,7 @@ function removeOutputRow(idx: number) {
   chainOutputs.value.splice(idx, 1);
 }
 
+// 将用户在三个面板中配置的内容汇总成接口提交所需的 payload
 function constructPayload(): TaskChainSubmitParams | null {
   if (!chainName.value) {
     ElMessage.warning('请输入工具链名称');
@@ -272,6 +284,7 @@ function constructPayload(): TaskChainSubmitParams | null {
   };
 }
 
+// “检查合法性”按钮：先序列化配置，再调用校验接口并根据结果给出提示
 async function handleCheckValidity() {
   const payload = constructPayload();
   if (!payload) return;
@@ -313,6 +326,7 @@ async function handleCheckValidity() {
   }
 }
 
+// 保存/更新入口：必须在通过合法性校验后才能提交
 async function handleSubmit() {
   if (!isValidated.value) {
     ElMessage.warning('请先点击“检查合法性”，只有在无严重错误(ERROR)时才可保存');
@@ -354,6 +368,7 @@ async function handleSubmit() {
   }
 }
 
+// 打开左侧任务单元的详情抽屉，便于确认输入/输出/参数
 async function handleViewUnitDetail(id: string | number) {
   showDetailModal.value = true;
   isLoadingDetail.value = true;
@@ -372,6 +387,7 @@ onMounted(() => {
   initData();
 });
 
+// 根据路由的 id 变化动态切换“编辑/创建”态
 watch(
   () => route.query.id,
   newId => {
@@ -383,6 +399,7 @@ watch(
   }
 );
 
+// 只要任意配置有改动，就强制置为未校验，避免旧的校验结果误导用户
 watch(
   [chainName, chainDesc, chainType, chainInputs, chainOutputs, chainSteps, chainVisuals], // [新增] 监听 chainVisuals 变化
   () => {
@@ -396,6 +413,7 @@ watch(
 
 <template>
   <div class="task-chain-create-el">
+    <!-- 顶层卡片：集成工具链编排、检验、提交的全部交互 -->
     <ElCard shadow="never" class="main-card">
       <template #header>
         <div class="card-header">
@@ -428,8 +446,10 @@ watch(
         </div>
       </template>
 
+      <!-- 三栏布局：左侧任务库 / 中部流程画布 / 右侧参数配置 -->
       <div class="drag-main">
         <div class="drag-container">
+          <!-- 左侧任务单元库：可搜索 + 拖拽 -->
           <div class="source-panel">
             <div class="panel-title">
               <ElIcon><Box /></ElIcon>
@@ -481,6 +501,7 @@ watch(
             </div>
           </div>
 
+          <!-- 中间画布：动态展示链路步骤 -->
           <div v-loading="isLoadingChainData" class="target-panel">
             <div class="panel-title">
               <ElIcon><Connection /></ElIcon>
@@ -540,6 +561,7 @@ watch(
             </div>
           </div>
 
+          <!-- 右侧表单：配置基础信息、输入输出、可视化选项 -->
           <div class="config-panel">
             <div class="panel-title">
               <div class="title-left">
@@ -681,6 +703,7 @@ watch(
       </div>
     </ElCard>
 
+    <!-- 任务单元详情：辅助理解每个步骤的输入输出 -->
     <ElDialog
       v-model="showDetailModal"
       :title="detailDialogTitle"
@@ -796,6 +819,7 @@ watch(
       </template>
     </ElDialog>
 
+    <!-- 合法性校验结果弹窗 -->
     <ElDialog
       v-model="showValidationModal"
       :title="isValidated ? '检查结果 (存在警告)' : '检查结果 (存在错误)'"

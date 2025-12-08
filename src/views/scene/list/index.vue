@@ -27,15 +27,22 @@ import { getServiceBaseURL } from '@/utils/service';
 import { localStg } from '@/utils/storage';
 import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
+/**
+ * # ==========================================
+ *
+ * ECharts 初始化
+ */
+
 // === [新增] ECharts 相关引入 ===
 
 // [新增] 注册 ECharts 组件
 use([CanvasRenderer, GraphChart, TooltipComponent]);
 
-// =======================
-// Part 1: 任务列表逻辑
-// =======================
-
+/**
+ * # ==========================================
+ *
+ * Part 1: 任务列表逻辑
+ */
 const loading = ref(false);
 const tasks = ref<Api.Task.TaskListItem[]>([]);
 const totalSize = ref(0);
@@ -51,9 +58,11 @@ const filterParams = reactive({
 const isDetailDialogVisible = ref(false);
 const selectedDetailTaskId = ref<number | null>(null);
 
-// =======================
-// Part 1.5: 清理文件逻辑
-// =======================
+/**
+ * # ==========================================
+ *
+ * Part 1.5: 清理文件逻辑
+ */
 const isDeleteDialogVisible = ref(false);
 const deleteLoading = ref(false);
 const currentDeleteTaskId = ref<number | null>(null);
@@ -70,7 +79,7 @@ const deleteOptions = [
   { value: 0, label: '彻底清理 (全部删除)' }
 ];
 
-// 格式化字节大小
+/** 格式化字节大小，列表和弹窗都复用 */
 function formatBytes(bytes: number, decimals = 2) {
   if (Number(bytes) === 0) return '0 B';
   const k = 1024;
@@ -80,7 +89,7 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
-// 获取对应级别的预览大小文本
+/** 根据选择的清理级别显示“预计释放空间”提示 */
 const getPreviewSizeText = (level: number) => {
   const key = `size_${level}`;
   const size = deletePreviewSizes.value[key];
@@ -88,7 +97,7 @@ const getPreviewSizeText = (level: number) => {
   return `(预计释放 ${formatBytes(size)})`;
 };
 
-// 打开清理弹窗
+/** 打开清理弹窗并预拉取不同级别的文件大小 */
 function openDeleteDialog(row: Api.Task.TaskListItem) {
   currentDeleteTaskId.value = row.id;
   deleteLevel.value = 2; // 重置为默认推荐值
@@ -105,7 +114,7 @@ function openDeleteDialog(row: Api.Task.TaskListItem) {
     .catch(() => {});
 }
 
-// 获取总占用空间
+/** 获取场景任务占用的总空间，用于标题徽章 */
 async function getTaskSize() {
   try {
     const res = await fetchTotalFileSize();
@@ -117,7 +126,7 @@ async function getTaskSize() {
   }
 }
 
-// 执行清理
+/** 调用后端清理接口，并刷新容量 */
 async function handleDeleteSubmit() {
   if (!currentDeleteTaskId.value) return;
   deleteLoading.value = true;
@@ -150,6 +159,7 @@ const statusOptions = [
   { label: '等待中', value: 'PENDING' }
 ];
 
+/** 统一格式化时间，避免模板重复书写 */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   try {
@@ -246,9 +256,11 @@ function handleTaskRestarted() {
   getTasks();
 }
 
-// =======================
-// Part 2: 可视化逻辑
-// =======================
+/**
+ * # ==========================================
+ *
+ * Part 2: 可视化逻辑
+ */
 
 const visSectionRef = ref<HTMLElement | null>(null);
 const visualizationLoading = ref(false);
@@ -467,9 +479,11 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
   return labels[fileType] || fileType.toUpperCase();
 };
 
-// ==========================================
-// Part 2.1: Graph 图谱逻辑 (新增)
-// ==========================================
+/**
+ * # ==========================================
+ *
+ * Part 2.1: Graph 图谱逻辑 (新增)
+ */
 
 // 将graph数据转换为ECharts需要的nodes和links格式
 const transformGraphDataToECharts = (graphData: any[]) => {
@@ -624,6 +638,7 @@ onMounted(async () => {
 
 <template>
   <div class="page-container">
+    <!-- 任务列表卡片：筛选 + 表格 + 分页 -->
     <ElCard shadow="never" class="main-card list-card">
       <template #header>
         <div class="card-header">
@@ -641,6 +656,7 @@ onMounted(async () => {
         </div>
       </template>
 
+      <!-- 表格顶部筛选区域 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务ID">
           <ElInput
@@ -680,6 +696,7 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
+      <!-- 任务记录表 -->
       <ElTable v-loading="loading" :data="tasks" empty-text="暂无任务数据">
         <ElTableColumn prop="id" label="ID" width="80" align="center">
           <template #default="{ row }">
@@ -764,6 +781,7 @@ onMounted(async () => {
       </div>
     </ElCard>
 
+    <!-- 可视化面板：根据任务展示不同类型文件 -->
     <div v-if="currentVisTaskId" ref="visSectionRef" class="vis-section-wrapper">
       <ElCard shadow="never" class="main-card vis-card">
         <template #header>

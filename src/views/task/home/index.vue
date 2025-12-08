@@ -5,6 +5,11 @@ import { ElMessage } from 'element-plus';
 import { ArrowRight, Clock, Connection, List, Operation, Refresh, Search } from '@element-plus/icons-vue';
 import { type TaskChainListItem, type TaskChainListParams, fetchTaskChainList } from '@/service/api/task_chain';
 
+/**
+ * # ==========================================
+ *
+ * 页面级状态 & 参数
+ */
 const router = useRouter();
 
 // --- 状态定义 ---
@@ -21,7 +26,13 @@ const searchParams = reactive({
   name: ''
 });
 
-// --- API 请求 ---
+/**
+ * # ==========================================
+ *
+ * API 请求
+ *
+ * 负责根据分页/搜索条件获取任务链卡片
+ */
 async function getTaskChains() {
   loading.value = true;
   try {
@@ -45,7 +56,11 @@ async function getTaskChains() {
   }
 }
 
-// --- 事件处理 ---
+/**
+ * # ==========================================
+ *
+ * 事件处理
+ */
 function handleSearch() {
   pagination.page = 1;
   getTaskChains();
@@ -83,6 +98,11 @@ function getTypeTagType(type: string): 'primary' | 'success' | 'warning' | 'info
   return map[type?.toLowerCase()] || 'primary'; // 兼容大小写
 }
 
+/**
+ * # ==========================================
+ *
+ * 生命周期
+ */
 onMounted(() => {
   getTaskChains();
 });
@@ -91,6 +111,7 @@ onMounted(() => {
 <template>
   <div class="page-container">
     <div class="content-wrapper">
+      <!-- 顶部筛选区域：标题 + 搜索任务链 -->
       <div class="page-header">
         <div class="header-left">
           <div class="title-icon-box">
@@ -122,6 +143,7 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 任务链卡片网格 -->
       <div v-loading="loading" class="chain-grid-container">
         <ElRow :gutter="24">
           <ElCol v-for="chain in chainList" :key="chain.id" :xs="24" :sm="12" :md="8" :lg="6" :xl="6">

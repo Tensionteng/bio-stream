@@ -2,6 +2,7 @@
 import { ElIcon, ElTooltip } from 'element-plus';
 import { CircleCloseFilled, Clock, Loading, SuccessFilled } from '@element-plus/icons-vue';
 
+/** 简化执行流视图，展示每个节点状态 */
 defineProps<{
   steps: Array<{
     name: string;
@@ -28,6 +29,7 @@ const getStatusInfo = (status: string) => {
 </script>
 
 <template>
+  <!-- 横向节点流，每个卡片对应任务单元 -->
   <div class="task-flow-container-custom">
     <div v-for="(step, index) in steps" :key="step.name" class="node-wrapper">
       <ElTooltip :content="step.message || step.name" placement="top" effect="dark">

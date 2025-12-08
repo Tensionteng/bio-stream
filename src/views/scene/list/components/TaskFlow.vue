@@ -2,6 +2,11 @@
 import { ElIcon, ElTooltip } from 'element-plus';
 import { CircleCloseFilled, Clock, Loading, SuccessFilled } from '@element-plus/icons-vue';
 
+/**
+ * # ==========================================
+ *
+ * Props
+ */
 defineProps<{
   steps: Array<{
     name: string;
@@ -10,6 +15,7 @@ defineProps<{
   }>;
 }>();
 
+/** 根据节点状态返回图标/颜色/背景等视觉元素，保持模板精简 */
 const getStatusInfo = (status: string) => {
   switch (status.toUpperCase()) {
     case 'SUCCESS':
@@ -28,6 +34,7 @@ const getStatusInfo = (status: string) => {
 </script>
 
 <template>
+  <!-- 简化的执行流展示：节点 + 状态箭头 -->
   <div class="task-flow-container-custom">
     <div v-for="(step, index) in steps" :key="step.name" class="node-wrapper">
       <ElTooltip :content="step.message || step.name" placement="top" effect="dark">

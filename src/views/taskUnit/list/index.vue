@@ -12,51 +12,73 @@ import {
 import type { TaskUnitDetail, TaskUnitListItem, TaskUnitListParams } from '@/service/api/task_unit';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
 
-// --- 状态定义 ---
+/**
+ * ==========================================
+ *
+ * 1. 状态定义 (State Definition) ==========================================
+ */
 
-// 列表状态
+// --- 列表相关状态 ---
+/** 存储表格展示的任务单元列表数据 */
 const taskUnits = ref<TaskUnitListItem[]>([]);
+/** 控制表格加载状态 (Loading Spinner) */
 const isLoadingList = ref(false);
 
-// 筛选状态
+// --- 筛选与分页状态 ---
+/** 搜索表单模型，支持扩展更多筛选条件 */
 const filterParams = reactive({
-  name: ''
+  name: '' // 按名称模糊搜索
 });
 
-// 分页状态
+/** 分页配置模型 */
 const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  total: 0
+  page: 1, // 当前页码
+  pageSize: 10, // 每页数量
+  total: 0 // 总条数
 });
 
-// 详情状态
+// --- 详情弹窗状态 ---
+/** 控制详情弹窗的显示/隐藏 */
 const showDetailModal = ref(false);
+/** 当前选中的任务单元详情数据 */
 const selectedTask = ref<TaskUnitDetail | null>(null);
+/** 详情加载 loading */
 const isLoadingDetail = ref(false);
+/** 详情加载失败时的错误信息 */
 const detailError = ref<string | null>(null);
 
-// 引用检查弹窗状态
+// --- 删除保护状态 ---
+/** 控制“无法删除”警告弹窗的显示 */
 const cascadeDeleteVisible = ref(false);
-// [移除] isDeleting 状态，因为不再执行级联删除
+/** - 存储触发级联保护时的数据 用于在警告弹窗中展示：当前要删除谁？它被哪些链引用了？ */
 const cascadeDeleteData = reactive({
   id: '' as string | number,
   name: '',
-  chains: [] as string[]
+  chains: [] as string[] // 关联的任务链名称列表
 });
 
+/** 计算属性：动态生成详情弹窗的标题 */
 const detailDialogTitle = computed(() => {
   if (isLoadingDetail.value) return '正在加载详情...';
   if (selectedTask.value) return `任务单元详情: ${selectedTask.value.name}`;
   return '任务单元详情';
 });
 
-// --- API 交互逻辑 ---
+/**
+ * # ==========================================
+ *
+ * 2. API 交互逻辑 (API Interaction)
+ */
 
-// 1. 获取列表
+/**
+ * 获取任务单元列表
+ *
+ * 根据当前的分页参数和筛选条件查询数据
+ */
 async function fetchTaskUnits() {
   isLoadingList.value = true;
   try {
+    // 构造查询参数
     const params: TaskUnitListParams = {
       page: pagination.page,
       page_size: pagination.pageSize,
@@ -71,6 +93,7 @@ async function fetchTaskUnits() {
       return;
     }
 
+    // 更新列表数据与总数
     taskUnits.value = response.data?.task_units ?? [];
     pagination.total = response.data?.count ?? 0;
   } catch (e) {
@@ -82,11 +105,15 @@ async function fetchTaskUnits() {
   }
 }
 
-// 2. 获取详情
+/**
+ * 获取单个任务单元的详细信息
+ *
+ * @param id 任务单元 ID
+ */
 async function fetchTaskDetail(id: string) {
   isLoadingDetail.value = true;
   detailError.value = null;
-  selectedTask.value = null;
+  selectedTask.value = null; // 清空旧数据，防止闪烁
   try {
     const response = await fetchTaskUnitDetail(id);
 
@@ -104,10 +131,17 @@ async function fetchTaskDetail(id: string) {
   }
 }
 
-// 3. 删除逻辑 (修改后：遇关联则禁止)
+/**
+ * 处理删除按钮点击事件
+ *
+ * 核心安全逻辑：在删除前必须检查是否有“任务链”依赖此单元
+ *
+ * @param row 当前行数据
+ */
 async function handleDelete(row: TaskUnitListItem) {
   try {
-    // 3.1 先检查关联
+    // 3.1 预检查：查询关联的任务链
+    // 这是一个保护机制，防止误删正在被使用的单元导致流程崩溃
     const response = await checkRelatedTaskChains(row.id);
 
     if (response.error) {
@@ -117,39 +151,46 @@ async function handleDelete(row: TaskUnitListItem) {
 
     const relatedChains = response.data?.task_chain || [];
 
-    // 3.2 判断逻辑
+    // 3.2 根据依赖情况决定后续操作
     if (relatedChains.length > 0) {
-      // 情况 A: 有关联 -> 填充数据并打开“禁止删除”弹窗
+      // 情况 A: 存在关联 -> 禁止删除
+      // 填充警告数据并打开自定义的 Warning Dialog
       cascadeDeleteData.id = row.id;
       cascadeDeleteData.name = row.name;
       cascadeDeleteData.chains = relatedChains;
       cascadeDeleteVisible.value = true;
-      // 这里直接结束，不提供删除选项
+      // 流程结束，用户只能点击“知道了”
     } else {
-      // 情况 B: 无关联 -> 使用普通 MessageBox 确认后删除
-      await ElMessageBox.confirm(`确定要删除任务单元 "${cascadeDeleteData.name}" 吗？`, '删除确认', {
+      // 情况 B: 无关联 -> 允许删除
+      // 弹出标准的 Element Plus 确认框
+      await ElMessageBox.confirm(`确定要删除任务单元 "${row.name}" 吗？`, '删除确认', {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
         type: 'warning'
       });
-      // 用户确认后执行删除
+
+      // 用户点击“确定”后执行真正的删除 API
       await performDelete(row.id);
     }
   } catch (e) {
-    // 用户点击取消会抛出 'cancel'
+    // 用户点击取消会抛出 'cancel'，忽略即可
     if (e !== 'cancel') {
       console.error(e);
     }
   }
 }
 
-/** 执行真正的删除 API */
+/**
+ * 执行真正的删除请求
+ *
+ * @param id 任务单元 ID
+ */
 async function performDelete(id: string | number) {
   try {
     const res = await deleteTaskUnit(id);
     if (!res.error) {
       ElMessage.success('删除成功');
-      // 刷新列表
+      // 删除成功后刷新列表，保持数据同步
       fetchTaskUnits();
     }
   } catch (e) {
@@ -157,50 +198,67 @@ async function performDelete(id: string | number) {
   }
 }
 
-// --- 常规事件处理 ---
+/**
+ * # ==========================================
+ *
+ * 3. 事件处理 (Event Handlers)
+ */
 
+/** 点击“查询”按钮：重置页码并刷新 */
 function handleSearch() {
   pagination.page = 1;
   fetchTaskUnits();
 }
 
+/** 点击“重置”按钮：清空筛选条件并刷新 */
 function handleReset() {
   filterParams.name = '';
   pagination.page = 1;
   fetchTaskUnits();
 }
 
+/** 分页组件：每页显示数量变更 */
 function handleSizeChange(val: number) {
   pagination.pageSize = val;
-  pagination.page = 1;
+  pagination.page = 1; // 改变页容量通常建议重置回第一页
   fetchTaskUnits();
 }
 
+/** 分页组件：页码变更 */
 function handlePageChange(val: number) {
   pagination.page = val;
   fetchTaskUnits();
 }
 
+/** 点击“详情”按钮：打开弹窗并加载数据 */
 function handleViewDetails(id: string) {
   showDetailModal.value = true;
   fetchTaskDetail(id);
 }
 
+/** 详情弹窗完全关闭后的回调：清理状态 */
 function onDialogClosed() {
   selectedTask.value = null;
   detailError.value = null;
   isLoadingDetail.value = false;
 }
 
-// 挂载时加载列表
+/**
+ * # ==========================================
+ *
+ * 4. 生命周期 (Lifecycle)
+ */
 onMounted(async () => {
-  // 检查任务单元管理权限
+  // 1. 权限守卫检查
+  // 确保用户拥有访问此模块的权限，如果没有权限，内部逻辑会处理跳转或提示
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('task_unit');
+
   if (!hasPermission) {
     return;
   }
 
+  // 2. 初始化列表数据
   fetchTaskUnits();
 });
 </script>

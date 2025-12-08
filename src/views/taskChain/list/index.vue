@@ -12,6 +12,7 @@ import {
 import type { TaskChainDetail, TaskChainListItem, TaskChainListParams } from '@/service/api/task_chain';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
 
+// 页面：工具链列表与详情/删除管控
 const router = useRouter();
 
 // 列表状态
@@ -48,7 +49,7 @@ const detailDialogTitle = computed(() => {
   return '工具链详情';
 });
 
-// 获取任务链列表
+// 获取任务链列表：组合筛选、分页参数，并刷新表格
 async function fetchTaskChains() {
   isLoadingList.value = true;
   try {
@@ -79,7 +80,7 @@ async function fetchTaskChains() {
   }
 }
 
-// 获取任务链详情
+// 获取任务链详情：点击“详情”后打开弹窗并显示完整配置
 async function fetchTaskDetail(id: string | number) {
   isLoadingDetail.value = true;
   detailError.value = null;
@@ -104,7 +105,7 @@ function handleEdit(id: string | number) {
   router.push({ name: 'taskchain_create', query: { id } });
 }
 
-// 删除逻辑：先检测，后决定
+// 删除逻辑：先调检测接口，再决定是直接删除还是提示冲突
 async function handleDelete(row: TaskChainListItem) {
   try {
     // 1. 调用检测接口
@@ -147,7 +148,7 @@ async function handleDelete(row: TaskChainListItem) {
   }
 }
 
-/** 执行真正的删除 API */
+/** 执行真正的删除 API，并刷新列表/关闭详情 */
 async function performDelete(id: string | number) {
   const res = await deleteTaskChain(id);
   if (!res.error) {
@@ -159,11 +160,13 @@ async function performDelete(id: string | number) {
   }
 }
 
+// 顶部查询：修改筛选后回到第一页
 function handleSearch() {
   pagination.page = 1;
   fetchTaskChains();
 }
 
+// 清空筛选条件并重新拉取
 function handleReset() {
   filterParams.task_type = '';
   filterParams.task_id = '';
@@ -172,22 +175,26 @@ function handleReset() {
   fetchTaskChains();
 }
 
+// 分页大小变化时重置到第一页
 function handleSizeChange(val: number) {
   pagination.pageSize = val;
   pagination.page = 1;
   fetchTaskChains();
 }
 
+// 切换页码后保持筛选条件不变，直接刷新
 function handlePageChange(val: number) {
   pagination.page = val;
   fetchTaskChains();
 }
 
+// 打开详情弹窗
 function handleViewDetails(id: string | number) {
   showDetailModal.value = true;
   fetchTaskDetail(id);
 }
 
+// 弹窗关闭时也要清空状态，避免旧数据闪烁
 function onDialogClosed() {
   selectedTaskChain.value = null;
   detailError.value = null;
@@ -195,7 +202,7 @@ function onDialogClosed() {
 }
 
 onMounted(async () => {
-  // 检查任务链管理权限
+  // 进入页面先检查权限，避免无权限用户频繁请求接口
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('task_chain');
   if (!hasPermission) {
@@ -208,6 +215,7 @@ onMounted(async () => {
 
 <template>
   <div class="task-chain-manager-el">
+    <!-- 主卡片：承载筛选表单 + 列表 + 分页 -->
     <ElCard shadow="never">
       <template #header>
         <div class="card-header">
@@ -215,6 +223,7 @@ onMounted(async () => {
         </div>
       </template>
 
+      <!-- 顶部筛选区：按类型/ID/名称模糊过滤 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务类型">
           <ElInput v-model="filterParams.task_type" placeholder="按任务类型搜索" clearable @clear="handleSearch" />
@@ -234,6 +243,7 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
+      <!-- 工具链数据表 -->
       <ElTable v-loading="isLoadingList" :data="taskChainList" :style="{ width: '100%' }" empty-text="未找到任何工具链">
         <ElTableColumn prop="id" label="ID" width="100" />
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
@@ -277,6 +287,7 @@ onMounted(async () => {
       </div>
     </ElCard>
 
+    <!-- 详情弹窗：展示任务链整体结构 -->
     <ElDialog v-model="showDetailModal" :title="detailDialogTitle" width="70%" @closed="onDialogClosed">
       <ElSkeleton v-if="isLoadingDetail" :rows="10" animated />
 
@@ -424,6 +435,7 @@ onMounted(async () => {
       </template>
     </ElDialog>
 
+    <!-- 删除冲突弹窗：告诉用户还有哪些关联阻止删除 -->
     <ElDialog v-model="deleteConflictVisible" title="无法删除" width="500px" center destroy-on-close>
       <div class="cascade-warning-content">
         <ElAlert

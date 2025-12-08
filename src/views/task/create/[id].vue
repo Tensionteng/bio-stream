@@ -41,7 +41,11 @@ import {
 } from '@/service/api/task_chain';
 import { request } from '@/service/request';
 
-// --- 类型定义 ---
+/**
+ * # ==========================================
+ *
+ * 类型定义
+ */
 interface UploadUser {
   user_id: number;
   username: string;
@@ -81,7 +85,11 @@ interface FetchFileListParams {
   meta_ids?: string[];
 }
 
-// 获取文件列表封装
+/**
+ * # ==========================================
+ *
+ * API 封装
+ */
 function fetchFileList({ page, pageSize, fileType, file_name, meta_ids }: FetchFileListParams) {
   const params: Record<string, any> = { page, page_size: pageSize };
   if (fileType) params.file_type = fileType;
@@ -92,7 +100,11 @@ function fetchFileList({ page, pageSize, fileType, file_name, meta_ids }: FetchF
   return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
 }
 
-// --- 状态管理 ---
+/**
+ * # ==========================================
+ *
+ * 路由 & 页面级状态
+ */
 const route = useRoute();
 const router = useRouter();
 const taskChainId = Number(route.params.id);
@@ -121,7 +133,11 @@ const pagination = ref({ page: 1, pageSize: 10, total: 0, hasNextPage: true });
 const tempSelection = ref<FileInfo[]>([]);
 const dialogTableRef = ref();
 
-// --- 初始化逻辑 ---
+/**
+ * # ==========================================
+ *
+ * 初始化：获取任务链详情以及动态规则
+ */
 async function initData() {
   if (!taskChainId) return;
   loadingDetail.value = true;
@@ -172,7 +188,11 @@ async function initData() {
   }
 }
 
-// --- 文件选择逻辑 ---
+/**
+ * # ==========================================
+ *
+ * 文件选择弹窗逻辑
+ */
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -311,7 +331,11 @@ function normalizeApiResponse(res: any): any {
 function getErrorMessage(error: any): string {
   return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
 }
-// --- 提交逻辑 ---
+/**
+ * # ==========================================
+ *
+ * 提交逻辑：校验 + 汇总参数 + 调用开始分析
+ */
 const handleSubmit = async () => {
   // 1. 校验文件必填
   for (const def of chainInputDefs.value) {
@@ -385,6 +409,7 @@ onMounted(() => {
 <template>
   <div class="create-task-page">
     <div class="page-content">
+      <!-- 顶部回退 + 链路名称展示 -->
       <div class="page-header">
         <div class="header-left">
           <ElButton class="back-btn" :icon="ArrowLeft" circle @click="router.back()" />
@@ -549,6 +574,7 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 输入文件弹窗：搜索 + 选择 + 分页 -->
     <ElDialog
       v-model="fileDialogVisible"
       title="选择输入文件"
