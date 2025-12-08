@@ -44,8 +44,8 @@ const deleteConflictData = ref<any[]>([]);
 
 const detailDialogTitle = computed(() => {
   if (isLoadingDetail.value) return '正在加载详情...';
-  if (selectedTaskChain.value) return `任务链详情: ${selectedTaskChain.value.name}`;
-  return '任务链详情';
+  if (selectedTaskChain.value) return `工具链详情: ${selectedTaskChain.value.name}`;
+  return '工具链详情';
 });
 
 // 获取任务链列表
@@ -120,7 +120,7 @@ async function handleDelete(row: TaskChainListItem) {
     // 2. 根据 delete_flg 判断
     if (delete_flg) {
       // A. 允许删除 -> 弹出常规确认框
-      let confirmMsg = `确定要删除任务链「${row.name}」吗？`;
+      let confirmMsg = `确定要删除工具链「${row.name}」吗？`;
       // 如果 analysis 里有 warning 信息，也可以提示，但允许删
       if (analysis && analysis.length > 0) {
         confirmMsg += `<div style="margin-top:8px;color:#E6A23C;font-size:12px;">
@@ -211,7 +211,7 @@ onMounted(async () => {
     <ElCard shadow="never">
       <template #header>
         <div class="card-header">
-          <span>任务链列表</span>
+          <span>工具链列表</span>
         </div>
       </template>
 
@@ -234,7 +234,7 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
-      <ElTable v-loading="isLoadingList" :data="taskChainList" :style="{ width: '100%' }" empty-text="未找到任何任务链">
+      <ElTable v-loading="isLoadingList" :data="taskChainList" :style="{ width: '100%' }" empty-text="未找到任何工具链">
         <ElTableColumn prop="id" label="ID" width="100" />
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
         <ElTableColumn prop="nums" label="单元数量" width="100" align="center" />
@@ -427,7 +427,7 @@ onMounted(async () => {
     <ElDialog v-model="deleteConflictVisible" title="无法删除" width="500px" center destroy-on-close>
       <div class="cascade-warning-content">
         <ElAlert
-          title="该任务链正在被使用或存在冲突，无法直接删除。"
+          title="该工具链正在被使用或存在冲突，无法直接删除。"
           type="error"
           :closable="false"
           show-icon
