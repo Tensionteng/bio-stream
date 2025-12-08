@@ -148,7 +148,7 @@ async function loadChainData(id: string) {
   try {
     const response = await fetchTaskChainDetail(id);
     if (response.error) {
-      ElMessage.error('加载任务链详情失败');
+      ElMessage.error('加载工具链详情失败');
       return;
     }
     const data = response.data;
@@ -232,11 +232,11 @@ function removeOutputRow(idx: number) {
 
 function constructPayload(): TaskChainSubmitParams | null {
   if (!chainName.value) {
-    ElMessage.warning('请输入任务链名称');
+    ElMessage.warning('请输入工具链名称');
     return null;
   }
   if (!chainType.value) {
-    ElMessage.warning('请输入任务链类型');
+    ElMessage.warning('请输入工具链类型');
     return null;
   }
   if (chainSteps.value.length === 0) {
@@ -302,7 +302,7 @@ async function handleCheckValidity() {
       isValidated.value = true;
       ElNotification.success({
         title: '检查通过',
-        message: '任务链配置合法，可以保存。'
+        message: '工具链配置合法，可以保存。'
       });
     }
   } catch {
@@ -339,7 +339,7 @@ async function handleSubmit() {
     } else {
       ElNotification.success({
         title: '操作成功',
-        message: isEditing.value ? '任务链已更新' : '任务链创建成功'
+        message: isEditing.value ? '工具链已更新' : '工具链创建成功'
       });
       if (!isEditing.value) {
         clearChain();
@@ -399,7 +399,7 @@ watch(
     <ElCard shadow="never" class="main-card">
       <template #header>
         <div class="card-header">
-          <span>{{ isEditing ? '编辑任务链' : '创建任务链 (编排与配置)' }}</span>
+          <span>{{ isEditing ? '编辑工具链' : '创建工具链 (编排与配置)' }}</span>
           <div class="header-actions">
             <ElTag v-if="isEditing" type="warning" effect="plain" size="small">正在编辑 ID: {{ chainId }}</ElTag>
 
@@ -408,7 +408,7 @@ watch(
             </ElButton>
 
             <ElTooltip
-              :content="isValidated ? (isEditing ? '更新任务链' : '保存任务链') : '请先通过合法性检查'"
+              :content="isValidated ? (isEditing ? '更新工具链' : '保存工具链') : '请先通过合法性检查'"
               placement="bottom"
               :disabled="isValidated"
             >
@@ -420,7 +420,7 @@ watch(
                   :disabled="!isValidated"
                   @click="handleSubmit"
                 >
-                  {{ isEditing ? '更新任务链' : '保存任务链' }}
+                  {{ isEditing ? '更新工具链' : '保存工具链' }}
                 </ElButton>
               </span>
             </ElTooltip>
@@ -553,8 +553,8 @@ watch(
                 <ElForm label-position="top" size="default" class="modern-form">
                   <div class="config-section">
                     <div class="section-header">基础信息</div>
-                    <ElFormItem label="任务链名称" required>
-                      <ElInput v-model="chainName" placeholder="给任务链起个名字" class="modern-input" />
+                    <ElFormItem label="工具链名称" required>
+                      <ElInput v-model="chainName" placeholder="给工具链起个名字" class="modern-input" />
                     </ElFormItem>
                     <ElFormItem label="类型 (Type)" required>
                       <ElInput v-model="chainType" placeholder="例如: DAG, Linear" class="modern-input" />
@@ -564,7 +564,7 @@ watch(
                         v-model="chainDesc"
                         type="textarea"
                         :rows="3"
-                        placeholder="简要描述该任务链的功能..."
+                        placeholder="简要描述该工具链的功能..."
                         class="modern-input"
                         resize="none"
                       />
@@ -583,6 +583,7 @@ watch(
                         <ElCheckbox label="vcf" border>VCF</ElCheckbox>
                         <ElCheckbox label="csv" border>CSV</ElCheckbox>
                         <ElCheckbox label="image" border>Image</ElCheckbox>
+                        <ElCheckbox label="graph" border>Graph</ElCheckbox>
                       </ElCheckboxGroup>
                       <div class="visual-tip">
                         <ElIcon><InfoFilled /></ElIcon>
