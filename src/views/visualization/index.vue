@@ -393,6 +393,9 @@ const graphChartOption = computed<any>(() => {
         data: nodes,
         links,
         roam: true,
+        // 设置箭头表示有向图
+        edgeSymbol: ['none', 'arrow'], // [起点符号, 终点符号]
+        edgeSymbolSize: [0, 12], // [起点符号大小, 终点符号大小]
         label: {
           show: true,
           position: 'bottom',
@@ -421,7 +424,7 @@ const graphChartOption = computed<any>(() => {
         lineStyle: {
           color: 'source',
           width: 2,
-          curveness: 0.1,
+          curveness: 0, // 使用直线让箭头更清晰
           opacity: 0.7
         },
         itemStyle: {
