@@ -1,50 +1,77 @@
 <script setup lang="ts">
+// =============================================================================
+// 1. 依赖引入
+// =============================================================================
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+// Element Plus 组件与图标
 import { ElButton, ElCard, ElMessage } from 'element-plus';
 import { ArrowLeft, Promotion } from '@element-plus/icons-vue';
+// API 接口
 import { createNewTask, fetchProcessSchema } from '@/service/api/task';
+// 动态表单组件 (核心子组件)
 import DynamicForm from './components/DynamicForm.vue';
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 路由 & 页面级状态
+ * # 路由 & 页面级状态管理
+ *
+ * # ===========================================================================
  */
 const route = useRoute();
 const router = useRouter();
 
-const loadingSchema = ref(true);
-const submitting = ref(false);
-const processSchema = ref<Api.Task.ProcessSchema | null>(null);
-const formData = ref<Record<string, any>>({});
+// --- UI 状态 ---
+const loadingSchema = ref(true); // 控制 Schema 加载时的骨架屏或 Loading 状态
+const submitting = ref(false); // 控制提交按钮的 Loading 状态
+
+// --- 数据状态 ---
+const processSchema = ref<Api.Task.ProcessSchema | null>(null); // 后端返回的流程定义（包含表单结构）
+const formData = ref<Record<string, any>>({}); // 收集表单数据的对象 (v-model 绑定目标)
+
+// --- 组件引用 ---
+// 获取 DynamicForm 组件实例，以便调用其内部的 validate() 方法
 const dynamicFormRef = ref<InstanceType<typeof DynamicForm> | null>(null);
 
-const processId = Number(route.params.id);
-const processName = computed(() => (route.query.name as string) || '未命名流程');
+// --- 路由参数 ---
+const processId = Number(route.params.id); // 当前要创建任务的流程 ID
+const processName = computed(() => (route.query.name as string) || '未命名流程'); // 流程名称 (用于展示)
+
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 数据处理工具函数
+ * # 数据处理工具函数 (Helpers)
  *
- * 下方函数集中处理接口返回与异常信息，确保主流程更清晰
+ * # 下方函数集中处理接口返回与异常信息，确保主流程代码更清晰
+ *
+ * # ===========================================================================
  */
 
 /**
- * 标准化 API 响应数据 兼容两种情况：
+ * 标准化 API 响应数据 兼容两种 Axios 拦截器配置情况：
  *
- * 1. 成功且拦截器已解包：直接返回数据对象 (无 code 或 code 为空)
- * 2. 失败或未解包：返回包含 code/message 的对象 (通常在 res.response.data 中)
+ * 1. 拦截器已解包 data，直接返回数据对象 (无 code 或 code 为空)
+ * 2. 拦截器未解包，返回原始 response 结构
  */
 function normalizeApiResponse(res: any): any {
   return res.data || (res as any).response?.data;
 }
 
-/** 统一提取错误信息 */
+/** - 统一提取错误信息 防御性编程，处理不同层级的错误对象结构 */
 function getErrorMessage(error: any): string {
   return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
 }
-/** 拉取流程 schema，用于渲染 DynamicForm */
+
+/**
+ * # ===========================================================================
+ *
+ * # 核心业务逻辑
+ *
+ * # ===========================================================================
+ */
+
+/** 1. 获取流程定义 (Schema) 触发时机：页面加载时 (onMounted) 作用：从后端拉取 JSON Schema，传递给 DynamicForm 组件渲染出对应的输入框 */
 async function getSchema() {
   if (!processId) return;
   loadingSchema.value = true;
@@ -58,29 +85,41 @@ async function getSchema() {
   }
 }
 
-/** 表单校验 + 提交，创建任务后跳转到列表页 */
+/** 2. 提交创建任务 触发时机：点击“立即创建任务”按钮 流程：子组件校验 -> 组装参数 -> 调用 API -> 跳转页面 */
 async function handleSubmit() {
   if (!processId) return;
+
+  // Step 1: 调用子组件 DynamicForm 的 validate 方法进行表单校验
   const isFormValid = await dynamicFormRef.value?.validate();
   if (!isFormValid) {
     ElMessage.warning('请检查并填写所有必填参数');
     return;
   }
+
+  // Step 2: 组装提交载荷 (Payload)
   const payload: Api.Task.NewTaskPayload = {
     process_id: processId,
-    parameter_json: formData.value
+    parameter_json: formData.value // 这里包含了动态表单收集到的所有数据
   };
+
   submitting.value = true;
+
+  // Step 3: 发起 API 请求
   try {
-    // 2. 发起请求
     const res = await createNewTask(payload);
+
+    // 处理响应
     const apiResponse = normalizeApiResponse(res);
+    // 检查业务状态码 (假设 '0000' 为成功)
     if (apiResponse?.code && apiResponse.code !== '0000') {
       ElMessage.error(apiResponse.message || '创建失败');
       return;
     }
+
     const taskInfo = apiResponse.data || apiResponse;
     ElMessage.success(apiResponse?.message || '任务创建成功！');
+
+    // Step 4: 成功后跳转到任务列表页 (并带上 task_id 以便高亮显示)
     router.push({
       path: '/scene/list',
       query: { task_id: taskInfo?.task_id }
@@ -93,12 +132,14 @@ async function handleSubmit() {
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 生命周期
+ * # 生命周期 (Lifecycle)
+ *
+ * # ===========================================================================
  */
 onMounted(() => {
-  getSchema();
+  getSchema(); // 进入页面立即拉取配置
 });
 </script>
 

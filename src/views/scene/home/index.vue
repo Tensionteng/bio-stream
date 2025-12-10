@@ -41,9 +41,7 @@ function getStyle(index: number) {
 async function loadScenes() {
   loading.value = true;
   try {
-    // 【修改点 3】调用原有的 fetchProcessList
     const res = await fetchProcessList();
-    // 假设 res.data 返回的就是列表数组
     sceneList.value = res.data ?? [];
   } catch (error) {
     ElMessage.error('加载场景数据失败');

@@ -1,5 +1,9 @@
 <script setup lang="ts">
+// =============================================================================
+// 1. 依赖引入
+// =============================================================================
 import { computed, ref, watch } from 'vue';
+// Element Plus 组件与类型
 import {
   ElButton,
   ElCol,
@@ -11,27 +15,36 @@ import {
   ElInputNumber,
   ElMessage,
   ElOption,
-  ElPagination, // [新增] 引入分页组件
+  ElPagination,
   ElRow,
   ElSelect,
   ElSwitch,
   ElTable,
   ElTableColumn,
-  ElTag
+  ElTag,
+  type FormInstance,
+  type FormRules
 } from 'element-plus';
-import type { FormInstance, FormRules } from 'element-plus';
+// 图标
 import { Document, FolderOpened, Search, UploadFilled } from '@element-plus/icons-vue';
+// 请求工具
 import { request } from '@/service/request';
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 类型定义
+ * # 类型定义 (Interfaces)
+ *
+ * # ===========================================================================
  */
+
+// 上传用户信息
 interface UploadUser {
   user_id: number;
   username: string;
 }
+
+// 文件实体信息
 interface FileInfo {
   file_id: number;
   file_name: string;
@@ -40,6 +53,8 @@ interface FileInfo {
   created_time: string;
   upload_user: UploadUser;
 }
+
+// 分页响应结构
 interface PaginatedFilesResponse {
   count: number;
   page: number;
@@ -47,33 +62,38 @@ interface PaginatedFilesResponse {
   results: FileInfo[];
 }
 
+// 文件列表请求参数
 interface FetchFileListParams {
   page: number;
   pageSize: number;
-  fileType?: string;
-  keyword?: string;
+  fileType?: string; // 可选的文件类型筛选
+  keyword?: string; // 文件名搜索关键词
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * API
+ * # API 请求 (Local API Wrapper)
+ *
+ * # ===========================================================================
  */
 function fetchFileList({ page, pageSize, fileType, keyword }: FetchFileListParams) {
   const params: any = { page, page_size: pageSize };
   if (fileType) params.file_type = fileType;
-  if (keyword) params.file_name = keyword;
+  if (keyword) params.file_name = keyword; // 映射 keyword -> file_name
   return request<PaginatedFilesResponse>({ url: '/files/list', method: 'get', params });
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * Props & Emits
+ * # Props & Emits
+ *
+ * # ===========================================================================
  */
 const props = defineProps<{
-  schema: Record<string, any>;
-  modelValue: Record<string, any>;
+  schema: Record<string, any>; // 后端传来的 JSON Schema，定义了表单结构
+  modelValue: Record<string, any>; // 表单数据对象 (v-model 绑定)
 }>();
 
 const emit = defineEmits<{
@@ -81,41 +101,52 @@ const emit = defineEmits<{
 }>();
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 表单状态 & 弹窗状态
+ * # 状态管理 (State)
+ *
+ * # ===========================================================================
  */
-const formRef = ref<FormInstance | null>(null);
-const localModel = ref<Record<string, any>>({});
+
+// --- 表单状态 ---
+const formRef = ref<FormInstance | null>(null); // ElForm 引用
+const localModel = ref<Record<string, any>>({}); // 本地表单数据副本 (用于解耦 props)
+
+// --- 文件选择弹窗状态 ---
 const fileDialogVisible = ref(false);
-const availableFiles = ref<FileInfo[]>([]);
-const loadingFiles = ref(false);
-const currentFileSelectionKey = ref<string | null>(null);
-const tempSelection = ref<FileInfo[]>([]);
+const availableFiles = ref<FileInfo[]>([]); // 弹窗表格数据源
+const loadingFiles = ref(false); // 表格 Loading
+const currentFileSelectionKey = ref<string | null>(null); // 当前正在为哪个字段选择文件
+const tempSelection = ref<FileInfo[]>([]); // 弹窗内的临时勾选状态
 
-// 搜索相关状态
-const selectedFileType = ref<string>(''); // 手动输入的类型
-const searchKeyword = ref<string>('');
+// --- 搜索与筛选状态 ---
+const selectedFileType = ref<string>(''); // 类型筛选输入框
+const searchKeyword = ref<string>(''); // 文件名搜索框
 
-// [修改] 分页状态：移除 hasNextPage，仅保留标准分页所需字段
+// --- 分页状态 ---
 const pagination = ref({
   page: 1,
-  pageSize: 10, // 建议弹窗内一页显示10条，避免太长
+  pageSize: 10, // 弹窗高度有限，建议每页 10 条
   total: 0
 });
 
+// 表格 DOM 引用
 const dialogTableRef = ref();
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * Watchers
+ * # 监听器 (Watchers)
  *
- * 负责同步外部表单数据、控制弹窗选择状态
+ * # ===========================================================================
  */
+
+// 1. 同步 Props -> Local State
+// 当父组件传入新的 modelValue 时，更新本地副本
 watch(
   () => props.modelValue,
   newModel => {
+    // 简单深拷贝对比，避免无限循环更新
     if (JSON.stringify(newModel) !== JSON.stringify(localModel.value)) {
       localModel.value = JSON.parse(JSON.stringify(newModel));
     }
@@ -123,6 +154,8 @@ watch(
   { deep: true, immediate: true }
 );
 
+// 2. 同步 Local State -> Parent
+// 当用户修改表单时，emit 更新父组件数据
 watch(
   localModel,
   newLocalModel => {
@@ -131,12 +164,17 @@ watch(
   { deep: true }
 );
 
+// 3. 弹窗回显逻辑
+// 当弹窗打开时，根据已选数据自动勾选表格行
 watch(fileDialogVisible, isVisible => {
   if (isVisible && dialogTableRef.value && currentFileSelectionKey.value) {
+    // 必须延迟执行，等待表格数据渲染完成
     setTimeout(() => {
       dialogTableRef.value.clearSelection();
       const currentFiles = localModel.value[currentFileSelectionKey.value!] || [];
       const selectedIds = new Set(currentFiles.map((f: any) => f.file_id));
+
+      // 遍历当前页数据，如果 ID 在已选列表中，则设置为选中状态
       availableFiles.value
         .filter(f => selectedIds.has(f.file_id))
         .forEach(row => {
@@ -147,56 +185,79 @@ watch(fileDialogVisible, isVisible => {
 });
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 工具方法
+ * # 工具方法 (Helpers)
+ *
+ * # ===========================================================================
  */
+
+// 判断字段是否为数字类型 (用于渲染 ElInputNumber)
 const isNumericType = (p: any) =>
   Array.isArray(p.type)
     ? p.type.some((t: string) => ['number', 'integer'].includes(t))
     : ['number', 'integer'].includes(p.type);
+
+// 格式化字段名 (Snake Case -> Title Case)
+// 例: user_name -> User Name
 const formatLabel = (k: string) =>
   k
     .replace(/([A-Z])/g, ' $1')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, c => c.toUpperCase())
     .trim();
+
+// 格式化文件大小
 const formatFileSize = (b: number) =>
   b === 0
     ? '0 B'
     : `${(b / 1024 ** Math.floor(Math.log(b) / Math.log(1024))).toFixed(2)} ${['B', 'KB', 'MB', 'GB', 'TB'][Math.floor(Math.log(b) / Math.log(1024))]}`;
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 计算属性
+ * # 计算属性 (Computed)
+ *
+ * # ===========================================================================
  */
+
+// 动态生成表单校验规则
 const formRules = computed<FormRules>(() => {
   const rules: FormRules = {};
   if (!props.schema?.properties) return {};
+
   for (const key in props.schema.properties) {
+    // 仅对 required 列表中的字段生成校验规则
     if (props.schema.required?.includes(key)) {
       const prop = props.schema.properties[key];
       let trigger = 'blur';
       let message = `请输入 ${formatLabel(key)}`;
       let validator;
+
+      // 针对数组（文件列表）的特殊校验
       if (prop.type === 'array') {
         trigger = 'change';
         message = '请选择至少一个文件';
         validator = (_r: any, v: any, cb: any) => (!v || v.length === 0 ? cb(new Error(message)) : cb());
-      } else if (prop.type === 'string' && prop.enum) {
+      }
+      // 针对下拉框
+      else if (prop.type === 'string' && prop.enum) {
         trigger = 'change';
         message = `请选择 ${formatLabel(key)}`;
       }
+
       rules[key] = [validator ? { validator, trigger } : { required: true, message, trigger }];
     }
   }
   return rules;
 });
 
+// 构建文件 ID 到信息的映射，用于在 Hero Zone 回显文件名
 const fileIdMap = computed(() => {
   const map = new Map<number, FileInfo>();
+  // 1. 来源于弹窗列表
   availableFiles.value.forEach(f => map.set(f.file_id, f));
+  // 2. 来源于已选数据（防止弹窗翻页后找不到旧数据的文件名）
   Object.values(localModel.value).forEach((val: any) => {
     if (Array.isArray(val))
       val.forEach(f => {
@@ -206,15 +267,18 @@ const fileIdMap = computed(() => {
   return map;
 });
 
+// 获取文件名（带兜底）
 const getFileName = (id: number) => fileIdMap.value.get(id)?.file_name ?? `ID: ${id}`;
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 文件选择弹窗逻辑
+ * # 文件选择弹窗逻辑 (File Selection Modal)
+ *
+ * # ===========================================================================
  */
 
-// 加载逻辑：标准分页模式（覆盖数据）
+/** 加载文件列表数据 (核心分页逻辑) */
 async function loadFilesPage() {
   loadingFiles.value = true;
   try {
@@ -226,10 +290,8 @@ async function loadFilesPage() {
     });
 
     if (res?.data?.results) {
-      // 覆盖当前列表
       availableFiles.value = res.data.results;
-      // 更新总数
-      pagination.value.total = res.data.count;
+      pagination.value.total = res.data.count; // 更新总数供分页组件使用
     } else {
       availableFiles.value = [];
       pagination.value.total = 0;
@@ -242,52 +304,67 @@ async function loadFilesPage() {
   }
 }
 
-// [新增] 页码切换事件
+// 翻页事件
 const handlePageChange = (newPage: number) => {
   pagination.value.page = newPage;
   loadFilesPage();
 };
 
-// [修改] 搜索：重置到第一页并加载
+// 搜索事件
 const handleSearch = () => {
-  pagination.value.page = 1;
+  pagination.value.page = 1; // 搜索时重置回第一页
   loadFilesPage();
 };
 
-// [修改] 打开弹窗：重置状态并立即加载
+/**
+ * 打开文件选择弹窗
+ *
+ * @param key 当前点击的表单字段名 (如 'input_files')
+ */
 const openFileDialog = (key: string) => {
   currentFileSelectionKey.value = key;
+  // 重置筛选条件
   selectedFileType.value = '';
   searchKeyword.value = '';
-
-  // 重置分页和数据
   pagination.value.page = 1;
   availableFiles.value = [];
 
   fileDialogVisible.value = true;
-
-  // 必须手动加载一次，因为不再依赖无限滚动指令
-  loadFilesPage();
+  loadFilesPage(); // 立即加载第一页
 };
 
+/** 确认选择 将弹窗内的临时选中项同步到表单数据中 */
 const confirmFileSelection = () => {
   if (currentFileSelectionKey.value) {
+    // 仅存储 ID，或者根据业务需求存储完整对象
     localModel.value[currentFileSelectionKey.value] = tempSelection.value.map(f => ({ file_id: f.file_id }));
   }
   fileDialogVisible.value = false;
 };
 
+// 在 Hero Zone 移除已选文件
 const removeFile = (key: string, id: number) => {
-  if (localModel.value[key]) localModel.value[key] = localModel.value[key].filter((f: any) => f.file_id !== id);
+  if (localModel.value[key]) {
+    localModel.value[key] = localModel.value[key].filter((f: any) => f.file_id !== id);
+  }
 };
 
+// 表格行点击联动多选框
 const handleRowClick = (row: FileInfo) => {
   if (dialogTableRef.value) {
     dialogTableRef.value.toggleRowSelection(row);
   }
 };
 
-/** 对外暴露的校验方法，供父组件调用 */
+/**
+ * # ===========================================================================
+ *
+ * # 对外暴露方法 (Expose)
+ *
+ * # ===========================================================================
+ */
+
+// 供父组件调用的校验方法
 const validate = async () => {
   if (!formRef.value) return false;
   try {
