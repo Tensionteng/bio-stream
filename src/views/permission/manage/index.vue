@@ -218,13 +218,24 @@ function openUserDetailDialog(row: {
   // 保存原始权限数据
   originalUserPermissions.value = JSON.parse(JSON.stringify(row.permissions));
   // 初始化权限更新列表
-  userPermissionsToUpdate.value = row.permissions.map(perm => ({
-    type: perm.type,
-    action: 'APPROVE' as const,
-    days: perm.expire_time ? 30 : 0,
-    currentExpireTime: perm.expire_time,
-    isNew: false
-  }));
+  userPermissionsToUpdate.value = row.permissions.map(perm => {
+    // 计算剩余天数（如果有过期时间）
+    let remainingDays = 0;
+    if (perm.expire_time) {
+      const expireDate = new Date(perm.expire_time);
+      const now = new Date();
+      const diffTime = expireDate.getTime() - now.getTime();
+      remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
+
+    return {
+      type: perm.type,
+      action: 'APPROVE' as const,
+      days: perm.expire_time ? remainingDays : 0,
+      currentExpireTime: perm.expire_time,
+      isNew: false
+    };
+  });
   userDetailDialogVisible.value = true;
 }
 
