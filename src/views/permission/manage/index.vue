@@ -163,6 +163,19 @@ function formatDate(dateString: string | undefined | null) {
   }
 }
 
+// 计算剩余天数
+function calculateRemainingDays(expireTime: string | null): number {
+  if (!expireTime) return 0;
+  try {
+    const expireDate = new Date(expireTime);
+    const now = new Date();
+    const diffTime = expireDate.getTime() - now.getTime();
+    return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+  } catch {
+    return 0;
+  }
+}
+
 function handleSearchRequests() {
   permissionStore.getAllPermissionRequests({
     page: permissionStore.allRequestPagination.current,
@@ -220,13 +233,7 @@ function openUserDetailDialog(row: {
   // 初始化权限更新列表
   userPermissionsToUpdate.value = row.permissions.map(perm => {
     // 计算剩余天数（如果有过期时间）
-    let remainingDays = 0;
-    if (perm.expire_time) {
-      const expireDate = new Date(perm.expire_time);
-      const now = new Date();
-      const diffTime = expireDate.getTime() - now.getTime();
-      remainingDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-    }
+    const remainingDays = calculateRemainingDays(perm.expire_time);
 
     return {
       type: perm.type,
@@ -382,7 +389,7 @@ function calculatePermissionChanges(): PermissionChangeSummary | null {
     const wasPermanent = !original.expire_time;
     const willBePermanent = perm.days === 0;
     const permissionName = permissionTypeMap.value[perm.type as Api.Permission.PermissionType] || perm.type;
-    const oldDays = original.expire_time ? 30 : 0;
+    const oldDays = original.expire_time ? calculateRemainingDays(original.expire_time) : 0;
 
     if (wasPermanent && !willBePermanent) {
       modifiedPermissions.push({
