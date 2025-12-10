@@ -73,18 +73,14 @@ async function fetchFileList(
   try {
     const res = await fetchFileListInfo(currentPage, currentPageSize, currentId, currentName, currentType);
 
-    if (Array.isArray(res.data?.results) && res.data?.results.length > 0) {
-      fileList.value = res.data.results;
-      fileListTotal.value = res.data.count || res.data.results.length;
-    } else {
-      console.warn('当前系统不存在任何文件');
-      fileList.value = [];
-    }
+    fileList.value = res.data?.results || [];
+    fileListTotal.value = res.data?.count || 0;
     fileListPage.value = currentPage;
     fileListPageSize.value = currentPageSize;
   } catch {
     console.warn('获取文件列表失败');
     fileList.value = [];
+    fileListTotal.value = 0;
   } finally {
     fileListLoading.value = false;
   }
