@@ -407,27 +407,27 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
 
   return {
     // State
-    currentPermissions,
-    userApplications,
-    userApplicationPagination,
-    allPermissionRequests,
-    allRequestPagination,
-    allUserPermissions,
-    allUserPermissionPagination,
+    currentPermissions, // 当前用户权限列表
+    userApplications, // 用户的申请列表
+    userApplicationPagination, // 用户申请分页
+    allPermissionRequests, // 所有申请列表（管理员）
+    allRequestPagination, // 所有申请分页（管理员）
+    allUserPermissions, // 所有用户权限列表（管理员）
+    allUserPermissionPagination, // 所有用户权限分页（管理员）
     // Loading states
-    applyLoading,
-    reviewLoading,
-    permissionLoading,
+    applyLoading, // 申请加载状态
+    reviewLoading, // 审批加载状态
+    permissionLoading, // 权限列表加载状态
     // Functions
-    hasPermission,
-    getUserApplications,
-    getAllPermissionRequests,
-    applyPermission,
-    reviewPermissionRequest,
-    withdrawApplication,
-    getAllUserPermissions,
-    updateUserPermissions,
-    exportPermissions,
-    refreshUserPermissions
+    hasPermission, // 检查权限
+    getUserApplications, // 获取用户申请列表
+    getAllPermissionRequests, // 获取所有申请列表
+    applyPermission, // 提交申请
+    reviewPermissionRequest, // 审批申请
+    withdrawApplication, // 撤回申请
+    getAllUserPermissions, // 获取所有用户权限
+    updateUserPermissions, // 更新用户权限（管理员）
+    exportPermissions, // 导出权限数据
+    refreshUserPermissions // 刷新用户权限
   };
 });

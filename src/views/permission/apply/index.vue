@@ -15,16 +15,18 @@ const hasAdminPermission = computed(() => {
   return authStore.userInfo.permissions.includes('admin');
 });
 
+// 申请表单数据
 const applyForm = reactive({
-  permissionType: null as Api.Permission.PermissionType | null,
-  days: 30,
-  forever: false,
-  reason: ''
+  permissionType: null as Api.Permission.PermissionType | null, // 权限类型
+  days: 30, // 申请天数
+  forever: false, // 是否永久
+  reason: '' // 申请理由
 });
 
 const formRef = ref();
 const loading = ref(false);
 
+// 权限类型选项（用于下拉框）
 const permissionTypeOptions: { value: Api.Permission.PermissionType; label: string }[] = [
   { value: 'file', label: $t('page.permission.file') },
   { value: 'scene', label: $t('page.permission.scene') },
@@ -35,6 +37,7 @@ const permissionTypeOptions: { value: Api.Permission.PermissionType; label: stri
   { value: 'admin', label: $t('page.permission.admin') }
 ];
 
+// 表单验证规则
 const rules = {
   permissionType: [
     {
@@ -86,6 +89,7 @@ onMounted(() => {
   }
 });
 
+// 提交申请按钮处理函数
 async function handleSubmit() {
   if (!formRef.value) return;
 
@@ -114,6 +118,7 @@ async function handleSubmit() {
   });
 }
 
+// 取消按钮处理函数
 function handleCancel() {
   router.back();
 }
