@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
-import { useElementSize } from '@vueuse/core'; // Soybean Admin 默认包含 VueUse
+import { useElementSize } from '@vueuse/core';
 import { fetchFileTypes } from '@/service/api/home';
 import { useAppStore } from '@/store/modules/app';
 import { useEcharts } from '@/hooks/common/echarts';
@@ -16,7 +16,7 @@ const fileTypeData = ref<Api.Home.FileType[]>([]);
 const totalCount = ref(0);
 const totalSize = ref(0);
 
-// 工具函数：格式化文件大小 (字节 -> 文本)
+// 工具函数：格式化文件大小
 function formatFileSize(bytes: number) {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -25,15 +25,14 @@ function formatFileSize(bytes: number) {
   return `${(bytes / k ** i).toFixed(2)} ${sizes[i]}`;
 }
 
-// 工具函数：格式化数字 (1000 -> 1,000)
+// 工具函数：格式化数字
 function formatCount(num: number) {
   return num.toLocaleString();
 }
 
 const { domRef, updateOptions } = useEcharts(() => ({
-  // 初始配置，具体的 fontSize 会在 adjustFontSize 中被覆盖
+  // 初始配置
   title: [
-    // 左侧标题：数量
     {
       text: '文件数量分布',
       left: '25%',
@@ -41,7 +40,6 @@ const { domRef, updateOptions } = useEcharts(() => ({
       textAlign: 'center',
       textStyle: { fontSize: 16, fontWeight: 'bold' }
     },
-    // 右侧标题：体积
     {
       text: '文件体积分布',
       left: '75%',
@@ -54,11 +52,11 @@ const { domRef, updateOptions } = useEcharts(() => ({
       text: formatCount(totalCount.value),
       subtext: '总数量',
       left: '25%',
-      top: '52%', // 稍微微调垂直位置以居中
+      top: '52%',
       textAlign: 'center',
       textStyle: { fontSize: 24, fontWeight: 'bold', color: '#333' },
       subtextStyle: { fontSize: 12, color: '#999' },
-      itemGap: 4 // 主副标题间距
+      itemGap: 4
     },
     // 中心文字：总体积 (索引 3)
     {
@@ -84,9 +82,10 @@ const { domRef, updateOptions } = useEcharts(() => ({
     {
       name: 'Count',
       type: 'pie',
-      radius: ['45%', '70%'],
+      minAngle: 15, // <--- 关键修改：设置最小扇区角度，防止数值过小看不见
+      radius: ['30%', '50%'], // 初始值，后续会被 watch 覆盖
       center: ['25%', '55%'],
-      avoidLabelOverlap: false,
+      avoidLabelOverlap: true,
       itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
       label: { show: false },
       data: [] as any[]
@@ -94,9 +93,10 @@ const { domRef, updateOptions } = useEcharts(() => ({
     {
       name: 'Size',
       type: 'pie',
-      radius: ['45%', '70%'],
+      minAngle: 5, // <--- 关键修改：设置最小扇区角度
+      radius: ['30%', '50%'], // 初始值，后续会被 watch 覆盖
       center: ['75%', '55%'],
-      avoidLabelOverlap: false,
+      avoidLabelOverlap: true,
       itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
       label: { show: false },
       data: [] as any[]
@@ -104,22 +104,38 @@ const { domRef, updateOptions } = useEcharts(() => ({
   ]
 }));
 
-// --- 核心逻辑：自适应字号计算 ---
+// --- 核心逻辑：自适应计算 ---
 const { width: containerWidth } = useElementSize(domRef);
 
 // 根据容器宽度计算合适的字号
 function getResponsiveFontSize(width: number) {
-  // 基础逻辑：宽度越小，字号越小。
-  // 假设 600px 宽时用 24px 字号，最小不小于 14px，最大不超过 30px
   const baseSize = width / 25;
   return Math.min(Math.max(baseSize, 14), 28);
 }
 
-// 监听容器宽度变化，更新字号
+// 根据容器宽度计算合适的饼图半径（防止重叠）
+function getResponsiveChartParams(width: number) {
+  // 两个饼图的中心分别在 25% 和 75%，间距为 50% 的宽度。
+  // 为了不重叠，最大半径不能超过宽度的 25%。
+  // 这里我们取宽度的 20% 作为外径，留一些余地。
+  let outerRadius = width / 5;
+  // 设置一个最大和最小像素值，防止过大或过小
+  outerRadius = Math.min(Math.max(outerRadius, 60), 130);
+
+  // 内径取外径的 60%
+  const innerRadius = outerRadius * 0.6;
+
+  return {
+    radius: [innerRadius, outerRadius]
+  };
+}
+
+// 监听容器宽度变化，更新字号和图表尺寸
 watch(containerWidth, newWidth => {
   if (newWidth > 0) {
     const newFontSize = getResponsiveFontSize(newWidth);
-    const subTextSize = Math.max(newFontSize * 0.5, 10); // 副标题约为一半大小
+    const subTextSize = Math.max(newFontSize * 0.5, 10);
+    const { radius } = getResponsiveChartParams(newWidth);
 
     updateOptions(opts => {
       if (Array.isArray(opts.title)) {
@@ -139,6 +155,11 @@ watch(containerWidth, newWidth => {
           color: opts.title[3].subtextStyle?.color ?? '#999'
         };
       }
+
+      // 更新两个饼图的半径
+      opts.series[0].radius = radius.map(r => `${r}px`);
+      opts.series[1].radius = radius.map(r => `${r}px`);
+
       return opts;
     });
   }
@@ -160,7 +181,6 @@ async function fetchData() {
         opts.series[1].data = fileTypeData.value.map(item => ({ name: item.file_type_name, value: item.size }));
 
         if (Array.isArray(opts.title)) {
-          // 使用 formatCount 添加千分位
           opts.title[2].text = formatCount(totalCount.value);
           opts.title[3].text = formatFileSize(totalSize.value);
         }
@@ -176,7 +196,6 @@ async function fetchData() {
 
 function updateLocale() {
   updateOptions(opts => {
-    // 刷新多语言
     if (Array.isArray(opts.title)) {
       opts.title[0].text = $t('page.home.fileTypesOverview');
     }
@@ -188,17 +207,21 @@ watch(() => appStore.locale, updateLocale);
 
 async function init() {
   await fetchData();
-  // 初始化时手动触发一次字号计算，确保渲染正确
+  // 初始化时手动触发一次计算
   nextTick(() => {
     if (domRef.value) {
       const w = domRef.value.clientWidth;
       if (w > 0) {
         const size = getResponsiveFontSize(w);
+        const { radius } = getResponsiveChartParams(w);
+
         updateOptions(opts => {
           if (Array.isArray(opts.title)) {
             opts.title[2].textStyle = { ...opts.title[2].textStyle, fontSize: size };
             opts.title[3].textStyle = { ...opts.title[3].textStyle, fontSize: size };
           }
+          opts.series[0].radius = radius.map(r => `${r}px`);
+          opts.series[1].radius = radius.map(r => `${r}px`);
           return opts;
         });
       }
