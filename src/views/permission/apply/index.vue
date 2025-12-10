@@ -105,6 +105,8 @@ async function handleSubmit() {
           window.$message?.success($t('page.permission.applySuccess'));
           router.push('/permission/my');
         }
+      } catch (e) {
+        console.error('申请权限失败:', e);
       } finally {
         loading.value = false;
       }
@@ -146,6 +148,7 @@ function handleCancel() {
                 v-model="applyForm.days"
                 :min="1"
                 :max="365"
+                :precision="0"
                 :placeholder="$t('page.permission.durationPlaceholder')"
                 controls-position="right"
                 :disabled="applyForm.forever"
