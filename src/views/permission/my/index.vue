@@ -66,6 +66,11 @@ async function handleWithdraw(requestId: number) {
     const success = await permissionStore.withdrawApplication(requestId);
     if (success) {
       window.$message?.success('申请撤回成功');
+      // 刷新列表
+      await permissionStore.getUserApplications(
+        permissionStore.userApplicationPagination.current,
+        permissionStore.userApplicationPagination.size
+      );
     } else {
       window.$message?.error('申请撤回失败，请稍后重试');
     }
