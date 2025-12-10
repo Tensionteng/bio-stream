@@ -99,6 +99,11 @@ function handleSearch() {
   fetchFileList();
 }
 
+// 获取当前显示的数据条数（实际显示在当前页的条数）
+function getCurrentDisplayCount(): number {
+  return fileList.value.length;
+}
+
 // 重置筛选条件
 function handleResetFilters() {
   fileListFileId.value = 0;
@@ -233,17 +238,19 @@ defineExpose({
     </div>
     
     <div class="history-pagination">
-      <ElPagination
-        v-if="fileListTotal > 0"
-        background
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="fileListTotal"
-        :page-size="fileListPageSize"
-        :current-page="fileListPage"
-        :page-sizes="[10, 20, 50, 100]"
-        @current-change="handleCurrentChange"
-        @size-change="handlePageSizeChange"
-      />
+      <div v-if="fileListTotal > 0" class="pagination-content">
+        <span class="data-count">共 {{ fileListTotal }} 条</span>
+        <ElPagination
+          background
+          layout="sizes, prev, pager, next, jumper"
+          :total="fileListTotal"
+          :page-size="fileListPageSize"
+          :current-page="fileListPage"
+          :page-sizes="[10, 20, 50, 100]"
+          @current-change="handleCurrentChange"
+          @size-change="handlePageSizeChange"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -255,10 +262,11 @@ defineExpose({
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  gap: 0;
 }
 
 .history-table-scroll {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
@@ -268,8 +276,49 @@ defineExpose({
   flex-shrink: 0;
   padding-top: 12px;
   padding-bottom: 8px;
+  padding-left: 16px;
+  padding-right: 16px;
   border-top: 1px solid #ebeef5;
   background: #fafcff;
+  overflow: hidden;
+}
+
+.pagination-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.data-count {
+  font-size: 14px;
+  color: #606266;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.pagination-content :deep(.el-pagination) {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .pagination-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .pagination-content :deep(.el-pagination) {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
 }
 
 .filter-area {
@@ -277,7 +326,8 @@ defineExpose({
   flex-direction: column;
   gap: 12px;
   margin-bottom: 12px;
-  padding: 12px;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .filter-row {

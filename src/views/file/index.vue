@@ -314,12 +314,26 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  overflow: visible;
+  overflow: hidden;
   height: 100%;
   border-radius: 20px;
   box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.1);
   padding: clamp(16px, 3vw, 38px) clamp(14px, 2.5vw, 32px) clamp(14px, 2.5vw, 32px) clamp(14px, 2.5vw, 32px);
   background: var(--el-bg-color, #fafcff);
+  box-sizing: border-box;
+}
+
+.history-card :deep(.el-card__header) {
+  padding: 0;
+  border-bottom: none;
+}
+
+.history-card :deep(.el-card__body) {
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 @media (max-width: 768px) {
