@@ -7,11 +7,22 @@ import {
 import { FileBatchUploadInit } from '@/service/api/file';
 import { getSampleIdValue } from './FileUploadHandler';
 
-export function useFileUpload() {
-  const uploadLoading = ref(false);
-  const uploadTaskList = ref<any[]>([]);
+// ==================== 文件上传 Composition API ====================
 
-  // 添加上传任务到列表
+/**
+ * 文件上传管理 Hook
+ * 管理批量文件上传的整个生命周期，包括初始化、分组、上传和状态跟踪
+ */
+export function useFileUpload() {
+  // 上传状态管理
+  const uploadLoading = ref(false); // 全局上传加载状态
+  const uploadTaskList = ref<any[]>([]); // 上传任务列表，用于显示进度
+
+  /**
+   * 添加新的上传任务到列表
+   * @param fileName 显示用的文件名
+   * @returns 生成的任务ID
+   */
   function addUploadTask(fileName: string): string {
     const taskId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     uploadTaskList.value.push({
@@ -23,20 +34,29 @@ export function useFileUpload() {
     return taskId;
   }
 
-  // 更新上传任务进度（实时捕捉传输进度）
+  /**
+   * 实时更新上传任务的进度
+   * 确保进度单调递增
+   * @param taskId 任务ID
+   * @param progress 进度百分比 (0-100)
+   */
   function updateUploadTaskProgress(taskId: string, progress: number) {
     const task = uploadTaskList.value.find(t => t.id === taskId);
     if (task) {
-      // 确保进度单调递增，并记录进度变化
+      // 确保进度单调递增
       if (progress > task.progress) {
         task.progress = progress;
-        // 可选：添加进度更新日志用于调试
         console.log(`[${task.fileName}] 上传进度: ${progress}%`);
       }
     }
   }
 
-  // 更新上传任务状态
+  /**
+   * 更新上传任务的状态
+   * @param taskId 任务ID
+   * @param status 新状态 (uploading | success | error)
+   * @param error 错误信息
+   */
   function updateUploadTaskStatus(
     taskId: string,
     status: 'uploading' | 'success' | 'error',
@@ -61,20 +81,24 @@ export function useFileUpload() {
     }
   }
 
-  // 取消单个上传任务
+  /**
+   * 取消单个上传任务
+   * 设置取消标志，调用全局取消机制
+   * @param taskId 任务ID
+   */
   function cancelUploadTask(taskId: string) {
     const task = uploadTaskList.value.find(t => t.id === taskId);
     if (task) {
-      task.canceling = true;
-      // 调用全局取消机制
+      task.canceling = true; // 标记为取消中
+      // 调用全局取消机制，中止网络请求
       cancelUploadTaskGlobal(taskId);
       
       console.log(`正在取消任务 ${taskId}: ${task.fileName}`);
       
-      // 异步处理状态更新
+      // 异步处理状态更新，确保UI有时间显示取消中状态
       setTimeout(() => {
         if (task.status === 'uploading') {
-          task.status = 'error';
+          task.status = 'error'; // 标记为失败
           task.error = '已取消';
         }
         task.canceling = false;
@@ -82,21 +106,28 @@ export function useFileUpload() {
     }
   }
 
-  // 删除上传任务
+  /**
+   * 从任务列表中移除上传任务
+   * 用于清除已完成或已取消的任务
+   * @param taskId 任务ID
+   */
   function removeUploadTask(taskId: string) {
     const index = uploadTaskList.value.findIndex(t => t.id === taskId);
     if (index > -1) {
-      uploadTaskList.value.splice(index, 1);
+      uploadTaskList.value.splice(index, 1); // 从数组中删除
     }
   }
 
-  // 处理批量分组上传
+  /**
+   * 处理批量文件上传的主流程
+   * 包括验证、分组、初始化和实际上传等步骤
+   */
   async function handleBatchSubmit(
     dynamicForm: any,
     selectedSchema: any,
     textFields: any[],
     fileFields: any[],
-    fileFieldGroupSizes: Record<string, number>,
+    fileFieldGroupSizes: Record<string, number>, // 每个文件字段的分组数量
     getUploadedFilesForField: (field: any) => any[],
     validateFileFields: () => boolean,
     validateTextFields: () => boolean,
@@ -105,15 +136,17 @@ export function useFileUpload() {
   ) {
     if (!selectedSchema) return;
 
-    // 验证字段
+    // 验证所有字段的输入（文本字段和文件字段）
     if (!validateFileFields() || !validateTextFields()) return;
 
     uploadLoading.value = true;
     try {
+      // ==================== 分组配置验证 ====================
       // 验证分组数量并检查文件数量是否能整除
       const fileTypeGroups: Record<string, any> = {};
       
       for (const field of fileFields) {
+        // 检查分组数量是否有效（必须大于0）
         if ((fileFieldGroupSizes[field.name] || 0) < 1) {
           ElMessage.error(`${field.label}的分组数量必须大于0`);
           uploadLoading.value = false;
@@ -123,29 +156,34 @@ export function useFileUpload() {
         const files = getUploadedFilesForField(field);
         const groupSize = fileFieldGroupSizes[field.name] || 1;
         
-        // 检查文件数量是否能被分组数量整除
+        // 验证文件数量是否能被分组数量整除
+        // 例如：5个文件，分组数2，则5 % 2 = 1（无法整除，报错）
         if (files.length > 0 && files.length % groupSize !== 0) {
           ElMessage.error(`${field.label}的文件数量(${files.length})不能被分组数量(${groupSize})整除`);
           uploadLoading.value = false;
           return;
         }
         
+        // 只有有文件的字段才加入分组配置
         if (files.length > 0) {
           fileTypeGroups[field.name] = {
             field,
             files,
             groupSize,
-            rounds: files.length / groupSize, // 该文件类型的轮次数
-            index: 0
+            rounds: files.length / groupSize, // 该文件类型的总分组轮次
+            index: 0 // 当前文件索引
           };
         }
       }
 
+      // ==================== 表单数据构建 ====================
       // 构造 content_json（只保留非文件字段）
       const contentJson: any = {};
       textFields.forEach(f => {
-        if (f.type === 'dynamic-object') return; // 跳过动态对象类型
+        // 跳过动态对象类型字段（这些在后续单独处理）
+        if (f.type === 'dynamic-object') return;
         const val = dynamicForm[f.name];
+        // 只添加有值的字段
         if (val !== undefined && val !== '' && val !== null) {
           contentJson[f.name] = val;
         }

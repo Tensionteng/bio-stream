@@ -3,34 +3,38 @@ import { ref, watch } from 'vue';
 import { ElMessage, ElForm, ElFormItem, ElSelect, ElOption, ElDivider, ElIcon } from 'element-plus';
 import { fetchFileSchemaInfo } from '@/service/api/file';
 
-// Props
+// ==================== Props 与 Emits ====================
+// Props: 双向绑定的选中 schema ID
 const props = defineProps<{
   modelValue: string;
 }>();
 
-// Emits
+// Emits: 向父组件发送更新事件
 const emit = defineEmits<{
-  'update:modelValue': [value: string];
-  'schemaSelected': [schema: any];
+  'update:modelValue': [value: string];    // 更新选中的 schema ID
+  'schemaSelected': [schema: any];         // 发送完整的 schema 对象
 }>();
 
-// 本地状态
-const schemas = ref<any[]>([]);
-const selectedSchemaId = ref(props.modelValue);
-const filteredSchemas = ref<any[]>([]);
-const searchKeyword = ref('');
-const selectedSchema = ref<any>(null);
+// ==================== 本地状态 ====================
+const schemas = ref<any[]>([]); // 所有可用的 schema 列表
+const selectedSchemaId = ref(props.modelValue); // 当前选中的 schema ID
+const filteredSchemas = ref<any[]>([]); // 搜索过滤后的 schema 列表
+const searchKeyword = ref(''); // 搜索关键词
+const selectedSchema = ref<any>(null); // 当前选中的完整 schema 对象
 
-// 1. 获取 schema 列表
+/**
+ * 从后端获取 schema 列表
+ * 包含数据类型定义、字段配置等信息
+ */
 async function fetchSchemas() {
   try {
-    // 直接请求 Apifox Mock 地址
+    // 调用 API 获取 schema 信息
     const res = await fetchFileSchemaInfo();
 
-    // 从 Apifox 响应中提取 schema 数据
+    // 从响应中提取 schema 数据
     const schemaData = res.data?.schemas;
 
-    // 如果接口无数据，则用 schemas_list 展示
+    // 检查是否成功获取数据
     if (Array.isArray(schemaData) && schemaData.length > 0) {
       schemas.value = schemaData;
       ElMessage.success(`成功获取到 ${schemaData.length} 个 Schema 数据`);
@@ -39,13 +43,16 @@ async function fetchSchemas() {
     }
     updateFilteredSchemas();
   } catch (error) {
-    console.error('获取 Schema 失败:', error); // 调试日志
+    console.error('获取 Schema 失败:', error);
     ElMessage.warning('接口获取schema失败');
     updateFilteredSchemas();
   }
 }
 
-// 搜索过滤功能
+/**
+ * 根据搜索关键词更新过滤的 schema 列表
+ * 支持按 name、description 等字段模糊搜索
+ */
 function updateFilteredSchemas() {
   if (!searchKeyword.value) {
     filteredSchemas.value = schemas.value;

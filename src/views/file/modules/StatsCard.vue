@@ -4,49 +4,60 @@ import { ElIcon } from 'element-plus';
 import { UploadFilled } from '@element-plus/icons-vue';
 import { fetchFileStatistics } from '@/service/api/file';
 
-// 统计数据
-const totalFileCount = ref(0);
-const totalFileSize = ref(0);
-const lastUploadTime = ref('');
+// ==================== 本地状态 ====================
+// 文件统计数据
+const totalFileCount = ref(0); // 总文件数量
+const totalFileSize = ref(0); // 总文件大小（字节）
+const lastUploadTime = ref(''); // 最后上传时间
 
 /**
- * 格式化文件大小，自适应 B, KB, MB, GB, TB
- *
+ * 格式化文件大小，自适应 B, KB, MB, GB, TB 等单位
+ * 使用对数函数自动计算适合的单位
  * @param bytes 文件大小（字节）
  * @param decimals 小数位，默认为 2
+ * @returns 格式化后的文件大小字符串
  */
 const formatBytes = (bytes: number, decimals = 2) => {
   if (bytes === 0) return '0 B';
 
-  const k = 1024;
+  const k = 1024; // 1KB = 1024B
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
 
-  // 计算单位的索引：0=B, 1=KB, 2=MB, 3=GB, 4=TB
+  // 计算单位索引：通过对数计算文件大小应该显示的单位
+  // Math.log(bytes) / Math.log(k) 得出单位级数
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
+  // 返回格式化结果：值 + 单位
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 };
 
-// 2. 获取文件统计信息
+/**
+ * 从后端获取文件统计信息
+ * 包括总数量、总大小、最后上传时间等
+ */
 async function fetchFileStats() {
   try {
-    // 假设接口返回 { total_files: 123, total_size: 4567890 (单位是字节) }
+    // 调用统计数据接口
     const res = await fetchFileStatistics();
+    // 提取统计数据（单位：字节）
     totalFileCount.value = res.data?.total_files || 0;
     totalFileSize.value = res.data?.total_size || 0;
     lastUploadTime.value = res.data?.last_upload_time || 'N/A';
   } catch {
+    // 出错时使用默认值
     totalFileCount.value = 0;
     totalFileSize.value = 0;
     lastUploadTime.value = 'N/A';
   }
 }
 
+// 组件挂载时获取统计数据
 onMounted(() => {
   fetchFileStats();
 });
 
+// 向父组件暴露刷新方法
 defineExpose({
   fetchFileStats
 });

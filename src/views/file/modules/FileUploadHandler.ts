@@ -2,20 +2,33 @@ import axios from 'axios';
 import { createSHA256 } from 'hash-wasm';
 import { FileUploadComplete } from '@/service/api/file';
 
+// ==================== 上传任务管理 ====================
 // 全局上传任务映射表，用于管理和取消上传任务
 const uploadTaskMap = new Map<string, { cancelToken: any; uploadClient: any }>();
 
-// 获取或创建任务的 cancel token
+/**
+ * 获取上传任务的取消令牌
+ * @param taskId 任务ID
+ * @returns 取消令牌对象
+ */
 export function getUploadTaskCancelToken(taskId: string) {
   return uploadTaskMap.get(taskId)?.cancelToken;
 }
 
-// 注册上传任务
+/**
+ * 注册一个新的上传任务到全局映射表
+ * @param taskId 任务ID
+ * @param cancelToken axios 取消令牌
+ * @param uploadClient axios 上传客户端实例
+ */
 export function registerUploadTask(taskId: string, cancelToken: any, uploadClient: any) {
   uploadTaskMap.set(taskId, { cancelToken, uploadClient });
 }
 
-// 取消上传任务
+/**
+ * 取消上传任务
+ * @param taskId 任务ID
+ */
 export function cancelUploadTask(taskId: string) {
   const task = uploadTaskMap.get(taskId);
   if (task?.cancelToken) {
@@ -24,15 +37,25 @@ export function cancelUploadTask(taskId: string) {
   }
 }
 
-// 清理已完成的任务
+/**
+ * 清理已完成的任务记录
+ * @param taskId 任务ID
+ */
 export function cleanupUploadTask(taskId: string) {
   uploadTaskMap.delete(taskId);
 }
 
-// 计算文件哈希编码
+// ==================== 文件操作工具函数 ====================
+
+/**
+ * 计算文件的SHA256哈希值
+ * 使用分块处理大文件，防止内存溢出
+ * @param file 要计算哈希的文件
+ * @returns 文件的十六进制哈希值
+ */
 export async function hashFile(file: File) {
   const sha256 = await createSHA256();
-  const chunkSize = 4 * 1024 * 1024; // 4MB 一块
+  const chunkSize = 4 * 1024 * 1024; // 4MB 一块，分块处理
   let offset = 0;
   const chunks: Blob[] = [];
   while (offset < file.size) {
@@ -46,16 +69,28 @@ export async function hashFile(file: File) {
   return sha256.digest('hex');
 }
 
-// 从文件名获取用于键名/描述的后缀
+/**
+ * 从文件名中提取文件扩展名或后缀
+ * 支持双扩展名如 .fastq.gz
+ * @param fileName 文件名
+ * @returns 文件后缀
+ */
 export function getSuffixFromFileName(fileName: string): string {
   const lower = (fileName || '').toLowerCase();
+  // 特殊处理双扩展名
   if (lower.endsWith('.fastq.gz')) return 'fastq.gz';
   if (lower.endsWith('.fq.gz')) return 'fq.gz';
   const parts = lower.split('.');
   return parts.length > 1 ? parts[parts.length - 1] : '';
 }
 
-// 遍历 dynamicForm，收集所有含有 file 的叶子节点
+/**
+ * 递归遍历动态表单对象，收集所有文件条目
+ * 返回包含文件引用的所有叶子节点
+ * @param obj 动态表单对象
+ * @param basePath 当前遍历路径
+ * @returns 文件条目数组
+ */
 export function collectFileEntries(
   obj: Record<string, any>,
   basePath: string[] = []
@@ -66,10 +101,12 @@ export function collectFileEntries(
   Object.entries(obj).forEach(([k, v]) => {
     const currentPath = [...basePath, k];
     if (v && typeof v === 'object') {
+      // 检查是否为文件字段（含有file属性且未隐藏）
       if ('file' in v && v.file && !(v as any).hidden) {
         const fieldName = k;
         results.push({ path: currentPath, field_name: fieldName, file: v.file as File });
       } else if (!Array.isArray(v)) {
+        // 多文件字段处理：检查对象内是否有多个文件
         let hasMultipleFiles = false;
         const multiFiles: Array<{ path: string[]; field_name: string; file: File }> = [];
         
@@ -87,6 +124,7 @@ export function collectFileEntries(
         if (hasMultipleFiles) {
           results.push(...multiFiles);
         } else {
+          // 继续递归遍历
           results.push(...collectFileEntries(v as Record<string, any>, currentPath));
         }
       }
@@ -113,33 +151,44 @@ export function setNestedValue(target: Record<string, any>, path: string, value:
   }
 }
 
-// 构建描述JSON
+// ==================== 描述信息构建 ====================
+
+/**
+ * 构建上传完成时需要的描述JSON
+ * 将上传的文件和表单数据整合成统一的结构
+ */
 export function buildDescriptionJson(uploadedFiles: any[], textFields: any[], dynamicForm: any): any {
   const descriptionJson: any = {};
 
-  // 处理非文件字段
+  // 处理非文件字段（将表单数据添加到描述中）
   textFields.forEach(f => {
+    // 跳过动态对象类型字段
     if (f.type === 'dynamic-object') return;
     const val = (dynamicForm as any)[f.name];
+    // 只添加有效的值
     if (val !== undefined) setNestedValue(descriptionJson, f.name, val);
   });
 
-  // 处理文件字段
+  // 处理文件字段（添加S3路径和文件类型）
   uploadedFiles.forEach(uf => {
     setNestedValue(descriptionJson, uf.field_name, {
-      path: uf.s3_key,
-      file_type: `.${getSuffixFromFileName(uf.origin_filename)}`
+      path: uf.s3_key, // S3中的存储路径
+      file_type: `.${getSuffixFromFileName(uf.origin_filename)}` // 文件扩展名
     });
   });
 
   return descriptionJson;
 }
 
-// 获取样本唯一标识符字段名（支持 sample_id、cov_info_csv_id 等多种字段名）
+/**
+ * 获取样本唯一标识符字段名
+ * 支持多种可能的字段名（sample_id、cov_info_csv_id等）
+ */
 export function getSampleIdFieldName(dynamicForm: any): string {
   // 可能的字段名列表（按优先级排序）
   const possibleFieldNames = ['sample_id', 'cov_info_csv_id'];
   
+  // 逐一检查是否存在且有值
   for (const fieldName of possibleFieldNames) {
     if (dynamicForm[fieldName] && String(dynamicForm[fieldName]).trim()) {
       return fieldName;
@@ -150,15 +199,20 @@ export function getSampleIdFieldName(dynamicForm: any): string {
   return 'sample_id';
 }
 
-// 获取样本唯一标识符的值
+/**
+ * 获取样本唯一标识符的值
+ * 如果用户没有填写，则使用时间戳作为默认值
+ */
 export function getSampleIdValue(dynamicForm: any): string {
   const fieldName = getSampleIdFieldName(dynamicForm);
   const value = dynamicForm[fieldName];
   
+  // 如果字段有值，返回其值
   if (value && String(value).trim()) {
     return String(value).trim();
   }
   
+  // 使用时间戳作为备用唯一标识符
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).slice(2, 8);
   return `bioFile_${timestamp}_${randomSuffix}`;
@@ -277,17 +331,32 @@ function trackUploadProgress(
   }
 }
 
+// ==================== 批量文件上传处理 ====================
 
-
-// 处理批量文件上传 - 在 FileBatchUploadInit 之后调用
+/**
+ * 处理批量文件上传的核心逻辑
+ * 在 FileBatchUploadInit 初始化后调用，执行实际的文件上传操作
+ * 支持并行上传多个批次，每个批次内的文件也并行上传
+ * 
+ * @param batchInitResponse FileBatchUploadInit 的响应数据，包含上传URL信息
+ * @param uploads 上传批次数组，每个批次包含多个文件字段信息
+ * @param dynamicForm 动态表单对象，包含实际的文件数据
+ * @param selectedSchemaId 数据类型ID
+ * @param textFields 文本字段配置数组
+ * @param batchTaskIds 批次任务ID数组，用于进度跟踪
+ * @param userProvidedSampleId 用户提供的唯一标识符，用于 complete 接口
+ * @param onTaskProgress 进度回调函数
+ * @param onTaskCompleted 任务完成回调函数
+ * @returns 上传结果 { success: boolean, error?: string }
+ */
 export async function processBatchFileUploads(
   batchInitResponse: any,
   uploads: any[],
   dynamicForm: any,
   selectedSchemaId?: string | number,
   textFields?: any[],
-  batchTaskIds?: string[], // 新增：batch 任务 ID 列表
-  userProvidedSampleId?: string, // 新增：用户填写的样本唯一标识符（可能是 sample_id、cov_info_csv_id 等），用于 complete 接口
+  batchTaskIds?: string[],
+  userProvidedSampleId?: string,
   onTaskProgress?: (taskId: string, progress: number) => void,
   onTaskCompleted?: (taskId: string, status: 'success' | 'error', error?: string) => void
 ): Promise<any> {

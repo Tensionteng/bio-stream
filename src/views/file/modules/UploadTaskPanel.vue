@@ -3,33 +3,46 @@ import { ref } from 'vue';
 import { Upload, CaretTop } from '@element-plus/icons-vue';
 import { ElIcon, ElButton, ElProgress } from 'element-plus';
 
-// Props
+// ==================== Props 与 Emits ====================
+// Props: 上传任务列表，每个任务包含 id, fileName, progress, status 等信息
 const props = defineProps<{
   tasks: any[];
 }>();
 
-// Emits
+// Emits: 向父组件发送任务管理事件
 const emit = defineEmits<{
-  'cancel-task': [taskId: string];
-  'remove-task': [taskId: string];
+  'cancel-task': [taskId: string]; // 取消任务
+  'remove-task': [taskId: string]; // 移除任务
 }>();
 
-const uploadTaskPanelCollapsed = ref(false);
+// ==================== 本地状态 ====================
+const uploadTaskPanelCollapsed = ref(false); // 面板折叠状态
 
+/**
+ * 处理取消上传任务
+ * @param taskId 任务ID
+ */
 function handleCancelTask(taskId: string) {
   emit('cancel-task', taskId);
 }
 
+/**
+ * 处理移除上传任务记录
+ * @param taskId 任务ID
+ */
 function handleRemoveTask(taskId: string) {
   emit('remove-task', taskId);
 }
 </script>
 
 <template>
+  <!-- 上传任务浮动面板，仅在有任务时显示 -->
   <div v-if="props.tasks.length > 0" class="upload-task-panel">
+    <!-- 面板标题栏，点击可以折叠/展开 -->
     <div class="task-panel-header" @click="uploadTaskPanelCollapsed = !uploadTaskPanelCollapsed">
       <div class="task-panel-title">
         <ElIcon class="task-icon"><Upload /></ElIcon>
+        <!-- 显示当前上传中的任务数量 -->
         <span>正在上传文件数 ({{ props.tasks.filter(t => t.status === 'uploading').length }})</span>
       </div>
       <ElIcon class="collapse-icon" :style="{ transform: uploadTaskPanelCollapsed ? 'rotate(180deg)' : 'rotate(0deg)' }">
@@ -37,14 +50,18 @@ function handleRemoveTask(taskId: string) {
       </ElIcon>
     </div>
     
+    <!-- 任务列表内容区域 -->
     <div v-show="!uploadTaskPanelCollapsed" class="task-panel-content">
+      <!-- 单个任务项 -->
       <div v-for="task in props.tasks" :key="task.id" class="task-item">
         <div class="task-info">
           <span class="task-name">{{ task.fileName }}</span>
+          <!-- 任务状态标签 -->
           <span class="task-status" :class="task.status">
             {{ task.status === 'uploading' ? (task.canceling ? '取消中...' : '上传中') : task.status === 'success' ? '成功' : '失败' }}
           </span>
         </div>
+        <!-- 进度条显示 -->
         <ElProgress 
           :percentage="task.progress" 
           :status="task.status === 'error' ? 'exception' : task.status === 'success' ? 'success' : ''"

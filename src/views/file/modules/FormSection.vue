@@ -3,25 +3,34 @@ import { ref, reactive, watch} from 'vue';
 import { ElMessage, ElForm, ElFormItem, ElInput, ElSelect, ElOption, ElSwitch, ElUpload, ElButton, ElIcon } from 'element-plus';
 import { Upload } from '@element-plus/icons-vue';
 
-// Props
+// ==================== Props 与 Emits ====================
+// Props: 从父组件接收选中的 schema 对象
 const props = defineProps<{
   schema: any | null;
 }>();
 
-// Emits
+// Emits: 向父组件发送事件
 const emit = defineEmits<{
-  'upload-start': [];
-  'upload-complete': [];
-  'files-updated': [];
+  'upload-start': [];      // 上传开始
+  'upload-complete': [];   // 上传完成
+  'files-updated': [];     // 文件列表更新
 }>();
 
-// 本地状态
-const dynamicForm = reactive<any>({});
-const textFields = ref<any[]>([]);
-const fileFields = ref<any[]>([]);
+// ==================== 本地状态管理 ====================
+const dynamicForm = reactive<any>({}); // 动态表单数据，存储用户输入和文件数据
+const textFields = ref<any[]>([]); // 文本输入字段配置
+const fileFields = ref<any[]>([]); // 文件上传字段配置
 const fileFieldGroupSizes = reactive<Record<string, number>>({}); // 每个文件字段的分组数量
+const draggedItem = ref<{ field: any; index: number } | null>(null); // 拖拽状态跟踪
 
-// 获取已上传文件数
+// ==================== 文件统计与查询函数 ====================
+
+/**
+ * 获取字段已上传的文件数量
+ * 支持单文件模式和多文件模式
+ * @param field 字段配置对象
+ * @returns 已上传文件数
+ */
 function getUploadedFileCount(field: any): number {
   const fieldData = field.parentField
     ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
@@ -29,19 +38,23 @@ function getUploadedFileCount(field: any): number {
   
   if (typeof fieldData !== 'object') return 0;
   
-  // 如果是含有 file 属性的对象（单文件模式），返回 1
+  // 单文件模式：检查 file 属性是否存在
   if ('file' in fieldData && !Array.isArray(fieldData)) {
     return (fieldData as any).file ? 1 : 0;
   }
   
-  // 如果是对象数组（多文件模式），统计不隐藏的文件
+  // 多文件模式：统计不隐藏的文件
   const count = Object.values(fieldData).filter(
     (f: any) => f && typeof f === 'object' && 'file' in f && !(f as any).hidden
   ).length;
   return count;
 }
 
-// 获取字段已上传的文件列表
+/**
+ * 获取字段已上传的文件列表
+ * @param field 字段配置对象
+ * @returns 文件信息数组
+ */
 function getUploadedFilesForField(field: any): Array<{ path: string; hidden?: boolean }> {
   const fieldData = field.parentField
     ? ((dynamicForm[field.parentField] || {})[field.originalName] || {})
@@ -114,6 +127,13 @@ function isFileLikeField(prop: any, propType: string, propName: string): boolean
 }
 
 // 处理对象类型
+/**
+ * 处理 Schema 中的对象类型字段
+ * 支持三种模式：
+ * 1. properties 模式 - 固定结构对象
+ * 2. additionalProperties 动态对象 - 包含文件的动态对象
+ * 3. additionalProperties 动态对象 - 普通配置对象
+ */
 function handleObjectType({
   prop,
   propName,
@@ -126,6 +146,7 @@ function handleObjectType({
   isRequired: boolean;
   fieldKey: string;
 }) {
+  // 处理固定结构的 properties 模式
   if (prop.properties) {
     setNestedObject(dynamicForm, fieldKey, {});
     parseSchemaProperties({
@@ -134,6 +155,7 @@ function handleObjectType({
       parent: fieldKey
     });
   } else if (prop.additionalProperties) {
+    // 判断是否为文件类型的动态对象
     const isDynamicFileObject =
       prop.additionalProperties &&
       ((typeof prop.additionalProperties === 'object' && prop.additionalProperties.pattern) ||
@@ -143,13 +165,13 @@ function handleObjectType({
         (prop.description && /文件|路径|file|path/i.test(prop.description)));
     
     if (isDynamicFileObject) {
-      // 检查是否为文件类型的动态对象（如 filePaths）
+      // 进一步检查是否为 filePaths 类型的文件对象
       const isFilePathsObject = propName.toLowerCase().includes('filepath') || 
                                  propName.toLowerCase().includes('filepaths') ||
                                  (prop.additionalProperties?.properties?.path && prop.additionalProperties?.properties?.file_type);
       
       if (isFilePathsObject) {
-        // 作为文件字段处理（支持分组上传）
+        // 将其作为文件字段处理，支持批量上传和分组
         fileFields.value.push({
           name: fieldKey,
           originalName: propName,
@@ -157,17 +179,18 @@ function handleObjectType({
           label: prop.description || propName,
           type: 'file',
           required: isRequired,
-          fileType: 'dynamic',
+          fileType: 'dynamic', // 标记为动态文件对象
           pattern: '',
           description: prop.description || `请上传${propName}文件`
         });
-        // 初始化该字段的分组数量
+        // 初始化该字段的分组数量（默认每组1个文件）
         fileFieldGroupSizes[fieldKey] = 1;
+        // 初始化该字段的存储对象
         if (!dynamicForm[fieldKey] || typeof dynamicForm[fieldKey] !== 'object') {
           dynamicForm[fieldKey] = {};
         }
       } else {
-        // 作为动态对象字段处理（非文件）
+        // 作为普通动态对象字段处理（非文件）
         textFields.value.push({
           name: fieldKey,
           label: prop.description || propName,
@@ -179,6 +202,7 @@ function handleObjectType({
         setNestedObject(dynamicForm, fieldKey, {});
       }
     } else {
+      // 普通对象类型字段
       textFields.value.push({
         name: fieldKey,
         label: prop.description || propName,
@@ -714,15 +738,19 @@ function removeFileFromField(field: any, fileIndex: number) {
   
   if (!fieldData || typeof fieldData !== 'object') return;
   
+  // 单文件模式：直接清除整个字段
   if ('file' in fieldData && !Array.isArray(fieldData)) {
     clearFileField(field.originalName || field.name, field.parentField);
     return;
   }
   
+  // 多文件模式：遍历找到指定索引的文件并删除
   const files = Object.entries(fieldData);
-  let count = 0;
+  let count = 0; // 可见文件计数器
   for (const [key, file] of files) {
+    // 只计算未隐藏的文件
     if (file && typeof file === 'object' && 'file' in file && !(file as any).hidden) {
+      // 找到目标文件，删除它
       if (count === fileIndex) {
         delete fieldData[key];
         emit('files-updated');
@@ -733,9 +761,15 @@ function removeFileFromField(field: any, fileIndex: number) {
   }
 }
 
-// 清理文件字段的旧信息
+/**
+ * 清理文件字段的数据
+ * 将字段重置为空状态
+ * @param fieldName 字段名
+ * @param parentField 父字段名（如果有）
+ */
 function clearFileField(fieldName: string, parentField?: string) {
   if (parentField) {
+    // 嵌套字段：清空父对象中的该字段
     if (dynamicForm[parentField] && dynamicForm[parentField][fieldName]) {
       dynamicForm[parentField][fieldName] = {
         path: '',
@@ -743,6 +777,7 @@ function clearFileField(fieldName: string, parentField?: string) {
       };
     }
   } else if (dynamicForm[fieldName]) {
+    // 顶级字段：直接清空该字段
     dynamicForm[fieldName] = {
       path: '',
       file_type: ''
@@ -752,8 +787,14 @@ function clearFileField(fieldName: string, parentField?: string) {
 }
 
 // 验证文本字段
+/**
+ * 验证所有文本输入字段
+ * 检查必填字段是否已填写
+ * @returns 验证是否通过
+ */
 function validateTextFields(): boolean {
   for (const field of textFields.value) {
+    // 动态对象字段的特殊验证：需要至少有一个可见项
     if (field.type === 'dynamic-object') {
       const container = dynamicForm[field.name] || {};
       const visibleKeys = Object.keys(container).filter(key => !(container[key] as any).hidden);
@@ -763,6 +804,7 @@ function validateTextFields(): boolean {
         return false;
       }
     }
+    // 检查必填字段是否为空
     if (
       field.required &&
       (dynamicForm[field.name] === '' ||
@@ -772,6 +814,7 @@ function validateTextFields(): boolean {
       ElMessage.warning(`请填写${field.label}`);
       return false;
     }
+    // 选择框的特殊验证
     if (
       field.required &&
       field.type === 'select' &&
@@ -784,9 +827,14 @@ function validateTextFields(): boolean {
   return true;
 }
 
-// 验证文件字段
+/**
+ * 验证所有文件字段
+ * 检查必填的文件字段是否已上传文件
+ * @returns 验证是否通过
+ */
 function validateFileFields(): boolean {
   for (const field of fileFields.value) {
+    // 获取该字段的数据，支持嵌套字段
     const value = field.parentField
       ? ((dynamicForm[field.parentField] || {}) as any)[field.originalName] || {}
       : dynamicForm[field.name] || ({} as any);
