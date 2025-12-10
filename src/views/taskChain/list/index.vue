@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * 工具链列表页
+ *
+ * - 展示工具链列表，支持筛选、分页
+ * - 查看工具链详情（流程 / 输入 / 输出 / 参数）
+ * - 删除工具链前先做后端校验，避免误删正在使用的配置
+ */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -12,21 +19,23 @@ import {
 import type { TaskChainDetail, TaskChainListItem, TaskChainListParams } from '@/service/api/task_chain';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
 
-// 页面：工具链列表与详情/删除管控
+// 路由对象，用于跳转到创建/编辑工具链页面
 const router = useRouter();
 
-// 列表状态
+// 列表状态：当前页展示的工具链数据
 const taskChainList = ref<TaskChainListItem[]>([]);
+// 列表 loading 状态，控制表格骨架/加载动画
 const isLoadingList = ref(false);
 
-// 筛选状态
+// 筛选状态：与顶部查询表单双向绑定
+// 约定：为空字符串时表示不传该字段给后端
 const filterParams = reactive({
   task_type: '',
   task_id: '',
   task_name: ''
 });
 
-// 分页状态
+// 分页状态：与分页组件的 current-page / page-size / total 对应
 const pagination = reactive({
   page: 1,
   pageSize: 10,
@@ -34,22 +43,35 @@ const pagination = reactive({
 });
 
 // 详情模态框状态
+// 是否展示详情弹窗
 const showDetailModal = ref(false);
+// 当前选中的工具链详情数据
 const selectedTaskChain = ref<TaskChainDetail | null>(null);
+// 详情接口加载状态
 const isLoadingDetail = ref(false);
+// 详情接口错误信息
 const detailError = ref<string | null>(null);
 
-// [新增] 删除冲突弹窗状态
+// 删除冲突弹窗状态：
+// - deleteConflictVisible：是否展示“无法删除”弹窗
+// - deleteConflictData：弹窗中展示的关联/冲突数据列表
 const deleteConflictVisible = ref(false);
 const deleteConflictData = ref<any[]>([]);
 
+// 根据当前加载状态 / 详情数据动态生成弹窗标题
 const detailDialogTitle = computed(() => {
   if (isLoadingDetail.value) return '正在加载详情...';
   if (selectedTaskChain.value) return `工具链详情: ${selectedTaskChain.value.name}`;
   return '工具链详情';
 });
 
-// 获取任务链列表：组合筛选、分页参数，并刷新表格
+/**
+ * 获取任务链列表
+ *
+ * - 组合筛选参数 + 分页参数后调用后端接口
+ * - 根据接口返回结果更新 taskChainList 和 pagination.total
+ * - 请求过程中通过 isLoadingList 控制表格 loading 状态
+ */
 async function fetchTaskChains() {
   isLoadingList.value = true;
   try {
@@ -80,7 +102,16 @@ async function fetchTaskChains() {
   }
 }
 
-// 获取任务链详情：点击“详情”后打开弹窗并显示完整配置
+/**
+ * 获取任务链详情（在详情弹窗中展示）
+ *
+ * @param id 工具链 ID
+ *
+ *   说明：
+ *
+ *   - 点击“详情”按钮时触发
+ *   - 请求前会清空旧的 selectedTaskChain 和错误信息，避免数据闪烁
+ */
 async function fetchTaskDetail(id: string | number) {
   isLoadingDetail.value = true;
   detailError.value = null;
@@ -101,11 +132,18 @@ async function fetchTaskDetail(id: string | number) {
   }
 }
 
+/** 点击“编辑”按钮 通过路由跳转到工具链创建/编辑页面，并携带当前工具链 ID */
 function handleEdit(id: string | number) {
   router.push({ name: 'taskchain_create', query: { id } });
 }
 
-// 删除逻辑：先调检测接口，再决定是直接删除还是提示冲突
+/**
+ * 删除工具链入口 删除流程：
+ *
+ * 1. 先调用 checkDeleteTaskChain，判断是否允许删除，并返回分析信息 analysis
+ * 2. 若 delete_flg 为 true，弹出二次确认框，用户确认后再调用真正的删除接口
+ * 3. 若 delete_flg 为 false，展示“无法删除”弹窗，并在表格中列出关联/冲突信息
+ */
 async function handleDelete(row: TaskChainListItem) {
   try {
     // 1. 调用检测接口
@@ -160,13 +198,13 @@ async function performDelete(id: string | number) {
   }
 }
 
-// 顶部查询：修改筛选后回到第一页
+/** 顶部“查询”按钮点击 行为：重置到第一页，然后带当前筛选条件重新请求列表 */
 function handleSearch() {
   pagination.page = 1;
   fetchTaskChains();
 }
 
-// 清空筛选条件并重新拉取
+/** 顶部“重置”按钮点击 清空所有筛选条件，并将页码重置到第一页后重新请求列表 */
 function handleReset() {
   filterParams.task_type = '';
   filterParams.task_id = '';
@@ -175,26 +213,26 @@ function handleReset() {
   fetchTaskChains();
 }
 
-// 分页大小变化时重置到第一页
+/** 分页组件：每页条数变化 行为：更新 pageSize，并重置当前页为 1 后重新请求列表 */
 function handleSizeChange(val: number) {
   pagination.pageSize = val;
   pagination.page = 1;
   fetchTaskChains();
 }
 
-// 切换页码后保持筛选条件不变，直接刷新
+/** 分页组件：页码变化 行为：仅更新 page，保留当前筛选条件重新请求列表 */
 function handlePageChange(val: number) {
   pagination.page = val;
   fetchTaskChains();
 }
 
-// 打开详情弹窗
+/** 点击“详情”按钮 打开详情弹窗并发起查询详情的接口请求 */
 function handleViewDetails(id: string | number) {
   showDetailModal.value = true;
   fetchTaskDetail(id);
 }
 
-// 弹窗关闭时也要清空状态，避免旧数据闪烁
+/** 详情弹窗关闭回调 关闭时清空详情数据和状态，避免下次打开出现上一条数据短暂闪烁 */
 function onDialogClosed() {
   selectedTaskChain.value = null;
   detailError.value = null;
@@ -202,7 +240,9 @@ function onDialogClosed() {
 }
 
 onMounted(async () => {
-  // 进入页面先检查权限，避免无权限用户频繁请求接口
+  // 进入页面先检查权限：
+  // 1. 若无 task_chain 权限，则不再发起任何请求，统一在 usePermissionGuard 内提示
+  // 2. 若有权限，则拉取列表数据
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('task_chain');
   if (!hasPermission) {
@@ -215,6 +255,7 @@ onMounted(async () => {
 
 <template>
   <div class="task-chain-manager-el">
+    <!-- 主体卡片：包含筛选、列表和分页 -->
     <ElCard shadow="never" class="full-height-card">
       <template #header>
         <div class="card-header">
@@ -222,6 +263,7 @@ onMounted(async () => {
         </div>
       </template>
 
+      <!-- 顶部筛选区域：任务类型 / 任务 ID / 任务名称 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务类型">
           <ElInput v-model="filterParams.task_type" placeholder="按任务类型搜索" clearable @clear="handleSearch" />
@@ -241,6 +283,7 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
+      <!-- 工具链列表表格 -->
       <ElTable
         v-loading="isLoadingList"
         :data="taskChainList"
@@ -277,6 +320,7 @@ onMounted(async () => {
         </ElTableColumn>
       </ElTable>
 
+      <!-- 底部分页，只在有数据时显示 -->
       <div v-if="pagination.total > 0" class="pagination-container">
         <ElPagination
           v-model:current-page="pagination.page"
@@ -290,11 +334,15 @@ onMounted(async () => {
       </div>
     </ElCard>
 
+    <!-- 工具链详情弹窗 -->
     <ElDialog v-model="showDetailModal" :title="detailDialogTitle" width="70%" @closed="onDialogClosed">
+      <!-- 详情加载中的骨架屏 -->
       <ElSkeleton v-if="isLoadingDetail" :rows="10" animated />
 
+      <!-- 详情接口报错时的错误提示 -->
       <ElAlert v-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
 
+      <!-- 仅在成功拿到详情数据时展示主体内容 -->
       <div v-if="selectedTaskChain" class="detail-content">
         <div class="detail-header">
           <div class="detail-header-main">

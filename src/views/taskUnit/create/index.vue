@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * 创建任务单元页面
+ *
+ * - 负责前端文件选择 / 校验 / 结果展示
+ * - 实际创建逻辑由后端接口 `createTaskUnit` 处理
+ * - 支持一次上传多个 .py 文件，每个文件会生成一个任务单元
+ */
 import { computed, ref } from 'vue';
 import { ElMessage, ElNotification, type UploadUserFile } from 'element-plus';
 import { CircleCheckFilled, CircleCloseFilled, Document, UploadFilled, WarningFilled } from '@element-plus/icons-vue';
@@ -8,100 +15,165 @@ import type { TaskUnitFileResult } from '@/service/api/task_unit';
 /**
  * # ==========================================
  *
- * 状态定义区域
+ * 状态定义区域：页面上所有响应式数据集中放在这里
+ *
+ * - fileList：绑定 ElUpload 的文件列表
+ * - isLoading：提交创建时的 loading 状态
+ * - resultDialogVisible：创建结果弹窗是否显示
+ * - uploadResults：后端返回的每个文件处理结果
+ *
+ * # ==========================================
  */
-const fileList = ref<UploadUserFile[]>([]);
-const isLoading = ref(false);
-const resultDialogVisible = ref(false);
-const uploadResults = ref<TaskUnitFileResult[]>([]);
+const fileList = ref<UploadUserFile[]>([]); // 当前选择的文件列表（由 ElUpload 维护结构）
+const isLoading = ref(false); // 是否处于“提交创建”的处理中
+const resultDialogVisible = ref(false); // 控制结果弹窗显示/隐藏
+const uploadResults = ref<TaskUnitFileResult[]>([]); // 后端返回的任务单元文件处理结果列表
 
+/**
+ * 是否已经选择了待上传的文件
+ *
+ * - 用于控制“提交创建”“重置”等按钮的可用状态
+ */
 const hasFiles = computed(() => fileList.value.length > 0);
 
 /**
  * # ==========================================
  *
- * 工具函数
+ * 工具函数：与业务弱相关的小函数
+ *
+ * # ==========================================
  */
+
+/** 当用户选择的文件数超过 ElUpload 的 `limit` 配置时触发 这里只做前端友好的提示，不做其他拦截逻辑 */
 const handleExceed = () => {
   ElMessage.warning('一次最多上传 20 个文件，如需更多请分批上传');
 };
 
+/**
+ * 清空当前已选择的文件列表
+ *
+ * - 只影响前端展示，不会对已经提交的任务产生影响
+ */
 const clearFiles = () => {
   fileList.value = [];
 };
 
+/**
+ * 将字节数格式化成更易读的字符串
+ *
+ * - < 1KB：展示为 B
+ * - < 1MB：展示为 KB（保留 1 位小数）
+ * - 其他：展示为 MB（保留 1 位小数）
+ */
 const formatSize = (size: number) => {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 };
 
+/**
+ * 结果弹窗关闭时的回调
+ *
+ * - 目前只是占位，方便后续如果需要在关闭时做一些刷新/重置操作
+ */
 const handleDialogClose = () => {
-  // 弹窗关闭回调
+  // 弹窗关闭回调（保留扩展点）
 };
 
 /**
  * # ==========================================
  *
- * 核心逻辑
+ * 核心逻辑：点击“提交创建”时的主流程
+ *
+ * 主流程包含 4 个步骤：
+ *
+ * 1. 基础校验：检查是否选择了文件，且全部是 .py
+ * 2. 设置 loading 状态并清空旧的结果
+ * 3. 调用后端接口 createTaskUnit 进行创建
+ * 4. 根据返回结果展示成功/失败信息，并决定是否打开结果弹窗
+ *
+ * # ==========================================
  */
 const handleSubmitUpload = async () => {
+  // 取出当前待上传的文件列表（Element Plus 内部维护的 UploadUserFile 数组）
   const filesToUpload = fileList.value;
 
+  // --- Step 1：基础校验 ---
+  // 必须至少选择一个文件
   if (filesToUpload.length === 0) {
     ElMessage.error('请至少选择一个 .py 文件');
     return;
   }
 
+  // 限制只允许 .py 文件，避免后端收到不符合预期的类型
   const invalid = filesToUpload.find(f => !f.name.toLowerCase().endsWith('.py'));
   if (invalid) {
     ElMessage.error(`文件 "${invalid.name}" 不是 .py 文件，请检查后重新选择`);
     return;
   }
 
+  // --- Step 2：进入加载状态，并清空上一次的上传结果 ---
   isLoading.value = true;
   uploadResults.value = [];
 
   try {
+    // --- Step 3：组织请求参数，调用后端接口 ---
+    // 将 UploadUserFile 转成原生 File 对象，仅保留有 raw 的项
     const rawFiles: File[] = filesToUpload.map(f => f.raw as File).filter(Boolean);
+
+    // 发起创建任务单元请求：由后端负责解析脚本并生成配置
     const response = await createTaskUnit(rawFiles);
 
+    // 针对接口返回 error 的兜底处理
     if (response.error) {
       ElMessage.error(response.error.message || '上传请求失败');
       return;
     }
 
+    // 从响应中取出每个文件的处理结果，没有则兜底为 []
     const results = response.data?.task_unit_files || [];
     uploadResults.value = results;
 
+    // 将结果按 status 分为成功 / 失败两类，便于后续展示
     const failItems = results.filter((item: TaskUnitFileResult) => item.status === 'fail');
     const successItems = results.filter((item: TaskUnitFileResult) => item.status === 'success');
 
+    // --- Step 4：根据处理结果给出不同的提示 ---
     if (failItems.length > 0) {
+      // 只要有失败记录，就弹出结果详情弹窗，方便用户逐个排查问题
       resultDialogVisible.value = true;
+
       if (successItems.length > 0) {
+        // 部分成功：即时告诉用户成功/失败数量
         ElMessage.warning(`部分成功：${successItems.length} 个成功，${failItems.length} 个失败`);
       } else {
+        // 全部失败的情况
         ElMessage.error(`上传失败：${failItems.length} 个文件处理出错`);
       }
     } else {
+      // 全部成功：弹出全局通知，不再弹出详情弹窗
       ElNotification({
         title: '全部创建成功',
         message: `成功创建 ${successItems.length} 个任务单元`,
         type: 'success'
       });
+
+      // 成功后清空上传列表，避免用户误以为还未提交
       clearFiles();
     }
   } catch (e: any) {
+    // 捕获非预期异常，避免错误直接抛出到控制台导致页面无反馈
     console.error('Unexpected error during upload:', e);
     ElMessage.error('上传时发生未知错误');
   } finally {
+    // 无论成功还是失败，都要关闭 loading，恢复按钮可用状态
     isLoading.value = false;
   }
 };
 </script>
 
 <template>
+  <!-- 页面整体容器：创建任务单元 -->
   <div class="task-unit-create-el">
     <ElCard shadow="never" class="create-card">
       <template #header>
@@ -112,6 +184,7 @@ const handleSubmitUpload = async () => {
       </template>
 
       <div class="create-form-container">
+        <!-- 左侧提示文案：解释上传规则和命名建议 -->
         <div class="tips-panel">
           <div class="tips-title">使用说明</div>
           <ul class="tips-list">
@@ -125,6 +198,7 @@ const handleSubmitUpload = async () => {
           </ul>
         </div>
 
+        <!-- 上传区域：拖拽/点击选择 .py 文件 -->
         <ElUpload
           v-model:file-list="fileList"
           drag
@@ -159,6 +233,7 @@ const handleSubmitUpload = async () => {
           </template>
         </ElUpload>
 
+        <!-- 文件列表预览：展示本次待上传的所有文件 -->
         <Transition name="fade">
           <div v-if="fileList.length" class="file-list-panel">
             <div class="file-list-header">
@@ -177,6 +252,7 @@ const handleSubmitUpload = async () => {
           </div>
         </Transition>
 
+        <!-- 底部操作按钮：提交创建 / 重置文件列表 -->
         <div class="button-container">
           <ElButton
             class="primary-create-btn"
@@ -192,6 +268,7 @@ const handleSubmitUpload = async () => {
       </div>
     </ElCard>
 
+    <!-- 处理结果详情弹窗：逐个展示每个文件的状态和提示信息 -->
     <ElDialog
       v-model="resultDialogVisible"
       title="处理结果详情"
