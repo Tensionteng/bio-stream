@@ -1,8 +1,14 @@
 <script setup lang="ts">
+// =============================================================================
+// 1. 依赖引入
+// =============================================================================
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+// Element Plus 反馈组件
 import { ElMessage, ElNotification } from 'element-plus';
+// 拖拽核心组件
 import Draggable from 'vuedraggable';
+// 图标组件
 import {
   ArrowDown,
   Box,
@@ -19,6 +25,7 @@ import {
   Setting,
   View
 } from '@element-plus/icons-vue';
+// API 服务
 import { fetchTaskUnitDetail, fetchTaskUnitList } from '@/service/api/task_unit';
 import {
   checkTaskChain,
@@ -27,59 +34,78 @@ import {
   fetchTaskChainDetail,
   updateTaskChain
 } from '@/service/api/task_chain';
-// Types
+// 类型定义
 import type { TaskUnitDetail, TaskUnitListItem } from '@/service/api/task_unit';
 import type { FileSchemaItem, TaskChainSubmitParams } from '@/service/api/task_chain';
 
-// 本页面负责“拖拽任务单元-配置参数-合法性校验-提交保存”的完整流程。
+/**
+ * # ===========================================================================
+ *
+ * # 类型定义 (TypeScript Interfaces)
+ *
+ * # ===========================================================================
+ */
 
-// --- Interfaces ---
+// 扩展任务单元类型，用于“中间画布”的步骤列表
+// tempKey: 用于 v-for 的唯一 key，防止同一个任务单元被拖入多次时 key 重复报错
 interface ChainStepItem extends Omit<TaskUnitListItem, 'id'> {
   id: number;
   name: string;
   tempKey: number;
 }
+
+// 本地输入配置项（映射右侧表单）
 interface LocalInputConfig {
-  id: number | undefined;
-  multiple: boolean;
-}
-interface LocalOutputConfig {
-  id: number | undefined;
-  per_sample: boolean;
+  id: number | undefined; // 对应的 Schema ID
+  multiple: boolean; // 是否允许多文件
 }
 
+// 本地输出配置项（映射右侧表单）
+interface LocalOutputConfig {
+  id: number | undefined; // 对应的 Schema ID
+  per_sample: boolean; // 是否按样本拆分
+}
+
+// =============================================================================
+// 2. 路由与基础状态
+// =============================================================================
 const route = useRoute();
 const router = useRouter();
 
-// 路由中是否携带链路 ID，用于区分创建/编辑模式
+// 计算属性：判断当前是“创建模式”还是“编辑模式”
 const chainId = computed(() => route.query.id as string);
 const isEditing = computed(() => Boolean(chainId.value));
 
-// --- State ---
+// --- 核心数据状态 ---
+// 左侧：可用的任务单元库
 const availableTaskUnits = ref<TaskUnitListItem[]>([]);
+// 文件定义元数据 (用于输入/输出下拉框)
 const fileSchemas = ref<FileSchemaItem[]>([]);
 
+// --- 表单数据状态 ---
 const chainName = ref('');
 const chainDesc = ref('');
 const chainType = ref('');
-// [新增] 可视化类型选择
+// [新增功能] 勾选该链路支持的可视化类型 (如 pdf, vcf, graph)
 const chainVisuals = ref<string[]>([]);
 
-// 拖拽面板中配置的整体链路输入/输出/步骤
-const chainInputs = ref<LocalInputConfig[]>([]);
-const chainOutputs = ref<LocalOutputConfig[]>([]);
-const chainSteps = ref<ChainStepItem[]>([]);
+// --- 编排数据状态 ---
+const chainInputs = ref<LocalInputConfig[]>([]); // 右侧：全局输入定义
+const chainOutputs = ref<LocalOutputConfig[]>([]); // 右侧：全局输出定义
+const chainSteps = ref<ChainStepItem[]>([]); // 中间：已编排的步骤列表
 
-// 搜索关键词状态
-const unitSearchKeyword = ref('');
+// --- UI 交互状态 ---
+const unitSearchKeyword = ref(''); // 左侧搜索框
+const isLoadingUnits = ref(false); // 左侧加载中
+const isLoadingChainData = ref(false); // 编辑模式详情加载中
+const isSubmitting = ref(false); // 提交保存中
+const isChecking = ref(false); // 合法性检查中
 
-const isLoadingUnits = ref(false);
-const isLoadingChainData = ref(false);
-const isSubmitting = ref(false);
-const isChecking = ref(false);
+// [关键状态] 是否已通过合法性校验
+// 只有 check 成功后，此状态为 true，才允许点击保存按钮
 const isValidated = ref(false);
 
-// 弹窗：展示单个任务单元的详情
+// --- 详情弹窗状态 (左侧单元详情) ---
 const showDetailModal = ref(false);
 const selectedTaskDetail = ref<TaskUnitDetail | null>(null);
 const isLoadingDetail = ref(false);
@@ -87,11 +113,15 @@ const detailDialogTitle = computed(() =>
   selectedTaskDetail.value ? `单元详情: ${selectedTaskDetail.value.name}` : '详情'
 );
 
-// 合法性校验弹窗 & 结果列表
+// --- 校验结果弹窗状态 ---
 const showValidationModal = ref(false);
-const validationResults = ref<any[]>([]);
+const validationResults = ref<any[]>([]); // 存储后端返回的 warning/error 列表
 
-// --- Helpers ---
+// =============================================================================
+// 3. 工具方法 (Helpers)
+// =============================================================================
+
+/** 根据后端返回的状态字符串，映射为 UI 颜色类型 */
 const getStatusType = (status: string) => {
   if (!status) return 'info';
   const s = status.toUpperCase();
@@ -101,15 +131,18 @@ const getStatusType = (status: string) => {
   return 'info';
 };
 
+// 获取状态对应的文本颜色类名
 const getStatusMessageClass = (status: string) => `status-color-${getStatusType(status)}`;
 
-// --- Methods ---
+// =============================================================================
+// 4. 核心逻辑 (Business Logic)
+// =============================================================================
 
-// 独立的加载任务单元函数，支持搜索参数
+/** 加载左侧任务单元列表 支持关键词搜索 */
 async function loadTaskUnits() {
   isLoadingUnits.value = true;
   try {
-    const params: any = { page: 1, page_size: 999 };
+    const params: any = { page: 1, page_size: 999 }; // 默认加载全部，实际项目可能需要分页
     if (unitSearchKeyword.value) {
       params.name = unitSearchKeyword.value;
     }
@@ -128,14 +161,20 @@ async function loadTaskUnits() {
   }
 }
 
-// 搜索框点击/回车统一走加载逻辑，保持分页参数固定
+// 搜索事件句柄
 const handleSearchUnits = () => {
   loadTaskUnits();
 };
 
-// 初始化页面所需的基础数据：任务单元 + 文件 schema + 编辑态回填
+/**
+ * 页面初始化
+ *
+ * 1. 加载左侧任务库
+ * 2. 加载文件 Schema 供下拉框使用
+ * 3. 如果是编辑模式，加载已有链路详情
+ */
 async function initData() {
-  loadTaskUnits();
+  loadTaskUnits(); // 并行加载
 
   try {
     const schemaRes = await fetchFileSchemaList();
@@ -146,12 +185,13 @@ async function initData() {
     ElMessage.error('初始化数据失败');
   }
 
+  // 如果 URL 带 ID，进入编辑模式回填数据
   if (isEditing.value) {
     loadChainData(chainId.value);
   }
 }
 
-// 编辑状态下根据 ID 拉取链路详情，并回填至左/右侧面板
+/** [编辑模式] 加载并回填链路数据 */
 async function loadChainData(id: string) {
   isLoadingChainData.value = true;
   try {
@@ -163,26 +203,27 @@ async function loadChainData(id: string) {
     const data = response.data;
     if (!data) return;
 
+    // 回填基础信息
     chainName.value = data.name;
     chainDesc.value = data.description || '';
     chainType.value = data.type || '';
+    chainVisuals.value = data.visual_types || []; // 回填可视化类型
 
-    // 回显可视化类型字段，如果接口没返回则默认为空数组
-    chainVisuals.value = data.visual_types || [];
-
+    // 回填中间步骤 (需生成 tempKey)
     if (data.units) {
       chainSteps.value = data.units.map(
         unit =>
           ({
-            id: unit.unit_id,
+            id: unit.unit_id, // 注意：后端返回结构中 unit_id 才是原始单元 ID
             name: unit.name,
-            tempKey: Date.now() + Math.random(),
+            tempKey: Date.now() + Math.random(), // 生成前端唯一 Key
             created_time: '',
             link_file: ''
           }) as ChainStepItem
       );
     }
 
+    // 回填右侧配置 (Input/Output)
     if (data.input) {
       chainInputs.value = data.input.map(i => ({
         id: Number(i.meta_id),
@@ -197,15 +238,16 @@ async function loadChainData(id: string) {
       }));
     }
 
+    // 编辑模式加载的数据默认视为已校验通过，允许直接保存
     isValidated.value = true;
   } catch {
-    // ignore
+    // ignore error
   } finally {
     isLoadingChainData.value = false;
   }
 }
 
-// Draggable 的 clone 钩子：为同一个任务单元生成唯一 tempKey，避免冲突
+/** [Draggable Hook] 克隆单元 当从左侧拖拽到中间时触发。 作用：为新生成的节点赋予一个唯一的 tempKey，确保 v-for 渲染不报错。 */
 function cloneUnit(originUnit: TaskUnitListItem): ChainStepItem {
   return {
     ...originUnit,
@@ -213,10 +255,13 @@ function cloneUnit(originUnit: TaskUnitListItem): ChainStepItem {
     tempKey: Date.now() + Math.random()
   };
 }
+
+// 移除画布中的某个步骤
 function removeStep(index: number) {
   chainSteps.value.splice(index, 1);
 }
-// 清空当前的编排结果，回到初始态
+
+// 重置/清空画布
 function clearChain() {
   chainSteps.value = [];
   chainInputs.value = [];
@@ -224,10 +269,11 @@ function clearChain() {
   chainName.value = '';
   chainDesc.value = '';
   chainType.value = '';
-  chainVisuals.value = []; // [新增] 清空可视化
+  chainVisuals.value = [];
   isValidated.value = false;
 }
 
+// --- 右侧动态表单增删逻辑 ---
 function addInputRow() {
   chainInputs.value.push({ id: undefined, multiple: false });
 }
@@ -241,8 +287,9 @@ function removeOutputRow(idx: number) {
   chainOutputs.value.splice(idx, 1);
 }
 
-// 将用户在三个面板中配置的内容汇总成接口提交所需的 payload
+/** 构造提交数据 将分散在各处的响应式数据，组装成后端需要的 JSON 格式 */
 function constructPayload(): TaskChainSubmitParams | null {
+  // 1. 前置必填校验
   if (!chainName.value) {
     ElMessage.warning('请输入工具链名称');
     return null;
@@ -255,6 +302,7 @@ function constructPayload(): TaskChainSubmitParams | null {
     ElMessage.warning('请至少添加一个任务单元');
     return null;
   }
+  // 校验数组中是否有未选中的下拉框
   if (chainInputs.value.some(i => i.id === undefined)) {
     ElMessage.warning('请完善输入定义的类型选择');
     return null;
@@ -264,11 +312,13 @@ function constructPayload(): TaskChainSubmitParams | null {
     return null;
   }
 
+  // 2. 组装 Payload
   return {
     name: chainName.value,
     description: chainDesc.value,
     type: chainType.value,
     visual_types: chainVisuals.value,
+    // 映射步骤：赋予顺序 ID (index + 1)
     task_units: chainSteps.value.map((step, index) => ({
       id: index + 1,
       unit_id: Number(step.id)
@@ -284,13 +334,13 @@ function constructPayload(): TaskChainSubmitParams | null {
   };
 }
 
-// “检查合法性”按钮：先序列化配置，再调用校验接口并根据结果给出提示
+/** 动作：检查合法性 逻辑：构造 Payload -> 发送检查请求 -> 解析状态 -> 弹窗提示 */
 async function handleCheckValidity() {
   const payload = constructPayload();
   if (!payload) return;
 
   isChecking.value = true;
-  isValidated.value = false;
+  isValidated.value = false; // 重置状态
 
   try {
     const response = await checkTaskChain(payload);
@@ -299,19 +349,21 @@ async function handleCheckValidity() {
     const { status, unit_status } = response.data;
     const mainStatus = status ? status.toUpperCase() : 'ERROR';
 
+    // 过滤出有问题的单元用于展示
     validationResults.value = unit_status.filter(item => {
       const s = item.status.toUpperCase();
       return s !== 'READY' && s !== 'SUCCESS' && s !== 'OK';
     });
 
     if (mainStatus === 'ERROR') {
-      isValidated.value = false;
-      showValidationModal.value = true;
+      isValidated.value = false; // 依然不合法
+      showValidationModal.value = true; // 强制弹窗
     } else if (mainStatus === 'WARNING') {
-      isValidated.value = true;
+      isValidated.value = true; // 警告级别允许通过
       showValidationModal.value = true;
       ElMessage.warning('检测到潜在问题，请确认后提交');
     } else {
+      // 完美通过
       isValidated.value = true;
       ElNotification.success({
         title: '检查通过',
@@ -326,7 +378,7 @@ async function handleCheckValidity() {
   }
 }
 
-// 保存/更新入口：必须在通过合法性校验后才能提交
+/** 动作：提交保存 前提：必须 isValidated === true */
 async function handleSubmit() {
   if (!isValidated.value) {
     ElMessage.warning('请先点击“检查合法性”，只有在无严重错误(ERROR)时才可保存');
@@ -338,6 +390,7 @@ async function handleSubmit() {
   isSubmitting.value = true;
   try {
     let response;
+    // 根据模式调用不同接口
     if (isEditing.value && chainId.value) {
       response = await updateTaskChain(chainId.value, payload);
     } else {
@@ -346,15 +399,17 @@ async function handleSubmit() {
 
     if (response.error) return;
 
+    // 二次确认后端返回状态
     const s = response.data?.status?.toUpperCase();
     if (s === 'ERROR' || s === 'FAILED') {
       ElMessage.error('提交失败：存在严重错误，请检查配置');
-      isValidated.value = false;
+      isValidated.value = false; // 标记失效，需重新检查
     } else {
       ElNotification.success({
         title: '操作成功',
         message: isEditing.value ? '工具链已更新' : '工具链创建成功'
       });
+      // 创建模式清空表单，编辑模式跳转列表
       if (!isEditing.value) {
         clearChain();
       } else {
@@ -368,7 +423,7 @@ async function handleSubmit() {
   }
 }
 
-// 打开左侧任务单元的详情抽屉，便于确认输入/输出/参数
+// --- 左侧单元详情抽屉逻辑 ---
 async function handleViewUnitDetail(id: string | number) {
   showDetailModal.value = true;
   isLoadingDetail.value = true;
@@ -383,11 +438,15 @@ function onDialogClosed() {
   selectedTaskDetail.value = null;
 }
 
+// =============================================================================
+// 5. 生命周期与监听 (Lifecycle & Watch)
+// =============================================================================
+
 onMounted(() => {
   initData();
 });
 
-// 根据路由的 id 变化动态切换“编辑/创建”态
+// 监听路由参数变化，处理浏览器后退/前进导致的模式切换
 watch(
   () => route.query.id,
   newId => {
@@ -399,15 +458,15 @@ watch(
   }
 );
 
-// 只要任意配置有改动，就强制置为未校验，避免旧的校验结果误导用户
+/** [脏检查] 监听任意配置项变化 逻辑：如果用户修改了任何配置（名字、步骤、参数等）， 之前的“合法性检查”结果就失效了，必须强制重置 isValidated = false， 防止用户在检查通过后，又修改出了非法配置直接提交。 */
 watch(
-  [chainName, chainDesc, chainType, chainInputs, chainOutputs, chainSteps, chainVisuals], // [新增] 监听 chainVisuals 变化
+  [chainName, chainDesc, chainType, chainInputs, chainOutputs, chainSteps, chainVisuals],
   () => {
     if (isValidated.value) {
       isValidated.value = false;
     }
   },
-  { deep: true }
+  { deep: true } // 深度监听数组内部变化
 );
 </script>
 

@@ -1,8 +1,12 @@
 <script setup lang="ts">
+// =============================================================================
+// 1. 依赖引入模块
+// =============================================================================
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
+// Element Plus 图标
 import {
   Close,
   DataAnalysis,
@@ -15,57 +19,66 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
-// === ECharts 相关引入 ===
+// === ECharts 相关引入 (按需引入以优化体积) ===
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
-import { GraphChart } from 'echarts/charts';
+import { GraphChart } from 'echarts/charts'; // 仅引入关系图
 import { TooltipComponent } from 'echarts/components';
-import VChart from 'vue-echarts';
-// === API 和 工具引入 ===
+import VChart from 'vue-echarts'; // Vue-ECharts 组件封装
+// === API 接口引入 ===
 import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
-import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton'; // 请确认这里路径拼写是否是你的实际路径
-import { usePermissionGuard } from '@/hooks/business/permission-guard';
-import { getServiceBaseURL } from '@/utils/service';
-import { localStg } from '@/utils/storage';
-import TaskDetailDialog from './components/TaskDetailDialog.vue';
+import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
+// === 工具与Hooks ===
+import { usePermissionGuard } from '@/hooks/business/permission-guard'; // 权限守卫
+import { getServiceBaseURL } from '@/utils/service'; // 获取动态 BaseURL
+import { localStg } from '@/utils/storage'; // 本地存储工具(获取Token)
+import TaskDetailDialog from './components/TaskDetailDialog.vue'; // 详情弹窗组件
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * ECharts 初始化
+ * # ECharts 初始化配置
+ *
+ * # 注册必须的组件：渲染器、图表类型(Graph)、提示框
+ *
+ * # ===========================================================================
  */
 use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * Part 1: 任务列表 & 基础逻辑
+ * # Part 1: 任务列表管理 & 基础页面逻辑
+ *
+ * # 包括：列表获取、筛选、分页、格式化工具
+ *
+ * # ===========================================================================
  */
 
-const loading = ref(false);
-const tasks = ref<Api.Task.TaskListItem[]>([]);
-const totalSize = ref(0);
-const route = useRoute();
+const loading = ref(false); // 列表加载状态
+const tasks = ref<Api.Task.TaskListItem[]>([]); // 任务数据列表
+const totalSize = ref(0); // 顶部统计：所有任务占用的总空间
+const route = useRoute(); // 路由实例，用于获取 query 参数
 
-// 筛选表单
+// --- 筛选表单数据模型 ---
 const filterParams = reactive({
   id: undefined as number | undefined,
   name: '',
   status: '' as Api.Task.TaskStatus | ''
 });
 
-// 详情弹窗控制
+// --- 详情弹窗控制 ---
 const isDetailDialogVisible = ref(false);
 const selectedDetailTaskId = ref<number | null>(null);
 
-// 分页
+// --- 分页配置 ---
 const pagination = reactive({
   page: 1,
   pageSize: 10,
   itemCount: 0
 });
 
-// 状态枚举
+// --- 任务状态枚举 (用于筛选下拉框) ---
 const statusOptions = [
   { label: '运行中', value: 'RUNNING' },
   { label: '成功', value: 'SUCCESS' },
@@ -74,7 +87,7 @@ const statusOptions = [
   { label: '等待中', value: 'PENDING' }
 ];
 
-/** 根据筛选条件加载任务列表 */
+/** 获取任务列表 触发时机：页面挂载、分页切换、筛选查询 */
 async function getTasks() {
   loading.value = true;
   try {
@@ -84,7 +97,7 @@ async function getTasks() {
       status: filterParams.status || undefined,
       task_id: filterParams.id || undefined,
       name: filterParams.name || undefined,
-      task_source_type: 'task_chain'
+      task_source_type: 'task_chain' // 固定筛选任务链类型的任务
     };
 
     const { data } = await fetchTaskList(params);
@@ -99,17 +112,17 @@ async function getTasks() {
   }
 }
 
-/** 拉取所有任务占用的总空间，用于顶部统计 */
+/** 拉取所有任务占用的总空间 用于顶部 Dashboard 展示 */
 async function getTaskSize() {
   try {
     const res = await fetchTotalFileSize();
     if (res) totalSize.value = res.data?.total_size ?? 0;
   } catch {
-    /* ignore */
+    /* ignore error */
   }
 }
 
-/** 统一格式化下载大小 */
+/** 工具函数：格式化文件大小 将字节(Bytes)转换为易读格式 (KB, MB, GB...) */
 function formatBytes(bytes: number, decimals = 2) {
   if (Number(bytes) === 0) return '0 B';
   const k = 1024;
@@ -119,7 +132,7 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
-/** 将 ISO 时间戳转换为友好的展示格式 */
+/** 工具函数：格式化时间戳 将 ISO 时间字符串转换为 YYYY-MM-DD HH:mm:ss */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   try {
@@ -137,16 +150,17 @@ function formatDateTime(isoString: string | null | undefined): string {
   }
 }
 
+/** 根据任务状态返回 Element UI Tag 的颜色类型 */
 const statusTagType = (status: string | Api.Task.TaskStatus | undefined | null) => {
   const s = status?.toString().toUpperCase();
-  if (s === 'SUCCESS') return 'success';
-  if (s === 'RUNNING') return 'primary';
-  if (s === 'FAILED') return 'danger';
-  if (s === 'PENDING') return 'warning';
-  return 'info';
+  if (s === 'SUCCESS') return 'success'; // 绿
+  if (s === 'RUNNING') return 'primary'; // 蓝
+  if (s === 'FAILED') return 'danger'; // 红
+  if (s === 'PENDING') return 'warning'; // 黄
+  return 'info'; // 灰
 };
 
-// 分页事件
+// --- 分页与筛选事件处理 ---
 function handlePageChange(p: number) {
   pagination.page = p;
   getTasks();
@@ -167,32 +181,37 @@ function handleReset() {
   handleSearch();
 }
 
-// 详情与重启
+// --- 详情弹窗逻辑 ---
 function showDetailsDialog(id: number) {
   selectedDetailTaskId.value = id;
   isDetailDialogVisible.value = true;
 }
 function handleTaskRestarted() {
+  // 任务重启后关闭弹窗并刷新列表
   isDetailDialogVisible.value = false;
   getTasks();
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * Part 2: 可视化逻辑 (核心展示区)
+ * # Part 2: 结果可视化逻辑 (Visualization)
+ *
+ * # 核心功能：处理不同类型的文件预览（PDF流、CSV表格、ECharts图谱、图片）
+ *
+ * # ===========================================================================
  */
 
-const visSectionRef = ref<HTMLElement | null>(null);
-const currentVisTaskId = ref<number | null>(null);
-const currentVisProcessName = ref(''); // 用于显示当前任务名
-const visualizationLoading = ref(false);
-const visualizationResult = ref<any>(null);
-const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
-const selectedFileType = ref<Api.Visualization.FileType | ''>('');
-const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv');
+const visSectionRef = ref<HTMLElement | null>(null); // 可视化区域 DOM 引用，用于滚动定位
+const currentVisTaskId = ref<number | null>(null); // 当前可视化的任务ID
+const currentVisProcessName = ref(''); // 当前任务名
+const visualizationLoading = ref(false); // 可视化区域加载状态
+const visualizationResult = ref<any>(null); // 后端返回的可视化原始数据
+const availableFileTypes = ref<Api.Visualization.FileType[]>([]); // 该任务生成了哪些类型的文件
+const selectedFileType = ref<Api.Visualization.FileType | ''>(''); // 当前选中的文件类型
+const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv'); // CSV 特有的子表选项
 
-// PDF URL 规范化工具
+/** PDF URL 标准化与代理处理工具 场景：如果 PDF URL 是绝对路径且跨域，需转换为前端代理路径以避免 CORS 问题 */
 const normalizePdfUrl = (url: string) => {
   if (!url) return '';
   const isHttpUrl = /^https?:\/\//i.test(url);
@@ -202,9 +221,9 @@ const normalizePdfUrl = (url: string) => {
     const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
     if (!serviceBase) return url;
     const serviceUrl = new URL(serviceBase);
-    // 只有同源才走代理
+    // 只有同源（指向后端服务）的链接才走前端代理
     if (pdfUrl.origin === serviceUrl.origin) {
-      const proxyPrefix = '/proxy-default'; // 确保这里前缀与后端Nginx配置一致
+      const proxyPrefix = '/proxy-default'; // 需与 Vite/Nginx 配置一致
       return `${proxyPrefix}${pdfUrl.pathname}${pdfUrl.search}`;
     }
     return url;
@@ -213,43 +232,52 @@ const normalizePdfUrl = (url: string) => {
   }
 };
 
-/** 加载可视化数据 (含 PDF Blob 修复逻辑) */
+/**
+ * 加载可视化数据
+ *
+ * @param fileType - 要查看的文件类型 (pdf, csv, graph 等)
+ *
+ *   - !!! 核心逻辑 - PDF Blob 处理 !!! 问题：直接将带鉴权的 PDF URL 放入 iframe src，浏览器请求不会带 Token，导致 401。 解决：使用 Axios (带 Token) 下载文件流 -> 转
+ *       Blob -> 生成本地 Blob URL -> 赋给 iframe。
+ */
 async function loadVisData(fileType: Api.Visualization.FileType) {
   if (!currentVisTaskId.value) return;
 
-  // 清理旧的 Blob URL 防止内存泄漏
+  // 1. 清理旧的 Blob URL，防止内存泄漏
   if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
     window.URL.revokeObjectURL(visualizationResult.value.data);
   }
 
   visualizationLoading.value = true;
   selectedFileType.value = fileType;
-  visualizationResult.value = null; // 清空旧数据
+  visualizationResult.value = null; // 清空当前展示
 
   try {
     const { data: resultData } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
 
     if (resultData && resultData.type === 'pdf') {
-      // === 核心修复：PDF 使用 Axios 下载流转 Blob ===
+      // === PDF 特殊处理流 ===
       const pdfUrl = normalizePdfUrl(resultData.data);
       const token = localStg.get('token');
 
+      // 手动请求文件流
       const response = await axios.get(pdfUrl, {
-        responseType: 'blob', // 关键：指定响应类型为 blob
+        responseType: 'blob', // 关键：指定响应类型为二进制流
         headers: {
           Authorization: token ? `Bearer ${token}` : ''
         }
       });
 
+      // 创建本地 URL
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const localPdfUrl = window.URL.createObjectURL(blob);
 
       visualizationResult.value = {
         type: 'pdf',
-        data: localPdfUrl // iframe 加载这个本地 blob url
+        data: localPdfUrl // iframe 将加载这个 blob:http://... 地址
       };
     } else {
-      // 其他类型 (TXT, CSV, Image, Graph) 直接使用
+      // 其他类型 (TXT, CSV, Image, Graph) 直接使用返回的 JSON 数据
       visualizationResult.value = resultData ?? null;
     }
   } catch (error) {
@@ -260,13 +288,14 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
   }
 }
 
-/** 点击“可视化”按钮触发，滚动到面板并加载默认类型 */
+/** 点击列表中的“可视化”按钮触发 流程：设置状态 -> 滚动到底部 -> 获取该任务支持的文件类型 -> 默认加载第一个 */
 async function handleVisualize(row: Api.Task.TaskListItem) {
   if (currentVisTaskId.value === row.id) {
     visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
 
+  // 重置状态
   currentVisTaskId.value = row.id;
   currentVisProcessName.value = row.name;
   visualizationResult.value = null;
@@ -275,18 +304,19 @@ async function handleVisualize(row: Api.Task.TaskListItem) {
 
   visualizationLoading.value = true;
 
+  // 确保 DOM 更新后再滚动
   nextTick(() => {
     visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   try {
-    // 1. 获取任务信息以确定有哪些文件类型
+    // 1. 获取任务详情，查看 file_type 字段有哪些值
     const { data } = await fetchTaskInfo();
     const targetTask = data?.find((t: any) => t.task_id === row.id);
 
     if (targetTask && Array.isArray(targetTask.file_type) && targetTask.file_type.length > 0) {
       availableFileTypes.value = targetTask.file_type as Api.Visualization.FileType[];
-      // 2. 默认加载第一个类型
+      // 2. 自动加载第一个类型
       loadVisData(availableFileTypes.value[0]);
     } else {
       ElMessage.warning('该任务暂无生成的可视化文件');
@@ -298,7 +328,7 @@ async function handleVisualize(row: Api.Task.TaskListItem) {
   }
 }
 
-// 关闭面板并清理
+// 关闭面板并清理资源
 const closeVisPanel = () => {
   if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
     window.URL.revokeObjectURL(visualizationResult.value.data);
@@ -307,14 +337,14 @@ const closeVisPanel = () => {
   visualizationResult.value = null;
 };
 
-// 组件销毁时清理
+// 组件销毁时的兜底清理
 onUnmounted(() => {
   if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
     window.URL.revokeObjectURL(visualizationResult.value.data);
   }
 });
 
-/** 下载当前选择的可视化文件 */
+/** 下载当前正在查看的可视化文件 难点：处理后端返回的 Content-Disposition 头以获取正确的文件名（含中文） */
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
@@ -334,19 +364,20 @@ const handleDownload = async () => {
         Authorization: token ? `Bearer ${token}` : '',
         Accept: '*/*'
       },
-      responseType: 'blob'
+      responseType: 'blob' // 必须为 blob
     });
 
+    // --- 文件名解析逻辑 ---
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
     if (contentDisposition) {
-      // 优先尝试匹配 RFC 5987 标准的 UTF-8 文件名 (filename*=utf-8''...)
+      // 优先尝试 RFC 5987 标准 (filename*=utf-8''...)
       const filenameStarMatch = contentDisposition.match(/filename\*=utf-8''(.+?)(;|$)/);
 
       if (filenameStarMatch && filenameStarMatch[1]) {
         fileName = decodeURIComponent(filenameStarMatch[1]);
       } else {
-        // 如果没有，再尝试匹配普通文件名 (filename="...")
+        // 降级尝试普通 filename="..."
         const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/);
         if (filenameMatch && filenameMatch[1]) {
           fileName = decodeURIComponent(filenameMatch[1]);
@@ -354,6 +385,7 @@ const handleDownload = async () => {
       }
     }
 
+    // 如果没解析到，使用默认命名规则
     if (!fileName) {
       const type = selectedFileType.value;
       fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
@@ -368,6 +400,7 @@ const handleDownload = async () => {
       fileName += extensions[type] || '';
     }
 
+    // 触发浏览器下载
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -384,7 +417,9 @@ const handleDownload = async () => {
   }
 };
 
-// 工具：获取类型标签
+// --- 可视化辅助函数 ---
+
+// 获取文件类型的中文标签
 const getFileTypeLabel = (type: string) => {
   const map: Record<string, string> = {
     txt: '文本日志',
@@ -397,14 +432,14 @@ const getFileTypeLabel = (type: string) => {
   return map[type] || type.toUpperCase();
 };
 
-// CSV 选项
+// CSV 子表选项配置
 const csvTableOptions = [
   { label: 'Count CSV', value: 'count_csv' },
   { label: 'FPK CSV', value: 'fpk_csv' },
   { label: 'TPM CSV', value: 'tpm_csv' }
 ];
 
-// Computed
+// Computed: 当前展示的 CSV 数据
 const currentCsvData = computed(() => {
   if (visualizationResult.value?.type === 'csv') {
     return visualizationResult.value.data[selectedCsvTable.value] || [];
@@ -412,14 +447,17 @@ const currentCsvData = computed(() => {
   return [];
 });
 
+// Computed: 图片列表过滤 (过滤空 URL)
 const imageList = computed(() => {
   if (visualizationResult.value?.type === 'image') {
     return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
   }
   return [];
 });
+// Computed: 图片预览 URL 数组 (用于 ElImage 大图预览)
 const imagePreviewUrls = computed(() => imageList.value.map((img: any) => img.url));
 
+// 动态获取表格列头 (基于数据的第一行 Key)
 const getTableColumns = (data: any[]) => {
   if (!data || !data.length) return [];
   const allKeys = new Set<string>();
@@ -427,27 +465,35 @@ const getTableColumns = (data: any[]) => {
   return Array.from(allKeys);
 };
 
+// 新窗口打开 PDF
 const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank');
 };
 
 // ==========================================
-// Part 2.1: Graph 图谱逻辑
+// Part 2.1: Graph 图谱数据转换逻辑
 // ==========================================
 
+/**
+ * 将后端返回的简单 Edge 列表转换为 ECharts Graph 格式 Input: [{from: 'A', to: 'B'}, ...] Output: { nodes: [{id: 'A', ...}, {id: 'B',
+ * ...}], links: [{source: 'A', target: 'B'}] }
+ */
 const transformGraphDataToECharts = (graphData: any[]) => {
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
 
   graphData.forEach(item => {
+    // 节点去重，构建节点对象
     if (!nodeMap.has(item.from)) nodeMap.set(item.from, { id: item.from, name: item.from, symbolSize: 30 });
     if (!nodeMap.has(item.to)) nodeMap.set(item.to, { id: item.to, name: item.to, symbolSize: 30 });
+    // 构建边对象
     links.push({ source: item.from, target: item.to });
   });
 
   return { nodes: Array.from(nodeMap.values()), links };
 };
 
+/** 计算属性：生成 ECharts 配置项 Option 包含了力引导布局 (Force Layout) 的配置 */
 const graphChartOption = computed<any>(() => {
   if (!visualizationResult.value || visualizationResult.value.type !== 'graph') return null;
   const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
@@ -466,19 +512,20 @@ const graphChartOption = computed<any>(() => {
     series: [
       {
         type: 'graph',
-        layout: 'force',
+        layout: 'force', // 使用力引导布局
         data: nodes,
         links,
-        roam: true,
+        roam: true, // 允许拖拽和平移
         label: { show: true, position: 'bottom', fontSize: 12, color: '#333' },
         emphasis: {
-          focus: 'adjacency',
+          focus: 'adjacency', // 高亮邻接节点
           label: { show: true, fontSize: 14, fontWeight: 'bold' }
         },
-        force: { repulsion: 1000, edgeLength: 150 },
+        force: { repulsion: 1000, edgeLength: 150 }, // 力参数：排斥力与边长
         lineStyle: { color: 'source', width: 2, curveness: 0.1, opacity: 0.7 },
         itemStyle: { borderColor: '#2c5aa0', borderWidth: 2, shadowBlur: 10 },
         symbol: 'circle',
+        // 动态计算节点大小：连接线越多，节点越大
         symbolSize: (value: any, params: any) => {
           const nodeId = params?.data?.id || value?.id || '';
           const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
@@ -489,16 +536,23 @@ const graphChartOption = computed<any>(() => {
   };
 });
 
-// ==========================================
-// Part 3: 清理文件逻辑
-// ==========================================
+/**
+ * # ===========================================================================
+ *
+ * # Part 3: 文件清理逻辑 (Cleanup)
+ *
+ * # 功能：允许用户分级删除任务文件以释放服务器空间
+ *
+ * # ===========================================================================
+ */
 
 const isDeleteDialogVisible = ref(false);
 const deleteLoading = ref(false);
 const currentDeleteTaskId = ref<number | null>(null);
-const deleteLevel = ref<number>(3);
-const deletePreviewSizes = ref<Record<string, number>>({});
+const deleteLevel = ref<number>(3); // 默认选中级别3
+const deletePreviewSizes = ref<Record<string, number>>({}); // 存储各级别预计释放大小
 
+// 清理级别选项
 const deleteOptions = [
   { value: 2, label: '保留最终文件+可视化' },
   { value: 3, label: '清理中间文件（保留init、final、visual三个文件夹的文件）' },
@@ -506,11 +560,12 @@ const deleteOptions = [
   { value: 0, label: '彻底清理 (全部删除)' }
 ];
 
+/** 打开清理弹窗 同时异步获取该任务各级别文件夹的大小，以便展示“预计释放空间” */
 function openDeleteDialog(row: Api.Task.TaskListItem) {
   currentDeleteTaskId.value = row.id;
   deleteLevel.value = 2;
   isDeleteDialogVisible.value = true;
-  deletePreviewSizes.value = {};
+  deletePreviewSizes.value = {}; // 重置
   fetchTaskFileSize(row.id)
     .then(res => {
       if (res.data) deletePreviewSizes.value = res.data;
@@ -518,6 +573,7 @@ function openDeleteDialog(row: Api.Task.TaskListItem) {
     .catch(() => {});
 }
 
+/** 提交清理请求 */
 async function handleDeleteSubmit() {
   if (!currentDeleteTaskId.value) return;
   deleteLoading.value = true;
@@ -528,7 +584,7 @@ async function handleDeleteSubmit() {
         res.data && res.data.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
       ElMessage.success(`清理成功！已释放空间：${freedSpace}`);
       isDeleteDialogVisible.value = false;
-      getTaskSize();
+      getTaskSize(); // 刷新顶部的总空间统计
     }
   } catch (e: any) {
     ElMessage.error(e.message || '清理失败');
@@ -536,22 +592,33 @@ async function handleDeleteSubmit() {
     deleteLoading.value = false;
   }
 }
+
+// 辅助：获取选项对应的预计释放大小文本
 const getPreviewSizeText = (level: number) => {
   const s = deletePreviewSizes.value[`size_${level}`];
   return s !== undefined ? `(预计释放 ${formatBytes(s)})` : '';
 };
 
-// 页面初始化
+/**
+ * # ===========================================================================
+ *
+ * # Lifecycle: 生命周期钩子
+ *
+ * # ===========================================================================
+ */
 onMounted(async () => {
-  // 进入页面先检查场景/任务权限
+  // 1. 权限守卫：检查用户是否有权访问此场景/页面
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('scene'); // 或 'task'
   if (!hasPermission) return;
 
+  // 2. URL 参数联动：如果 URL 带了 task_id，自动筛选该 ID
   if (route.query.task_id) {
     filterParams.id = Number(route.query.task_id);
     ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
   }
+
+  // 3. 初始化数据加载
   getTasks();
   getTaskSize();
 });

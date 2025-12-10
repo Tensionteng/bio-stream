@@ -1,6 +1,10 @@
 <script setup lang="ts">
+// =============================================================================
+// 1. 依赖引入
+// =============================================================================
 import { onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+// Element Plus 组件与类型
 import {
   ElButton,
   ElDialog,
@@ -20,6 +24,7 @@ import {
   type FormItemRule,
   type FormRules
 } from 'element-plus';
+// 图标库
 import {
   ArrowLeft,
   CircleCheckFilled,
@@ -31,7 +36,7 @@ import {
   Promotion,
   Search
 } from '@element-plus/icons-vue';
-// 引入 API
+// API 接口
 import {
   type StartTaskChainParams,
   type TaskChainDetailInput,
@@ -42,15 +47,20 @@ import {
 import { request } from '@/service/request';
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 类型定义
+ * # 类型定义 (TypeScript Interfaces)
+ *
+ * # ===========================================================================
  */
+
+// 上传者信息
 interface UploadUser {
   user_id: number;
   username: string;
 }
 
+// 文件实体信息
 interface FileInfo {
   file_id: number;
   file_name: string;
@@ -60,6 +70,7 @@ interface FileInfo {
   upload_user: UploadUser;
 }
 
+// 文件列表分页响应结构
 interface PaginatedFilesResponse {
   count: number;
   page: number;
@@ -67,33 +78,40 @@ interface PaginatedFilesResponse {
   results: FileInfo[];
 }
 
+// 扩展后的参数定义接口：用于前端处理参数限制、默认值等
 interface TaskChainParamItem extends TaskChainDetailParameter {
   name: string;
   type: string;
-  limit: any;
-  min: number | null;
-  max: number | null;
-  enum: any[] | null;
-  default?: any;
+  limit: any; // 参数说明/Tooltip
+  min: number | null; // 最小值限制
+  max: number | null; // 最大值限制
+  enum: any[] | null; // 枚举值列表
+  default?: any; // 默认值
 }
 
+// 获取文件列表的请求参数
 interface FetchFileListParams {
   page: number;
   pageSize: number;
   fileType?: string;
   file_name?: string;
-  meta_ids?: string[];
+  meta_ids?: string[]; // 根据 meta_id 过滤特定类型文件
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * API 封装
+ * # API 封装 (Local API Wrappers)
+ *
+ * # ===========================================================================
  */
+
+// 封装文件列表请求，处理参数映射
 function fetchFileList({ page, pageSize, fileType, file_name, meta_ids }: FetchFileListParams) {
   const params: Record<string, any> = { page, page_size: pageSize };
   if (fileType) params.file_type = fileType;
   if (file_name) params.file_name = file_name;
+  // 将数组格式的 meta_ids 转换为逗号分隔字符串传递给后端
   if (meta_ids && meta_ids.length > 0) {
     params.meta_ids = meta_ids.join(',');
   }
@@ -101,42 +119,61 @@ function fetchFileList({ page, pageSize, fileType, file_name, meta_ids }: FetchF
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 路由 & 页面级状态
+ * # 核心逻辑层 (Core Logic)
+ *
+ * # ===========================================================================
  */
+
+// --- 路由与基础状态 ---
 const route = useRoute();
 const router = useRouter();
-const taskChainId = Number(route.params.id);
-const taskChainName = ref('');
-const loadingDetail = ref(false);
-const submitting = ref(false);
+const taskChainId = Number(route.params.id); // 从 URL 获取当前任务链 ID
+const taskChainName = ref(''); // 任务链名称
+const loadingDetail = ref(false); // 详情加载状态
+const submitting = ref(false); // 提交按钮 Loading
 
+// --- 动态表单定义与数据模型 ---
+// 后端定义的“需要输入的文件”列表
 const chainInputDefs = ref<TaskChainDetailInput[]>([]);
+// 后端定义的“需要配置的参数”列表
 const chainParamDefs = ref<TaskChainParamItem[]>([]);
+
+// 表单响应式数据模型 (核心)
 const formModel = reactive({
+  // 文件映射表：key=文件名(槽位名), value=已选文件数组
   filesMap: {} as Record<string, FileInfo[]>,
+  // 参数映射表：key=参数名, value=参数值
   paramsMap: {} as Record<string, any>
 });
 
+// 动态生成的校验规则
 const dynamicRules = ref<FormRules>({});
+// Form 实例引用，用于触发表单验证
 const formRef = ref();
 
-// --- 文件弹窗相关 ---
+// --- 文件选择弹窗状态 ---
 const fileDialogVisible = ref(false);
-const currentActiveInputName = ref<string>('');
-const currentMetaIds = ref<string[]>([]);
-const availableFiles = ref<FileInfo[]>([]);
-const loadingFiles = ref(false);
-const searchKeyword = ref('');
+const currentActiveInputName = ref<string>(''); // 当前正在为哪个槽位选择文件
+const currentMetaIds = ref<string[]>([]); // 当前槽位限制的 Meta ID
+const availableFiles = ref<FileInfo[]>([]); // 弹窗内的文件列表数据
+const loadingFiles = ref(false); // 文件列表加载中
+const searchKeyword = ref(''); // 弹窗搜索词
+// 弹窗分页状态
 const pagination = ref({ page: 1, pageSize: 10, total: 0, hasNextPage: true });
+// 临时选中状态：用户在弹窗中选中但未点“确认”前的数据
 const tempSelection = ref<FileInfo[]>([]);
-const dialogTableRef = ref();
+const dialogTableRef = ref(); // 弹窗表格引用
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 初始化：获取任务链详情以及动态规则
+ * # 1. 初始化逻辑 (Initialization)
+ *
+ * # 功能：获取任务链详情，并根据后端返回的元数据构建动态表单
+ *
+ * # ===========================================================================
  */
 async function initData() {
   if (!taskChainId) return;
@@ -147,25 +184,33 @@ async function initData() {
       const data = res.data;
       taskChainName.value = data.name;
 
+      // 1. 初始化文件槽位
       chainInputDefs.value = data.input || [];
       chainInputDefs.value.forEach(def => {
+        // 为每个文件槽位在 formModel 中初始化一个空数组
         if (def.file_name) formModel.filesMap[def.file_name] = [];
       });
 
+      // 2. 初始化参数配置
       chainParamDefs.value = (data.parameters || []) as TaskChainParamItem[];
 
+      // 3. 动态生成参数校验规则 & 设置默认值
       const rules: FormRules = {};
       chainParamDefs.value.forEach(p => {
+        // --- 设置默认值 ---
         let defaultValue = p.default;
         if (defaultValue === undefined) {
+          // 如果后端没给默认值，根据类型自动填充
           if (p.type === 'boolean') defaultValue = false;
           else if (p.type === 'enum' && p.enum && p.enum.length > 0) defaultValue = p.enum[0];
           else defaultValue = null;
         }
         formModel.paramsMap[p.name] = defaultValue;
 
+        // --- 生成校验规则 ---
         const itemRules: FormItemRule[] = [{ required: true, message: '此项必填', trigger: 'change' }];
 
+        // 针对数值类型，添加最大值/最小值校验器
         if ((p.type === 'integer' || p.type === 'float') && (p.min !== null || p.max !== null)) {
           itemRules.push({
             validator: (_rule: any, value: number, callback: any) => {
@@ -174,12 +219,12 @@ async function initData() {
               if (p.max !== null && value > p.max) return callback(new Error(`不能大于 ${p.max}`));
               return callback();
             },
-            trigger: 'blur'
+            trigger: 'blur' // 失去焦点时校验
           });
         }
         rules[p.name] = itemRules;
       });
-      dynamicRules.value = rules;
+      dynamicRules.value = rules; // 绑定到 ElForm
     }
   } catch {
     ElMessage.error('加载任务链详情失败');
@@ -189,10 +234,14 @@ async function initData() {
 }
 
 /**
- * # ==========================================
+ * # ===========================================================================
  *
- * 文件选择弹窗逻辑
+ * # 2. 文件选择弹窗逻辑 (File Selection Modal)
+ *
+ * # ===========================================================================
  */
+
+// 格式化文件大小工具函数
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -201,14 +250,23 @@ const formatFileSize = (bytes: number) => {
   return `${(bytes / k ** i).toFixed(2)} ${sizes[i]}`;
 };
 
+/**
+ * 打开文件选择弹窗
+ *
+ * @param inputName 当前点击的文件槽位名称（Input Name）
+ */
 const openFileDialog = (inputName: string) => {
   currentActiveInputName.value = inputName;
   searchKeyword.value = '';
   availableFiles.value = [];
-  // 重置分页状态
+  // 重置分页
   pagination.value = { page: 1, pageSize: 10, total: 0, hasNextPage: true };
+
+  // 【重要】将主表单中已选的文件，复制一份给“临时选中状态”
+  // 这样用户在弹窗里操作不会直接影响外面，直到点击确认
   tempSelection.value = [...(formModel.filesMap[inputName] || [])];
 
+  // 查找该槽位是否有 meta_id 限制（例如只能选 fastq 类型文件）
   const def = chainInputDefs.value.find(i => i.file_name === inputName);
   if (def && def.meta_id) {
     currentMetaIds.value = [String(def.meta_id)];
@@ -216,10 +274,11 @@ const openFileDialog = (inputName: string) => {
     currentMetaIds.value = [];
   }
 
-  loadFilesPage();
+  loadFilesPage(); // 加载第一页数据
   fileDialogVisible.value = true;
 };
 
+// 加载文件列表数据
 async function loadFilesPage() {
   if (loadingFiles.value) return;
   loadingFiles.value = true;
@@ -231,12 +290,9 @@ async function loadFilesPage() {
       meta_ids: currentMetaIds.value
     });
     if (res?.data?.results) {
-      // 1. 传统翻页是替换数据，不是追加(push)
       availableFiles.value = res.data.results;
-
       pagination.value.total = res.data.count;
-
-      // 2. 重新计算是否有下一页
+      // 计算是否有下一页
       const currentLoadedCount = pagination.value.page * pagination.value.pageSize;
       pagination.value.hasNextPage = currentLoadedCount < res.data.count;
     }
@@ -247,6 +303,7 @@ async function loadFilesPage() {
   }
 }
 
+// 确认选择：将临时选中数据同步到主表单
 const confirmFileSelection = () => {
   if (currentActiveInputName.value) {
     formModel.filesMap[currentActiveInputName.value] = [...tempSelection.value];
@@ -254,11 +311,13 @@ const confirmFileSelection = () => {
   fileDialogVisible.value = false;
 };
 
+/** 处理表格选中变化 (Multi-select) 这里包含了“单选强制互斥”的逻辑 */
 const handleSelectionChange = (val: FileInfo[]) => {
   const currentDef = chainInputDefs.value.find(i => i.file_name === currentActiveInputName.value);
-  const isMultiple = currentDef?.multiple ?? false;
+  const isMultiple = currentDef?.multiple ?? false; // 检查当前槽位是否允许多选
 
   if (!isMultiple && val.length > 1) {
+    // 如果是单选模式，但用户选了多个 -> 保留最后一个选的
     const last = val[val.length - 1];
     if (dialogTableRef.value) {
       dialogTableRef.value.clearSelection();
@@ -270,74 +329,80 @@ const handleSelectionChange = (val: FileInfo[]) => {
   tempSelection.value = val;
 };
 
+// 处理行点击：点击行也能选中，体验更好
 const handleRowClick = (row: FileInfo) => {
   const currentDef = chainInputDefs.value.find(i => i.file_name === currentActiveInputName.value);
   const isMultiple = currentDef?.multiple ?? false;
 
   if (!isMultiple) {
+    // 单选模式：清除其他，选中当前
     if (dialogTableRef.value) {
       dialogTableRef.value.clearSelection();
       dialogTableRef.value.toggleRowSelection(row, true);
     }
     tempSelection.value = [row];
   } else if (dialogTableRef.value) {
+    // 多选模式：切换选中状态
     dialogTableRef.value.toggleRowSelection(row);
   }
 };
 
+// 监听弹窗显示：弹窗打开且数据加载后，自动回显已选中的行
 watch(fileDialogVisible, visible => {
   if (visible) {
     setTimeout(() => {
       if (!dialogTableRef.value) return;
       dialogTableRef.value.clearSelection();
+      // 使用 Set 加速查找
       const selectedIds = new Set(tempSelection.value.map(f => f.file_id));
       availableFiles.value.forEach(row => {
         if (selectedIds.has(row.file_id)) {
           dialogTableRef.value!.toggleRowSelection(row, true);
         }
       });
-    }, 100);
+    }, 100); // 延时确保 DOM/Table 数据已渲染
   }
 });
 
+// 搜索处理
 const handleSearch = () => {
   availableFiles.value = [];
   pagination.value = { page: 1, pageSize: 20, total: 0, hasNextPage: true };
   loadFilesPage();
 };
 
+// 分页处理
 const goPrevPage = () => {
   if (pagination.value.page <= 1) return;
   pagination.value.page -= 1;
   loadFilesPage();
 };
-
 const goNextPage = () => {
   if (!pagination.value.hasNextPage) return;
   pagination.value.page += 1;
   loadFilesPage();
 };
+
 /**
- * 标准化 API 响应数据 兼容两种情况：
+ * # ===========================================================================
  *
- * 1. 成功且拦截器已解包：直接返回数据对象 (无 code 或 code 为空)
- * 2. 失败或未解包：返回包含 code/message 的对象 (通常在 res.response.data 中)
+ * # 3. 提交与辅助逻辑 (Submission & Helpers)
+ *
+ * # ===========================================================================
  */
+
+// 辅助：提取错误信息
+function getErrorMessage(error: any): string {
+  return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
+}
+// 辅助：标准化 API 响应（兼容直接返回 data 或包装在 response 对象中的情况）
 function normalizeApiResponse(res: any): any {
   return res.data || (res as any).response?.data;
 }
 
-/** 统一提取错误信息 */
-function getErrorMessage(error: any): string {
-  return error?.response?.data?.message || error?.message || '任务创建失败，请稍后重试';
-}
-/**
- * # ==========================================
- *
- * 提交逻辑：校验 + 汇总参数 + 调用开始分析
- */
+/** 提交表单 流程：1. 校验文件 -> 2. 校验参数 -> 3. 组装 JSON -> 4. 发送请求 */
 const handleSubmit = async () => {
-  // 1. 校验文件必填
+  // 1. 手动校验：所有定义的文件槽位必须有值
   for (const def of chainInputDefs.value) {
     const files = formModel.filesMap[def.file_name!] || [];
     if (files.length === 0) {
@@ -348,12 +413,13 @@ const handleSubmit = async () => {
 
   if (!formRef.value) return;
 
-  // 2. 校验参数并提交
+  // 2. Element Form 校验参数
   await formRef.value.validate(async (valid: boolean) => {
     if (valid) {
       const parameter_json: Record<string, any> = {};
 
-      // 将所有文件统一放入 inputFiles 数组
+      // 3. 组装 Payload
+      // 提取所有文件的 ID 放入 inputFiles 数组
       const allSelectedFiles: { file_id: number }[] = [];
       Object.keys(formModel.filesMap).forEach(key => {
         const files = formModel.filesMap[key];
@@ -363,7 +429,7 @@ const handleSubmit = async () => {
       });
       parameter_json.inputFiles = allSelectedFiles;
 
-      // 组装普通参数
+      // 合并普通参数
       Object.keys(formModel.paramsMap).forEach(key => {
         parameter_json[key] = formModel.paramsMap[key];
       });
@@ -375,16 +441,21 @@ const handleSubmit = async () => {
 
       submitting.value = true;
 
+      // 4. 发送请求
       try {
         const res = await startTaskChainAnalysis(payload);
-        // 1. 获取响应体 (兼容正常和异常结构)
         const apiResponse = normalizeApiResponse(res);
+
+        // 检查业务 Code
         if (apiResponse?.code && apiResponse.code !== '0000') {
           ElMessage.error(apiResponse.message || '创建失败');
           return;
         }
+
         const taskInfo = apiResponse.data || apiResponse;
         ElMessage.success(apiResponse?.message || '任务创建成功！');
+
+        // 跳转到任务列表页，并携带新任务 ID 以便高亮
         router.push({
           path: '/task/list',
           query: { task_id: taskInfo?.task_id }
@@ -402,14 +473,13 @@ const handleSubmit = async () => {
 };
 
 onMounted(() => {
-  initData();
+  initData(); // 页面加载后启动初始化
 });
 </script>
 
 <template>
   <div class="create-task-page">
     <div class="page-content">
-      <!-- 顶部回退 + 链路名称展示 -->
       <div class="page-header">
         <div class="header-left">
           <ElButton class="back-btn" :icon="ArrowLeft" circle @click="router.back()" />
@@ -574,7 +644,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 输入文件弹窗：搜索 + 选择 + 分页 -->
     <ElDialog
       v-model="fileDialogVisible"
       title="选择输入文件"

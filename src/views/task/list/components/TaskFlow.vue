@@ -1,29 +1,84 @@
 <script setup lang="ts">
+// ==========================================
+// 1. 依赖引入
+// ==========================================
+// 引入 Element Plus 的基础组件 (即便项目有自动导入，显式引入有助于 IDE 类型推断)
 import { ElIcon, ElTooltip } from 'element-plus';
-import { CircleCloseFilled, Clock, Loading, SuccessFilled } from '@element-plus/icons-vue';
+// 引入所需的图标组件
+import {
+  CircleCloseFilled, // 用于失败/取消状态
+  Clock, // 用于等待/默认状态
+  Loading, // 用于运行中状态
+  SuccessFilled // 用于成功状态
+} from '@element-plus/icons-vue';
 
-/** 简化执行流视图，展示每个节点状态 */
+/**
+ * # ==========================================
+ *
+ * 2. Props 定义 (接收父组件数据)
+ */
 defineProps<{
+  // 步骤数组，包含每一个任务节点的信息
   steps: Array<{
-    name: string;
-    status: string;
-    message?: string;
+    name: string; // 节点名称（例如："数据预处理"）
+    status: string; // 节点状态（例如："RUNNING", "SUCCESS"）
+    message?: string; // (可选) 鼠标悬停时的详细提示信息，通常用于展示报错原因
   }>;
 }>();
 
+/**
+ * # ==========================================
+ *
+ * 3. 逻辑处理：状态映射工具函数
+ *
+ * 根据传入的状态字符串 (status)，返回对应的图标、颜色和样式类名。
+ *
+ * - @param status - 后端返回的状态字符串
+ *
+ * @returns 对象包含: icon(组件), color(图标颜色), type(状态类型), bgClass(背景样式类)
+ */
 const getStatusInfo = (status: string) => {
-  switch (status.toUpperCase()) {
+  // 使用 toUpperCase() 确保大小写不敏感 (防止 'Success' 和 'SUCCESS' 导致不同结果)
+  switch (status?.toUpperCase()) {
+    // --- 成功状态 ---
     case 'SUCCESS':
-      return { icon: SuccessFilled, color: 'var(--el-color-success)', type: 'success', bgClass: 'bg-success-light' };
+      return {
+        icon: SuccessFilled,
+        color: 'var(--el-color-success)', // 使用 Element 预定义的绿色变量
+        type: 'success', // 用于生成 .status-success 类名
+        bgClass: 'bg-success-light' // 用于图标的浅绿色背景
+      };
+
+    // --- 运行中状态 ---
     case 'RUNNING':
-      return { icon: Loading, color: 'var(--el-color-primary)', type: 'primary', bgClass: 'bg-primary-light' };
+      return {
+        icon: Loading,
+        color: 'var(--el-color-primary)', // Element 主色调(蓝色)
+        type: 'primary',
+        bgClass: 'bg-primary-light'
+      };
+
+    // --- 失败或取消状态 ---
+    // 合并了 FAILED, CANCELED 以及常见的拼写变体 CANCELLED
     case 'FAILED':
     case 'CANCELED':
     case 'CANCELLED':
-      return { icon: CircleCloseFilled, color: 'var(--el-color-danger)', type: 'danger', bgClass: 'bg-danger-light' };
+      return {
+        icon: CircleCloseFilled,
+        color: 'var(--el-color-danger)', // 红色警告色
+        type: 'danger',
+        bgClass: 'bg-danger-light'
+      };
+
+    // --- 等待中或默认状态 ---
     case 'PENDING':
-    default:
-      return { icon: Clock, color: 'var(--el-color-info)', type: 'info', bgClass: 'bg-info-light' };
+    default: // 任何未匹配的状态都回落到这里
+      return {
+        icon: Clock,
+        color: 'var(--el-color-info)', // 灰色信息色
+        type: 'info',
+        bgClass: 'bg-info-light'
+      };
   }
 };
 </script>
