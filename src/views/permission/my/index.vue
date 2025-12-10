@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { usePermissionStore } from '@/store/modules/permission';
 import { useAuthStore } from '@/store/modules/auth';
@@ -14,6 +14,9 @@ const authStore = useAuthStore();
 const hasAdminPermission = computed(() => {
   return authStore.userInfo.permissions.includes('admin');
 });
+
+// 正在撤回的申请ID（用于防止重复点击）
+const withdrawingRequestId = ref<number | null>(null);
 
 const statusMap = {
   PENDING: '待审批',
@@ -57,6 +60,14 @@ async function handlePageSizeChange(size: number) {
 }
 
 async function handleWithdraw(requestId: number) {
+  // 如果正在撤回中，直接返回（防止重复点击）
+  if (withdrawingRequestId.value !== null) {
+    return;
+  }
+
+  // 设置正在撤回的申请ID
+  withdrawingRequestId.value = requestId;
+
   try {
     await window.$messageBox?.confirm('确定要撤回该申请吗？', '确认撤回', {
       confirmButtonText: '确定',
@@ -76,6 +87,9 @@ async function handleWithdraw(requestId: number) {
     }
   } catch {
     // 用户取消
+  } finally {
+    // 无论成功失败，都清除撤回状态
+    withdrawingRequestId.value = null;
   }
 }
 
@@ -140,7 +154,14 @@ onMounted(async () => {
 
         <ElTableColumn label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <ElButton v-if="row.status === 'PENDING'" type="primary" link @click="handleWithdraw(row.request_id)">
+            <ElButton
+              v-if="row.status === 'PENDING'"
+              type="primary"
+              link
+              :loading="withdrawingRequestId === row.request_id"
+              :disabled="withdrawingRequestId !== null && withdrawingRequestId !== row.request_id"
+              @click="handleWithdraw(row.request_id)"
+            >
               撤回
             </ElButton>
             <span v-else>-</span>

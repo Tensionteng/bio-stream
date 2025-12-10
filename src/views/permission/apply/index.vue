@@ -104,15 +104,16 @@ async function handleSubmit() {
           reason: applyForm.reason
         };
 
-        const success = await permissionStore.applyPermission(submitData);
-        if (success) {
-          window.$message?.success($t('page.permission.applySuccess'));
-          router.push('/permission/my');
-        }
-      } catch (e) {
-        console.error('申请权限失败:', e);
+        // applyPermission 现在会抛出错误，API层会自动显示错误消息
+        await permissionStore.applyPermission(submitData);
+        window.$message?.success($t('page.permission.applySuccess'));
+        router.push('/permission/my');
+      } catch {
+        // 错误已经被API层的onError处理并显示消息框，这里不需要再处理
+        // 只需确保loading状态被重置
       } finally {
         loading.value = false;
+        console.log('申请权限流程结束');
       }
     }
   });

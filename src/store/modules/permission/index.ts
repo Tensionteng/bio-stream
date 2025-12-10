@@ -178,13 +178,16 @@ export const usePermissionStore = defineStore(SetupStoreId.Permission, () => {
       }
 
       const { data, error } = await fetchApplyPermission(params);
-      if (!error && data) {
+      if (error) {
+        // 抛出错误让调用者处理
+        throw error;
+      }
+      if (data) {
         window.$message?.success('权限申请提交成功');
         // 刷新申请列表
         await getUserApplications();
+        return true;
       }
-      return !error;
-    } catch {
       return false;
     } finally {
       endApplyLoading();
