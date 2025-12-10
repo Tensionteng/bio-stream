@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import axios from 'axios';
@@ -15,11 +15,13 @@ import {
   View,
   Warning
 } from '@element-plus/icons-vue';
+// === ECharts 相关引入 ===
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
+// === API 接口 ===
 import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
@@ -32,10 +34,6 @@ import TaskDetailDialog from './components/TaskDetailDialog.vue';
  *
  * ECharts 初始化
  */
-
-// === [新增] ECharts 相关引入 ===
-
-// [新增] 注册 ECharts 组件
 use([CanvasRenderer, GraphChart, TooltipComponent]);
 
 /**
@@ -79,7 +77,7 @@ const deleteOptions = [
   { value: 0, label: '彻底清理 (全部删除)' }
 ];
 
-/** 格式化字节大小，列表和弹窗都复用 */
+/** 格式化字节大小 */
 function formatBytes(bytes: number, decimals = 2) {
   if (Number(bytes) === 0) return '0 B';
   const k = 1024;
@@ -89,62 +87,47 @@ function formatBytes(bytes: number, decimals = 2) {
   return `${Number.parseFloat((bytes / k ** i).toFixed(dm))} ${sizes[i]}`;
 }
 
-/** 根据选择的清理级别显示“预计释放空间”提示 */
 const getPreviewSizeText = (level: number) => {
   const key = `size_${level}`;
   const size = deletePreviewSizes.value[key];
-  if (size === undefined || size === null) return ''; // 数据还没回来时不显示
+  if (size === undefined || size === null) return '';
   return `(预计释放 ${formatBytes(size)})`;
 };
 
-/** 打开清理弹窗并预拉取不同级别的文件大小 */
 function openDeleteDialog(row: Api.Task.TaskListItem) {
   currentDeleteTaskId.value = row.id;
   deleteLevel.value = 2; // 重置为默认推荐值
   isDeleteDialogVisible.value = true;
-
-  // 重置并获取该任务的文件大小预览
   deletePreviewSizes.value = {};
   fetchTaskFileSize(row.id)
     .then(res => {
-      if (res.data) {
-        deletePreviewSizes.value = res.data;
-      }
+      if (res.data) deletePreviewSizes.value = res.data;
     })
     .catch(() => {});
 }
 
-/** 获取场景任务占用的总空间，用于标题徽章 */
 async function getTaskSize() {
   try {
     const res = await fetchTotalFileSize();
-    if (res) {
-      totalSize.value = res.data && res.data.total_size ? res.data.total_size : 0;
-    }
+    if (res) totalSize.value = res.data?.total_size ?? 0;
   } catch {
     ElMessage.error('获取空间统计失败');
   }
 }
 
-/** 调用后端清理接口，并刷新容量 */
 async function handleDeleteSubmit() {
   if (!currentDeleteTaskId.value) return;
   deleteLoading.value = true;
   try {
     const res = await cleanTaskFiles(currentDeleteTaskId.value, deleteLevel.value);
     if (res) {
-      const freedSpace =
-        res.data && res.data.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
-      ElMessage.success({
-        message: `清理成功！已释放空间：${freedSpace}`,
-        duration: 3000
-      });
+      const freedSpace = res.data?.free_size_size !== undefined ? formatBytes(res.data.free_size_size) : '0 B';
+      ElMessage.success(`清理成功！已释放空间：${freedSpace}`);
       isDeleteDialogVisible.value = false;
       getTaskSize();
     }
   } catch (error: any) {
-    console.error(error);
-    ElMessage.error(error.message || '请求异常，请稍后重试');
+    ElMessage.error(error.message || '清理失败');
   } finally {
     deleteLoading.value = false;
   }
@@ -159,7 +142,6 @@ const statusOptions = [
   { label: '等待中', value: 'PENDING' }
 ];
 
-/** 统一格式化时间，避免模板重复书写 */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   try {
@@ -179,28 +161,15 @@ function formatDateTime(isoString: string | null | undefined): string {
 
 const statusTagType = (status: string | Api.Task.TaskStatus | undefined | null) => {
   if (!status) return 'info';
-  const upperStatus = status.toString().toUpperCase();
-  switch (upperStatus) {
-    case 'SUCCESS':
-      return 'success';
-    case 'RUNNING':
-      return 'primary';
-    case 'FAILED':
-      return 'danger';
-    case 'CANCELLED':
-      return 'info';
-    case 'PENDING':
-      return 'warning';
-    default:
-      return 'info';
-  }
+  const s = status.toString().toUpperCase();
+  if (s === 'SUCCESS') return 'success';
+  if (s === 'RUNNING') return 'primary';
+  if (s === 'FAILED') return 'danger';
+  if (s === 'PENDING') return 'warning';
+  return 'info';
 };
 
-const pagination = reactive({
-  page: 1,
-  pageSize: 10,
-  itemCount: 0
-});
+const pagination = reactive({ page: 1, pageSize: 10, itemCount: 0 });
 
 async function getTasks() {
   loading.value = true;
@@ -214,7 +183,6 @@ async function getTasks() {
       task_source_type: 'process'
     };
     const { data } = await fetchTaskList(params);
-    console.log(data);
     if (data) {
       tasks.value = data.results || [];
       pagination.itemCount = data.count || 0;
@@ -250,7 +218,6 @@ function showDetailsDialog(taskId: number) {
   selectedDetailTaskId.value = taskId;
   isDetailDialogVisible.value = true;
 }
-
 function handleTaskRestarted() {
   isDetailDialogVisible.value = false;
   getTasks();
@@ -285,11 +252,11 @@ const currentCsvData = computed(() => {
 
 const imageList = computed(() => {
   if (visualizationResult.value?.type === 'image') {
-    return visualizationResult.value.data.filter(image => Boolean(image.url));
+    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
   }
   return [];
 });
-const imagePreviewUrls = computed(() => imageList.value.map(image => image.url));
+const imagePreviewUrls = computed(() => imageList.value.map((img: any) => img.url));
 
 const normalizePdfUrl = (url: string) => {
   if (!url) return '';
@@ -300,31 +267,38 @@ const normalizePdfUrl = (url: string) => {
     const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
     if (!serviceBase) return url;
     const serviceUrl = new URL(serviceBase);
-    const isSameOrigin = pdfUrl.origin === serviceUrl.origin;
-    if (!isSameOrigin) return url;
-    const proxyPrefix = '/proxy-default';
-    const pdfPathWithQuery = `${pdfUrl.pathname}${pdfUrl.search}`;
-    return `${proxyPrefix}${pdfPathWithQuery}`;
+    // 场景任务通常走默认代理
+    if (pdfUrl.origin === serviceUrl.origin) {
+      const proxyPrefix = '/proxy-default';
+      return `${proxyPrefix}${pdfUrl.pathname}${pdfUrl.search}`;
+    }
+    return url;
   } catch {
     return url;
   }
 };
 
 const fetchVisualizationData = async (taskId: number, fileType: Api.Visualization.FileType) => {
+  // [关键] 清理旧的 PDF Blob URL 防止内存泄漏
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
+
   try {
     visualizationLoading.value = true;
     selectedFileType.value = fileType;
+    // 先置空，给用户反馈
+    visualizationResult.value = null;
+
     const { data: resultData } = await fetchTaskResult(taskId.toString(), fileType);
 
     if (resultData && resultData.type === 'pdf') {
-      const pdfUrl = normalizePdfUrl(resultData.data); // 获取原始 URL
+      const pdfUrl = normalizePdfUrl(resultData.data);
       const token = localStg.get('token');
 
       const response = await axios.get(pdfUrl, {
-        responseType: 'blob', // 关键：指定响应类型为 blob
-        headers: {
-          Authorization: token ? `Bearer ${token}` : ''
-        }
+        responseType: 'blob',
+        headers: { Authorization: token ? `Bearer ${token}` : '' }
       });
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const localPdfUrl = window.URL.createObjectURL(blob);
@@ -351,7 +325,13 @@ function handleFileTypeClick(fileType: Api.Visualization.FileType) {
   }
 }
 
-// 处理下载
+// 组件卸载时清理 PDF 资源
+onUnmounted(() => {
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
+});
+
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
@@ -367,50 +347,36 @@ const handleDownload = async () => {
       url: `${baseURL}/visualization/tasks/download/${currentVisTaskId.value}`,
       method: 'GET',
       params: { type: selectedFileType.value },
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-        Accept: '*/*'
-      },
+      headers: { Authorization: token ? `Bearer ${token}` : '', Accept: '*/*' },
       responseType: 'blob'
     });
 
-    // 从响应头获取文件名
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
-
     if (contentDisposition) {
-      // 优先尝试匹配 RFC 5987 标准的 UTF-8 文件名 (filename*=utf-8''...)
       const filenameStarMatch = contentDisposition.match(/filename\*=utf-8''(.+?)(;|$)/);
-
       if (filenameStarMatch && filenameStarMatch[1]) {
         fileName = decodeURIComponent(filenameStarMatch[1]);
       } else {
-        // 如果没有，再尝试匹配普通文件名 (filename="...")
         const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/);
-        if (filenameMatch && filenameMatch[1]) {
-          fileName = decodeURIComponent(filenameMatch[1]);
-        }
+        if (filenameMatch && filenameMatch[1]) fileName = decodeURIComponent(filenameMatch[1]);
       }
     }
 
-    // 如果没有在header中找到文件名，则使用默认名称
     if (!fileName) {
       const type = selectedFileType.value;
-      // 使用 currentVisTaskId
       fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
-      // 根据类型添加扩展名
       const extensions: Record<string, string> = {
         txt: '.txt',
         pdf: '.pdf',
         vcf: '.vcf',
         csv: '.csv',
         image: '.zip',
-        graph: '.json' // [新增] graph 扩展名
+        graph: '.json'
       };
       fileName += extensions[type] || '';
     }
 
-    // 创建下载链接
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -418,11 +384,8 @@ const handleDownload = async () => {
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
-
-    // 清理
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-
     ElMessage.success('文件下载成功');
   } catch (error) {
     console.error('文件下载失败:', error);
@@ -435,20 +398,27 @@ async function handleVisualize(taskId: number) {
     scrollToVis();
     return;
   }
+  // 切换任务时清理旧资源
+  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(visualizationResult.value.data);
+  }
+
   currentVisTaskId.value = taskId;
   selectedFileType.value = '';
   visualizationResult.value = null;
   availableFileTypes.value = [];
+  selectedCsvTable.value = 'count_csv'; // 重置表格选择
 
   nextTick(() => scrollToVis());
 
   visualizationLoading.value = true;
   try {
     const { data } = await fetchTaskInfo();
-    const targetTask = data?.find(t => t.task_id === taskId);
+    const targetTask = data?.find((t: any) => t.task_id === taskId);
 
     if (targetTask && targetTask.file_type && targetTask.file_type.length > 0) {
       availableFileTypes.value = targetTask.file_type;
+      // 默认选中第一个
       handleFileTypeClick(targetTask.file_type[0]);
     } else {
       ElMessage.warning(`任务 #${taskId} 暂无可视化数据`);
@@ -466,7 +436,6 @@ function scrollToVis() {
   visSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// [修改] 增加 graph 类型标签
 const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
   const labels: Record<string, string> = {
     txt: '文本日志',
@@ -474,7 +443,7 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
     vcf: '变异数据 (VCF)',
     csv: '数据表格',
     image: '结果图表',
-    graph: '关系图谱' // [新增]
+    graph: '关系图谱'
   };
   return labels[fileType] || fileType.toUpperCase();
 };
@@ -482,50 +451,22 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
 /**
  * # ==========================================
  *
- * Part 2.1: Graph 图谱逻辑 (新增)
+ * Part 2.1: Graph 图谱逻辑 (增强版)
  */
 
-// 将graph数据转换为ECharts需要的nodes和links格式
 const transformGraphDataToECharts = (graphData: any[]) => {
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
-
-  // 收集所有节点
   graphData.forEach(item => {
-    if (!nodeMap.has(item.from)) {
-      nodeMap.set(item.from, {
-        id: item.from,
-        name: item.from,
-        symbolSize: 30
-      });
-    }
-    if (!nodeMap.has(item.to)) {
-      nodeMap.set(item.to, {
-        id: item.to,
-        name: item.to,
-        symbolSize: 30
-      });
-    }
-
-    // 添加边
-    links.push({
-      source: item.from,
-      target: item.to
-    });
+    if (!nodeMap.has(item.from)) nodeMap.set(item.from, { id: item.from, name: item.from });
+    if (!nodeMap.has(item.to)) nodeMap.set(item.to, { id: item.to, name: item.to });
+    links.push({ source: item.from, target: item.to });
   });
-
-  return {
-    nodes: Array.from(nodeMap.values()),
-    links
-  };
+  return { nodes: Array.from(nodeMap.values()), links };
 };
 
-// Graph 图表配置
 const graphChartOption = computed<any>(() => {
-  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
-    return null;
-  }
-
+  if (!visualizationResult.value || visualizationResult.value.type !== 'graph') return null;
   const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
 
   return {
@@ -533,12 +474,8 @@ const graphChartOption = computed<any>(() => {
     tooltip: {
       trigger: 'item',
       formatter: (params: any) => {
-        if (params.dataType === 'node') {
-          return `节点: ${params.data.name}`;
-        }
-        if (params.dataType === 'edge') {
-          return `${params.data.source} → ${params.data.target}`;
-        }
+        if (params.dataType === 'node') return `节点: ${params.data.name}`;
+        if (params.dataType === 'edge') return `${params.data.source} → ${params.data.target}`;
         return '';
       }
     },
@@ -551,46 +488,26 @@ const graphChartOption = computed<any>(() => {
         data: nodes,
         links,
         roam: true,
-        label: {
-          show: true,
-          position: 'bottom',
-          fontSize: 12,
-          color: '#333'
-        },
+        // [新增] 箭头配置，使流程图更有方向感
+        edgeSymbol: ['none', 'arrow'],
+        edgeSymbolSize: [0, 10],
+        label: { show: true, position: 'bottom', fontSize: 12, color: '#333' },
         emphasis: {
           focus: 'adjacency',
-          label: {
-            show: true,
-            fontSize: 14,
-            fontWeight: 'bold',
-            color: '#000'
-          },
-          lineStyle: {
-            width: 4,
-            color: '#4a90e2'
-          }
+          label: { show: true, fontSize: 14, fontWeight: 'bold' },
+          lineStyle: { width: 3, color: '#4a90e2' }
         },
         force: {
-          repulsion: 1000,
-          edgeLength: 150,
+          repulsion: 800,
+          edgeLength: 180,
           gravity: 0.1,
           layoutAnimation: true
         },
-        lineStyle: {
-          color: 'source',
-          width: 2,
-          curveness: 0.1,
-          opacity: 0.7
-        },
-        itemStyle: {
-          borderColor: '#2c5aa0',
-          borderWidth: 2,
-          shadowBlur: 10,
-          shadowColor: 'rgba(0, 0, 0, 0.1)'
-        },
+        lineStyle: { color: 'source', width: 2, curveness: 0.1, opacity: 0.8 },
+        itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 5, shadowColor: 'rgba(0, 0, 0, 0.1)' },
         symbol: 'circle',
+        // [新增] 动态计算节点大小：连接线越多，节点越大
         symbolSize: (value: any, params: any) => {
-          // 根据节点连接数动态调整大小
           const nodeId = params?.data?.id || value?.id || '';
           const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
           return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
@@ -613,7 +530,12 @@ const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
 };
 
-watch(selectedCsvTable, () => {});
+watch(selectedCsvTable, newVal => {
+  if (visualizationResult.value?.type === 'csv') {
+    const label = csvTableOptions.find(opt => opt.value === newVal)?.label;
+    ElMessage.success(`已切换数据视图：${label}`);
+  }
+});
 watch(visualizationResult, () => {
   if (visualizationResult.value?.type === 'csv') {
     selectedCsvTable.value = 'count_csv';
@@ -621,42 +543,35 @@ watch(visualizationResult, () => {
 });
 
 onMounted(async () => {
-  // 检查场景管理权限
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('scene');
-  if (!hasPermission) {
-    return;
-  }
+  if (!hasPermission) return;
   if (route.query.task_id) {
     filterParams.id = Number(route.query.task_id);
     ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
   }
   getTasks();
-  getTaskSize(); // 获取总大小
+  getTaskSize();
 });
 </script>
 
 <template>
   <div class="page-container">
-    <!-- 任务列表卡片：筛选 + 表格 + 分页 -->
     <ElCard shadow="never" class="main-card list-card">
       <template #header>
         <div class="card-header">
           <div class="header-title-area">
             <span>运行记录</span>
-
             <div class="size-stat-badge">
               <ElIcon class="mr-1"><Odometer /></ElIcon>
               <span class="stat-label">总占用空间:</span>
               <span class="stat-value">{{ formatBytes(totalSize) }}</span>
             </div>
           </div>
-
           <ElButton :icon="Refresh" circle size="small" title="刷新列表" @click="getTasks" />
         </div>
       </template>
 
-      <!-- 表格顶部筛选区域 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务ID">
           <ElInput
@@ -696,22 +611,17 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
-      <!-- 任务记录表 -->
-      <ElTable v-loading="loading" :data="tasks" empty-text="暂无任务数据">
+      <ElTable v-loading="loading" :data="tasks" empty-text="暂无任务数据" style="flex: 1; height: 0">
         <ElTableColumn prop="id" label="ID" width="80" align="center">
           <template #default="{ row }">
             <span class="text-mono">#{{ row.id }}</span>
           </template>
         </ElTableColumn>
-
         <ElTableColumn prop="name" label="流程名称" min-width="150">
           <template #default="{ row }">
-            <div class="flex flex-col">
-              <span class="text-gray-700 font-medium">{{ row.name }}</span>
-            </div>
+            <span class="text-gray-700 font-medium">{{ row.name }}</span>
           </template>
         </ElTableColumn>
-
         <ElTableColumn prop="file_ids" label="文件ID" min-width="120">
           <template #default="{ row }">
             <div v-if="Array.isArray(row.file_ids) && row.file_ids.length" class="file-info">
@@ -728,12 +638,9 @@ onMounted(async () => {
         </ElTableColumn>
         <ElTableColumn prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
-            <ElTag :type="statusTagType(row.status)" effect="plain" round size="small" class="status-tag">
-              {{ row.status }}
-            </ElTag>
+            <ElTag :type="statusTagType(row.status)" effect="plain" round size="small">{{ row.status }}</ElTag>
           </template>
         </ElTableColumn>
-
         <ElTableColumn label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
@@ -741,7 +648,6 @@ onMounted(async () => {
                 <ElIcon><View /></ElIcon>
                 详情
               </ElButton>
-
               <ElButton
                 v-if="row.status?.toUpperCase() === 'SUCCESS'"
                 link
@@ -752,7 +658,6 @@ onMounted(async () => {
                 <ElIcon><DataAnalysis /></ElIcon>
                 可视化
               </ElButton>
-
               <ElButton
                 v-if="row.status?.toUpperCase() !== 'RUNNING'"
                 link
@@ -781,7 +686,6 @@ onMounted(async () => {
       </div>
     </ElCard>
 
-    <!-- 可视化面板：根据任务展示不同类型文件 -->
     <div v-if="currentVisTaskId" ref="visSectionRef" class="vis-section-wrapper">
       <ElCard shadow="never" class="main-card vis-card">
         <template #header>
@@ -809,18 +713,21 @@ onMounted(async () => {
                   {{ getFileTypeLabel(type) }}
                 </div>
               </div>
+
+              <div
+                v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'"
+                class="ml-4 flex items-center"
+              >
+                <span class="mr-2 text-sm text-gray-500">表类型:</span>
+                <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
+                  <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </ElSelect>
+              </div>
             </div>
 
             <div class="vis-actions">
               <ElButton type="primary" :icon="Download" @click="handleDownload">下载文件</ElButton>
             </div>
-          </div>
-
-          <div v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'" class="vis-sub-filter">
-            <span class="sub-label">表格数据：</span>
-            <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
-              <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-            </ElSelect>
           </div>
 
           <div class="vis-content-area">
@@ -874,7 +781,6 @@ onMounted(async () => {
               </div>
               <ElEmpty v-else description="暂无图片数据" />
             </div>
-
             <div v-else-if="visualizationResult?.type === 'graph'" class="graph-viewer">
               <VChart
                 v-if="graphChartOption"
@@ -884,7 +790,6 @@ onMounted(async () => {
                 style="height: 600px; width: 100%"
               />
             </div>
-
             <ElEmpty v-else-if="!visualizationLoading && !visualizationResult" description="请选择上方类型以查看数据" />
           </div>
         </div>
@@ -908,9 +813,7 @@ onMounted(async () => {
             <p class="warning-desc">请仔细确认您需要保留的文件级别，清理后无法恢复。</p>
           </div>
         </div>
-
         <div class="section-title">选择清理级别</div>
-
         <div class="options-container">
           <div
             v-for="opt in deleteOptions"
@@ -919,18 +822,13 @@ onMounted(async () => {
             :class="{ 'is-active': deleteLevel === opt.value }"
             @click="deleteLevel = opt.value"
           >
-            <div class="radio-indicator">
-              <div class="radio-inner"></div>
-            </div>
-
+            <div class="radio-indicator"><div class="radio-inner"></div></div>
             <div class="option-content">
               <div class="option-header">
                 <span class="option-title">{{ opt.label }}</span>
-
                 <span v-if="getPreviewSizeText(opt.value)" class="size-preview-text">
                   {{ getPreviewSizeText(opt.value) }}
                 </span>
-
                 <ElTag v-if="opt.value === 2" type="danger" size="small" effect="plain" round class="recommend-tag">
                   推荐
                 </ElTag>
@@ -939,7 +837,6 @@ onMounted(async () => {
           </div>
         </div>
       </div>
-
       <template #footer>
         <div class="dialog-footer-actions">
           <ElButton class="cancel-btn" @click="isDeleteDialogVisible = false">取消</ElButton>
@@ -953,21 +850,57 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 基础样式 */
+/* [修改点]
+  页面容器样式重构：
+  1. 使用 height: 100% 替代 min-height: 100vh，防止超出屏幕导致父级裁切。
+  2. 使用 Flex 布局。
+  3. overflow-y: auto 允许在可视化面板出现时，页面可以滚动查看。
+*/
 .page-container {
   padding: 24px;
   background: #f5f7fb;
-  min-height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  overflow-y: auto;
 }
-.main-card {
+
+/* [修改点]
+  列表卡片样式：
+  1. height: calc(100vh - 48px);
+     强制限制卡片高度（视口高度减去上下padding），这会迫使表格在卡片内部滚动。
+     这是解决“分页栏看不到”最核心的修改。
+  2. flex-shrink: 0; 防止在 Flex 布局中被压缩变形。
+  3. overflow: hidden; 确保圆角和内部内容不溢出。
+*/
+.main-card.list-card {
   border-radius: 12px;
   border: none;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   transition: all 0.3s;
+  height: calc(100vh - 48px);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+/* [修改点]
+  深度选择器控制 ElCard 内部：
+  让 el-card__body 变成 Flex 列布局，并占据所有空间。
+  这样 ElTable 就可以通过 flex: 1 自动计算高度了。
+*/
+.main-card.list-card :deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding-bottom: 12px;
+}
+
+/* 其他样式保持不变 */
 .card-header {
   display: flex;
   align-items: center;
@@ -994,7 +927,6 @@ onMounted(async () => {
   background: linear-gradient(180deg, #409eff, #66b1ff);
 }
 
-/* === 空间统计样式 === */
 .size-stat-badge {
   display: inline-flex;
   align-items: center;
@@ -1044,6 +976,7 @@ onMounted(async () => {
   border-radius: 99px;
   margin-left: 10px;
 }
+
 .text-mono {
   font-family: monospace;
   color: #909399;
@@ -1080,8 +1013,19 @@ onMounted(async () => {
 .action-btn.is-vis:hover {
   color: #4e56de;
 }
+
+.pagination-container {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 12px;
+}
+
+/* Visualization Styles */
 .vis-section-wrapper {
   animation: slideIn 0.4s ease-out;
+  margin-top: 24px;
+  flex-shrink: 0;
 }
 @keyframes slideIn {
   from {
@@ -1109,22 +1053,18 @@ onMounted(async () => {
   padding: 8px 0;
 }
 
-/* [修改] 调整 vis-tabs 布局支持两端对齐 */
 .vis-tabs {
   display: flex;
   align-items: center;
-  justify-content: space-between; /* 关键修改：两端对齐 */
+  justify-content: space-between;
   margin-bottom: 20px;
   border-bottom: 1px solid #f0f2f5;
   padding-bottom: 12px;
 }
-
-/* [新增] 左侧 Tabs 容器 */
 .vis-tabs-left {
   display: flex;
   align-items: center;
 }
-
 .vis-tabs-label {
   font-size: 14px;
   font-weight: 600;
@@ -1153,16 +1093,7 @@ onMounted(async () => {
   color: #409eff;
   font-weight: 600;
 }
-.vis-sub-filter {
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-}
-.sub-label {
-  font-size: 13px;
-  color: #606266;
-  margin-right: 8px;
-}
+
 .vis-content-area {
   min-height: 400px;
 }
@@ -1223,20 +1154,8 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.text-xs {
-  font-size: 12px;
-}
-.text-gray-400 {
-  color: #9ca3af;
-}
-.mt-1 {
-  margin-top: 4px;
-}
-.flex-col {
-  flex-direction: column;
-  display: flex;
-}
-/* [新增] Graph 样式 */
+
+/* Graph 样式 */
 .graph-viewer {
   background: #fff;
   border: 1px solid #e4e7ed;
@@ -1245,7 +1164,7 @@ onMounted(async () => {
   padding: 10px;
 }
 
-/* === 清理弹窗样式 (UI优化) === */
+/* 清理弹窗样式 */
 .cleanup-dialog :deep(.el-dialog__body) {
   padding-top: 10px;
   padding-bottom: 20px;
@@ -1377,12 +1296,13 @@ onMounted(async () => {
 .confirm-btn {
   padding: 8px 24px;
 }
-
-/* === 工具类样式 === */
 .csv-select-width {
-  width: 160px;
+  width: 140px;
 }
 .full-width-table {
   width: 100%;
+}
+.ml-4 {
+  margin-left: 16px;
 }
 </style>

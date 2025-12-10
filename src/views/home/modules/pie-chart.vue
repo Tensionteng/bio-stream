@@ -82,7 +82,7 @@ const { domRef, updateOptions } = useEcharts(() => ({
     {
       name: 'Count',
       type: 'pie',
-      minAngle: 15, // <--- 关键修改：设置最小扇区角度，防止数值过小看不见
+      minAngle: 5,
       radius: ['30%', '50%'], // 初始值，后续会被 watch 覆盖
       center: ['25%', '55%'],
       avoidLabelOverlap: true,
@@ -93,7 +93,7 @@ const { domRef, updateOptions } = useEcharts(() => ({
     {
       name: 'Size',
       type: 'pie',
-      minAngle: 5, // <--- 关键修改：设置最小扇区角度
+      minAngle: 5,
       radius: ['30%', '50%'], // 初始值，后续会被 watch 覆盖
       center: ['75%', '55%'],
       avoidLabelOverlap: true,

@@ -7,7 +7,7 @@ import {
   checkDeleteTaskChain,
   deleteTaskChain,
   fetchTaskChainDetail,
-  fetchTaskChainList // [导入] 引入检测接口
+  fetchTaskChainList
 } from '@/service/api/task_chain';
 import type { TaskChainDetail, TaskChainListItem, TaskChainListParams } from '@/service/api/task_chain';
 import { usePermissionGuard } from '@/hooks/business/permission-guard';
@@ -215,15 +215,13 @@ onMounted(async () => {
 
 <template>
   <div class="task-chain-manager-el">
-    <!-- 主卡片：承载筛选表单 + 列表 + 分页 -->
-    <ElCard shadow="never">
+    <ElCard shadow="never" class="full-height-card">
       <template #header>
         <div class="card-header">
           <span>工具链列表</span>
         </div>
       </template>
 
-      <!-- 顶部筛选区：按类型/ID/名称模糊过滤 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
         <ElFormItem label="任务类型">
           <ElInput v-model="filterParams.task_type" placeholder="按任务类型搜索" clearable @clear="handleSearch" />
@@ -234,17 +232,22 @@ onMounted(async () => {
         <ElFormItem label="任务名称">
           <ElInput v-model="filterParams.task_name" placeholder="按任务名称搜索" clearable @clear="handleSearch" />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" native-type="submit" :loading="isLoadingList">
+        <ElFormItem class="filter-actions">
+          <ElButton type="primary" native-type="submit" :loading="isLoadingList" class="btn-search">
             <ElIcon><Search /></ElIcon>
             查询
           </ElButton>
-          <ElButton @click="handleReset">重置</ElButton>
+          <ElButton class="btn-reset" @click="handleReset">重置</ElButton>
         </ElFormItem>
       </ElForm>
 
-      <!-- 工具链数据表 -->
-      <ElTable v-loading="isLoadingList" :data="taskChainList" :style="{ width: '100%' }" empty-text="未找到任何工具链">
+      <ElTable
+        v-loading="isLoadingList"
+        :data="taskChainList"
+        style="width: 100%; flex: 1"
+        height="100%"
+        empty-text="未找到任何工具链"
+      >
         <ElTableColumn prop="id" label="ID" width="100" />
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
         <ElTableColumn prop="nums" label="单元数量" width="100" align="center" />
@@ -287,7 +290,6 @@ onMounted(async () => {
       </div>
     </ElCard>
 
-    <!-- 详情弹窗：展示任务链整体结构 -->
     <ElDialog v-model="showDetailModal" :title="detailDialogTitle" width="70%" @closed="onDialogClosed">
       <ElSkeleton v-if="isLoadingDetail" :rows="10" animated />
 
@@ -435,7 +437,6 @@ onMounted(async () => {
       </template>
     </ElDialog>
 
-    <!-- 删除冲突弹窗：告诉用户还有哪些关联阻止删除 -->
     <ElDialog v-model="deleteConflictVisible" title="无法删除" width="500px" center destroy-on-close>
       <div class="cascade-warning-content">
         <ElAlert
@@ -467,24 +468,55 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 顶部筛选条：美化输入框和按钮 */
+/* 修改3：页面整体布局调整为 Flex 列布局 */
+.task-chain-manager-el {
+  padding: 16px;
+  background: #f5f7fb;
+  /* 关键：设定页面高度为视口高度减去顶部导航高度（假设约80-100px） */
+  height: calc(100vh - 100px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 防止最外层出现滚动条 */
+}
+
+/* 新增：使 Card 占满剩余高度 */
+.full-height-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.04);
+}
+
+/* 新增：穿透修改 ElCard Body，使其内部元素也能 Flex 伸缩 */
+:deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 关键：确保表格的 height="100%" 生效且不溢出 */
+  padding: 16px 20px;
+  height: 100%;
+}
+
 .filter-bar {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   column-gap: 24px;
   row-gap: 8px;
+  flex-shrink: 0; /* 防止筛选栏被挤压 */
 }
 
-/* label 更轻一点 */
 :deep(.filter-bar .el-form-item__label) {
   font-size: 12px;
   color: #909399;
   padding-right: 4px;
 }
 
-/* 输入框圆一点、边框更柔和 */
 :deep(.filter-bar .el-input__wrapper) {
   border-radius: 999px;
   padding: 0 12px;
@@ -501,7 +533,6 @@ onMounted(async () => {
   box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.15);
 }
 
-/* 查询 & 重置按钮区域靠右 */
 .filter-actions {
   margin-left: auto;
   display: flex;
@@ -509,8 +540,6 @@ onMounted(async () => {
   gap: 8px;
 }
 
-/* 查询按钮：主色圆角 + 轻微阴影 */
-/* 查询按钮：圆角胶囊 + 渐变 + 阴影 */
 .btn-search {
   border-radius: 999px;
   padding: 0 22px;
@@ -542,7 +571,6 @@ onMounted(async () => {
   transform: translateY(0);
 }
 
-/* 重置按钮：细描边 + 浅填充，和查询按钮风格统一 */
 .btn-reset {
   border-radius: 999px;
   padding: 0 20px;
@@ -560,7 +588,6 @@ onMounted(async () => {
   color: #303133;
 }
 
-/* 窄屏下按钮掉到下一行 */
 @media (max-width: 900px) {
   .filter-actions {
     margin-left: 0;
@@ -573,20 +600,10 @@ onMounted(async () => {
 .pagination-container {
   display: flex;
   justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.task-chain-manager-el {
-  padding: 24px 28px 32px;
-  background: #f5f7fb;
-  min-height: calc(100vh - 64px);
-  box-sizing: border-box;
-}
-
-.task-chain-manager-el .el-card {
-  border-radius: 12px;
-  border: none;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.04);
+  margin-top: 12px;
+  flex-shrink: 0; /* 防止分页被挤压 */
+  background: #fff;
+  padding-top: 8px;
 }
 
 .card-header {
@@ -628,6 +645,7 @@ onMounted(async () => {
   transform: translateY(-1px);
 }
 
+/* 弹窗样式 */
 :deep(.el-dialog) {
   border-radius: 14px;
   overflow: hidden;
@@ -724,13 +742,6 @@ onMounted(async () => {
   font-weight: 600;
   color: #303133;
   margin-bottom: 8px;
-}
-
-.section-subtitle {
-  margin-left: 8px;
-  font-size: 12px;
-  font-weight: 400;
-  color: #909399;
 }
 
 .section-dot {
@@ -991,14 +1002,12 @@ onMounted(async () => {
   font-weight: bold;
 }
 
-/* 弹窗底部按钮居中 */
 .dialog-footer {
   display: flex;
   justify-content: center;
   gap: 12px;
 }
 
-/* 警告内容区 */
 .cascade-warning-content {
   padding: 0 10px;
 }

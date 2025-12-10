@@ -265,7 +265,7 @@ onMounted(async () => {
 
 <template>
   <div class="task-unit-manager-el">
-    <ElCard shadow="never">
+    <ElCard shadow="never" class="full-height-card">
       <template #header>
         <div class="card-header">
           <span>任务单元列表</span>
@@ -290,7 +290,13 @@ onMounted(async () => {
         </ElFormItem>
       </ElForm>
 
-      <ElTable v-loading="isLoadingList" :data="taskUnits" :style="{ width: '100%' }" empty-text="未找到任何任务单元">
+      <ElTable
+        v-loading="isLoadingList"
+        :data="taskUnits"
+        :style="{ width: '100%', flex: 1 }"
+        height="100%"
+        empty-text="未找到任何任务单元"
+      >
         <ElTableColumn prop="name" label="名称 (Name)" min-width="180" />
         <ElTableColumn prop="created_time" label="创建时间 (Created Time)" min-width="200" />
         <ElTableColumn prop="link_file" label="链接文件 (Link File)" min-width="200" show-overflow-tooltip />
@@ -543,26 +549,44 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 筛选栏 */
+/* 修改点 3：页面整体 Flex 布局 */
+.task-unit-manager-el {
+  padding: 16px; /* 调整 Padding */
+  background: #f5f7fb;
+  height: calc(100vh - 100px); /* 锁定高度 */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 新增：卡片占满剩余空间 */
+.full-height-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.04);
+}
+
+/* 新增：穿透 ElCard body 开启 Flex */
+:deep(.el-card__body) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 关键 */
+  padding: 16px 20px;
+  height: 100%;
+}
+
+/* 筛选栏防止压缩 */
 .filter-bar {
   margin-bottom: 16px;
   display: flex;
   align-items: center;
-}
-
-/* 页面背景 */
-.task-unit-manager-el {
-  padding: 24px 28px 32px;
-  background: #f5f7fb;
-  min-height: calc(100vh - 64px);
-  box-sizing: border-box;
-}
-
-/* 卡片整体样式 */
-.task-unit-manager-el .el-card {
-  border-radius: 12px;
-  border: none;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.04);
+  flex-shrink: 0;
 }
 
 /* 卡片头部 */
@@ -689,7 +713,10 @@ onMounted(async () => {
 .pagination-container {
   display: flex;
   justify-content: flex-end;
-  margin-top: 20px;
+  margin-top: 12px; /* 稍微缩小一点 */
+  flex-shrink: 0; /* 防止压缩 */
+  background: #fff;
+  padding-top: 8px;
 }
 
 /* 表格样式 */
@@ -1089,12 +1116,5 @@ onMounted(async () => {
   display: flex;
   justify-content: center;
   gap: 12px;
-}
-
-/* 分页位置 */
-.pagination-container {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 20px;
 }
 </style>
