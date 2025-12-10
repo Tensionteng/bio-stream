@@ -204,10 +204,10 @@ defineExpose({
       </div>
     </div>
     
-    <ElEmpty v-if="!fileList.length && !fileListLoading" description="暂无上传记录" :image-size="60" />
+    <ElEmpty v-if="!fileList.length && !fileListLoading" description="暂无文件数据" :image-size="60" />
     
     <div class="history-table-scroll">
-      <ElTable :data="fileList" :style="{ width: '100%' }" size="small" border stripe>
+      <ElTable :data="fileList" :style="{ width: '100%' }" size="small" border stripe v-if="fileListTotal > 0">
         <ElTableColumn prop="file_id" label="ID" show-overflow-tooltip />
         <ElTableColumn prop="file_name" label="文件名" show-overflow-tooltip />
         <ElTableColumn label="文件大小" show-overflow-tooltip>
@@ -234,8 +234,8 @@ defineExpose({
     </div>
     
     <div class="history-pagination">
-      <div v-if="fileListTotal > 0" class="pagination-content">
-        <span class="data-count">共 {{ fileListTotal }} 条</span>
+      <div class="pagination-content">
+        <span class="data-count">共 {{ fileListTotal }} 条数据</span>
         <ElPagination
           background
           layout="sizes, prev, pager, next, jumper"
