@@ -248,18 +248,49 @@ defineExpose({
     
     <div class="history-pagination">
       <div class="pagination-content">
-        <span class="data-count" :title="`共 ${fileListTotal} 条数据`">共 {{ formatLargeNumber(fileListTotal) }} 条</span>
-        <ElPagination
-          background
-          layout="sizes, prev, pager, next, jumper"
-          :total="fileListTotal"
-          :page-size="fileListPageSize"
-          :current-page="fileListPage"
-          :page-sizes="[10, 20, 50, 100]"
-          :pager-count="5"
-          @current-change="handleCurrentChange"
-          @size-change="handlePageSizeChange"
-        />
+        <!-- 数据计数 -->
+        <div class="pagination-item data-count-item">
+          <span class="data-count" :title="`共 ${fileListTotal} 条数据`">
+            共 {{ formatLargeNumber(fileListTotal) }} 条
+          </span>
+        </div>
+        
+        <!-- 单页显示条数选择 -->
+        <div class="pagination-item page-size-item">
+          <ElPagination
+            background
+            layout="sizes"
+            :total="fileListTotal"
+            :page-size="fileListPageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            @size-change="handlePageSizeChange"
+          />
+        </div>
+        
+        <!-- 翻页按钮（上一页、页码、下一页） -->
+        <div class="pagination-item page-nav-item">
+          <ElPagination
+            background
+            layout="prev, pager, next"
+            :total="fileListTotal"
+            :page-size="fileListPageSize"
+            :current-page="fileListPage"
+            :pager-count="5"
+            @current-change="handleCurrentChange"
+          />
+        </div>
+        
+        <!-- 页码输入框跳转 -->
+        <div class="pagination-item page-jumper-item">
+          <ElPagination
+            background
+            layout="jumper"
+            :total="fileListTotal"
+            :page-size="fileListPageSize"
+            :current-page="fileListPage"
+            @current-change="handleCurrentChange"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -296,29 +327,48 @@ defineExpose({
 .pagination-content {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 16px;
   width: 100%;
   min-width: 0;
 }
 
+.pagination-item {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.data-count-item {
+  flex-shrink: 0;
+}
+
 .data-count {
   font-size: 14px;
   color: #606266;
-  flex-shrink: 0;
   white-space: nowrap;
+  cursor: help;
 }
 
-.pagination-content :deep(.el-pagination) {
-  flex: 1;
-  min-width: 0;
-  justify-content: flex-end;
-  overflow: hidden;
+.page-size-item :deep(.el-pagination) {
+  display: flex;
+  gap: 8px;
+}
+
+.page-nav-item :deep(.el-pagination) {
+  display: flex;
+  gap: 4px;
+}
+
+.page-jumper-item :deep(.el-pagination) {
+  display: flex;
+  gap: 4px;
 }
 
 /* 限制分页按钮宽度，防止过长 */
-.pagination-content :deep(.el-pager li) {
+.page-nav-item :deep(.el-pager li) {
   min-width: 25px;
   max-width: 40px;
   overflow: hidden;
@@ -326,28 +376,27 @@ defineExpose({
   white-space: nowrap;
 }
 
-.pagination-content :deep(.el-pager li:hover) {
+.page-nav-item :deep(.el-pager li:hover) {
   overflow: visible;
   background-color: #f4f4f5;
   z-index: 10;
 }
 
-/* 数据计数的 tooltip 样式 */
-.data-count {
-  cursor: help;
-}
-
 @media (max-width: 1024px) {
   .pagination-content {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-wrap: wrap;
     gap: 12px;
   }
   
-  .pagination-content :deep(.el-pagination) {
-    width: 100%;
-    justify-content: flex-start;
-    overflow-x: auto;
+  .pagination-item {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  
+  .page-size-item :deep(.el-pagination),
+  .page-nav-item :deep(.el-pagination),
+  .page-jumper-item :deep(.el-pagination) {
+    flex-wrap: wrap;
   }
 }
 
