@@ -259,8 +259,8 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   width: 100%;
-  margin-top: 20px;
-  padding-top: 20px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   border-top: 1px solid #ebeef5;
 }
 

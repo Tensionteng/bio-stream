@@ -10,6 +10,19 @@ import { fetchFileListInfo } from '@/service/api/file';
 // ==================== 工具函数 ====================
 
 /**
+ * 格式化大数字为简洁格式
+ * 1000 -> 1K, 1000000 -> 1M
+ * @param num 数字
+ * @returns 格式化后的字符串
+ */
+function formatLargeNumber(num: number): string {
+  if (num < 1000) return String(num);
+  if (num < 1000000) return `${(num / 1000).toFixed(1)}K`;
+  if (num < 1000000000) return `${(num / 1000000).toFixed(1)}M`;
+  return `${(num / 1000000000).toFixed(1)}B`;
+}
+
+/**
  * 格式化文件大小为易读的格式
  * 将字节转换为 B, KB, MB, GB, TB, PB
  * @param bytes 文件大小（字节）
@@ -235,7 +248,7 @@ defineExpose({
     
     <div class="history-pagination">
       <div class="pagination-content">
-        <span class="data-count">共 {{ fileListTotal }} 条数据</span>
+        <span class="data-count" :title="`共 ${fileListTotal} 条数据`">共 {{ formatLargeNumber(fileListTotal) }} 条</span>
         <ElPagination
           background
           layout="sizes, prev, pager, next, jumper"
@@ -243,6 +256,7 @@ defineExpose({
           :page-size="fileListPageSize"
           :current-page="fileListPage"
           :page-sizes="[10, 20, 50, 100]"
+          :pager-count="5"
           @current-change="handleCurrentChange"
           @size-change="handlePageSizeChange"
         />
@@ -301,6 +315,26 @@ defineExpose({
   min-width: 0;
   justify-content: flex-end;
   overflow: hidden;
+}
+
+/* 限制分页按钮宽度，防止过长 */
+.pagination-content :deep(.el-pager li) {
+  min-width: 25px;
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pagination-content :deep(.el-pager li:hover) {
+  overflow: visible;
+  background-color: #f4f4f5;
+  z-index: 10;
+}
+
+/* 数据计数的 tooltip 样式 */
+.data-count {
+  cursor: help;
 }
 
 @media (max-width: 1024px) {
