@@ -1,75 +1,107 @@
 <script lang="ts" setup>
+/**
+ * LineageDialog.vue - 文件数据世系图展示组件
+ * 功能：展示文件之间的数据流向关系，使用ECharts绘制有向无环图
+ * 包含：世系数据获取、节点/连接渲染、拓扑排序布局、富交互提示框
+ */
+
 import { ref, nextTick } from 'vue';
 import { ElMessage, ElDialog, ElIcon, ElButton } from 'element-plus';
 import * as echarts from 'echarts';
 import { fetchFileGenealogy } from '@/service/api/file';
 
-// Props
+// ============ Props Props ============
 const props = defineProps<{
-  modelValue: boolean;
-  row?: any;
+  modelValue: boolean;  // 对话框显示状态
+  row?: any;            // 当前选中的文件行数据
 }>();
 
-// Emits
+// ============ Emits 事件发射 ============
 const emit = defineEmits<{
-  'update:modelValue': [value: boolean];
+  'update:modelValue': [value: boolean];  // 更新对话框可见性
 }>();
 
-// 本地状态
-const lineageLoading = ref(false);
-const lineageChartRef = ref<HTMLElement>();
-const lineageChart = ref<echarts.ECharts>();
-const currentFileGenealogy = ref<any>(null);
+// ============ 本地状态 ============
+const lineageLoading = ref(false);          // 世系图加载状态
+const lineageChartRef = ref<HTMLElement>(); // ECharts图表容器引用
+const lineageChart = ref<echarts.ECharts>();// ECharts实例
+const currentFileGenealogy = ref<any>(null);// 当前文件的完整世系数据
 
-// 处理世系图对话框关闭
+// ============ 生命周期函数 ============
+
+/**
+ * 处理世系图对话框关闭
+ * 功能：关闭对话框、销毁图表实例、释放内存
+ */
 function handleLineageDialogClose() {
   emit('update:modelValue', false);
-  lineageChart.value?.dispose();
+  lineageChart.value?.dispose(); // 销毁ECharts实例
   lineageChart.value = undefined;
 }
 
-// 数据世系相关
+/**
+ * 显示文件的数据世系图
+ * 功能：异步获取世系数据，验证数据有效性，初始化并渲染世系图
+ * @param {any} row - 选中的文件行数据，包含file_id用于查询世系
+ */
 async function showLineage(row: any) {
   lineageLoading.value = true;
   currentFileGenealogy.value = null;
 
   try {
+    // 调用API获取文件的完整世系数据
     const res = await fetchFileGenealogy(row.file_id);
     console.log('genealogy response:', res);
 
+    // 兼容不同的响应结构
     const genealogyData = res.response?.data || res.data;
     console.log('genealogyData:', genealogyData);
 
+    // 检查数据有效性：需要是非空数组
     if (genealogyData && Array.isArray(genealogyData.data) && genealogyData.data.length > 0) {
       currentFileGenealogy.value = genealogyData;
+      // 等待DOM更新，然后渲染图表（延迟100ms确保容器已挂载）
       await nextTick();
       setTimeout(() => {
         renderLineageGraph(genealogyData.data as any[]);
       }, 100);
     } else {
+      // 无世系数据时提示用户
       ElMessage.warning((genealogyData as any).message || '该文件暂无世系数据');
       emit('update:modelValue', false);
     }
   } catch (e: any) {
+    // 网络错误或API异常处理
     ElMessage.error(`获取世系数据失败: ${e.message || '未知错误'}`);
     emit('update:modelValue', false);
   } finally {
-    lineageLoading.value = false;
+    lineageLoading.value = false;  // 关闭加载状态
   }
 }
 
-// 转换世系数据为ECharts格式
+/**
+ * 转换世系数据为ECharts图表格式
+ * 功能：
+ * 1. 提取所有文件节点并为不同文件类型分配颜色
+ * 2. 构建文件间的连接关系
+ * 3. 为每个节点配置样式、标签、悬停效果
+ * @param {any[]} data - 后端返回的原始世系数据数组，格式为 [{file1, file2, task}, ...]
+ * @return {Object} 返回包含nodes、links、categories的图表数据对象
+ */
 function transformLineageData(data: any[]) {
+  // ============ 数据验证 ============
+  // 检查是否为有效的数组，空数组表示没有世系数据
   if (!Array.isArray(data) || data.length === 0) {
     console.warn('No lineage data provided');
     return { nodes: [], links: [], categories: [{ name: 'file' }] };
   }
 
-  const nodeMap = new Map<string, any>();
-  const links: any[] = [];
-  const fileTypeColorMap = new Map<string, string>();
+  const nodeMap = new Map<string, any>();          // 使用Map存储唯一的文件节点，key为file_id
+  const links: any[] = [];                            // 存储节点间的连接（父子关系）
+  const fileTypeColorMap = new Map<string, string>(); // 建立文件类型到颜色的映射
   
-  // 专业配色方案
+  // ============ 专业配色方案 ============
+  // 8种高对比度颜色用于区分不同的文件类型
   const colors = [
     { primary: '#4A90E2', light: 'rgba(74, 144, 226, 0.15)' },
     { primary: '#7ED321', light: 'rgba(126, 211, 33, 0.15)' },
@@ -82,19 +114,21 @@ function transformLineageData(data: any[]) {
   ];
   let colorIndex = 0;
 
-  // 第一遍：收集所有文件类型
+  // 第一遍：为每个文件类型分配唯一的颜色 | 确保同类型文件显示相同颜色便于区分
   data.forEach((genealogy) => {
+    // 处理第一个文件节点的颜色映射
     if (genealogy.file1 && !fileTypeColorMap.has(genealogy.file1.file_type)) {
       fileTypeColorMap.set(genealogy.file1.file_type, colors[colorIndex % colors.length].primary);
-      colorIndex++;
+      colorIndex++; // 循环使用8种颜色
     }
+    // 处理第二个文件节点的颜色映射
     if (genealogy.file2 && !fileTypeColorMap.has(genealogy.file2.file_type)) {
       fileTypeColorMap.set(genealogy.file2.file_type, colors[colorIndex % colors.length].primary);
       colorIndex++;
     }
   });
 
-  // 帮助函数：创建节点
+  // 节点工厂函数：为图表创建ECharts格式的节点对象
   const createNode = (file: any, color: string) => ({
     id: file.file_id,
     name: file.file_name,

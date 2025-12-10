@@ -7,16 +7,24 @@ import {
 } from 'element-plus';
 import { fetchFileListInfo } from '@/service/api/file';
 
-// 格式化文件大小
+// ==================== 工具函数 ====================
+
+/**
+ * 格式化文件大小为易读的格式
+ * 将字节转换为 B, KB, MB, GB, TB, PB
+ * @param bytes 文件大小（字节）
+ * @returns 格式化后的文件大小字符串
+ */
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   if (!bytes || bytes < 0) return '-';
   
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  const k = 1024;
+  const k = 1024; // 1KB = 1024B
   let size = bytes;
   let unitIndex = 0;
   
+  // 逐级转换至合适的单位
   while (size >= k && unitIndex < units.length - 1) {
     size /= k;
     unitIndex++;
@@ -25,20 +33,21 @@ function formatFileSize(bytes: number): string {
   return `${size.toFixed(2)} ${units[unitIndex]}`;
 }
 
-// Props
+// ==================== Props 与 Emits ====================
+// Props: 可选的初始文件列表
 const props = defineProps<{
   modelValue?: any[];
 }>();
 
-// Emits
+// Emits: 向父组件发送事件
 const emit = defineEmits<{
-  'detail': [fileId: number];
-  'lineage': [row: any];
+  'detail': [fileId: number];  // 查看详情事件
+  'lineage': [row: any];       // 查看世系事件
 }>();
 
-// 本地状态
-const fileList = ref<any[]>(props.modelValue || []);
-const fileListLoading = ref(false);
+// ==================== 本地状态 ====================
+const fileList = ref<any[]>(props.modelValue || []); // 文件列表数据
+const fileListLoading = ref(false); // 列表加载状态
 const fileListPage = ref(1);
 const fileListPageSize = ref(20);
 const fileListTotal = ref(0);
