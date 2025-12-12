@@ -190,7 +190,7 @@ function handleTaskRestarted() {
 /**
  * # ===========================================================================
  *
- * # Part 2: 结果可视化逻辑 (Visualization) - [已更新]
+ * # Part 2: 结果可视化逻辑 (Visualization)
  *
  * # ===========================================================================
  */
@@ -234,14 +234,32 @@ const normalizePdfUrl = (url: string) => {
   }
 };
 
+/** [新增] 统一清理 Blob 资源的辅助函数 */
+function clearBlobResources(result: any) {
+  if (!result) return;
+
+  // 清理 PDF
+  if (result.type === 'pdf' && result.data && result.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(result.data);
+  }
+
+  // 清理 Image 列表
+  if (result.type === 'image' && Array.isArray(result.data)) {
+    result.data.forEach((img: any) => {
+      // 检查 _isBlob 标记，避免误删非 Blob 的 URL
+      if (img.url && img.url.startsWith('blob:') && img.isBlob) {
+        window.URL.revokeObjectURL(img.url);
+      }
+    });
+  }
+}
+
 /** 加载可视化数据 */
 async function loadVisData(fileType: Api.Visualization.FileType) {
   if (!currentVisTaskId.value) return;
 
   // 1. 清理旧的 Blob URL
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  clearBlobResources(visualizationResult.value);
 
   visualizationLoading.value = true;
   selectedFileType.value = fileType;
@@ -249,11 +267,11 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
 
   try {
     const { data: resultData } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
+    const token = localStg.get('token');
 
     if (resultData && resultData.type === 'pdf') {
       // === PDF 特殊处理流 (Axios Blob) ===
       const pdfUrl = normalizePdfUrl(resultData.data);
-      const token = localStg.get('token');
 
       const response = await axios.get(pdfUrl, {
         responseType: 'blob',
@@ -264,7 +282,37 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
       const localPdfUrl = window.URL.createObjectURL(blob);
 
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
+    } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
+      // === 图片处理：并行下载图片流并转为 Blob URL ===
+      const newImages = await Promise.all(
+        resultData.data.map(async (imgItem: any) => {
+          // 如果没有 URL 或者已经是 base64，直接返回
+          if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
+
+          try {
+            // 复用 normalizePdfUrl 处理可能的代理前缀
+            const imgUrl = normalizePdfUrl(imgItem.url);
+
+            const response = await axios.get(imgUrl, {
+              responseType: 'blob',
+              headers: { Authorization: token ? `Bearer ${token}` : '' }
+            });
+
+            const blobUrl = window.URL.createObjectURL(response.data);
+            // 标记 _isBlob 方便后续清理
+            return { ...imgItem, url: blobUrl, isBlob: true };
+          } catch (error) {
+            console.error(`图片加载失败: ${imgItem.name}`, error);
+            // 加载失败时保留原 URL，由 ElImage 显示加载失败占位
+            return imgItem;
+          }
+        })
+      );
+
+      resultData.data = newImages;
+      visualizationResult.value = resultData;
     } else {
+      // 其他类型
       visualizationResult.value = resultData ?? null;
     }
 
@@ -293,10 +341,9 @@ async function handleVisualize(row: Api.Task.TaskListItem) {
     return;
   }
 
-  // 重置状态
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  // 重置状态与清理资源
+  clearBlobResources(visualizationResult.value);
+
   currentVisTaskId.value = row.id;
   currentVisProcessName.value = row.name;
   visualizationResult.value = null;
@@ -343,18 +390,14 @@ watch(selectedCsvTable, newValue => {
 
 // 关闭面板并清理资源
 const closeVisPanel = () => {
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  clearBlobResources(visualizationResult.value);
   currentVisTaskId.value = null;
   visualizationResult.value = null;
 };
 
 // 组件销毁时清理
 onUnmounted(() => {
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  clearBlobResources(visualizationResult.value);
 });
 
 /** 下载功能 - [已更新文件名解析逻辑] */
@@ -838,7 +881,12 @@ onMounted(async () => {
                     fit="contain"
                     class="image-entity"
                     preview-teleported
-                  />
+                  >
+                    <!-- 加载占位，防止未加载时的高度塌陷 -->
+                    <template #placeholder>
+                      <div class="image-loading-placeholder">加载中...</div>
+                    </template>
+                  </ElImage>
                   <div class="image-name">{{ img.name }}</div>
                 </div>
               </div>
@@ -1207,6 +1255,15 @@ onMounted(async () => {
   border-radius: 4px;
   margin-bottom: 8px;
   display: block;
+  min-height: 200px; /* 增加最小高度防止塌陷 */
+}
+.image-loading-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #909399;
+  font-size: 13px;
 }
 .image-name {
   font-size: 13px;
