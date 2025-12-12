@@ -91,38 +91,57 @@ const fetchTasks = async () => {
     } else {
       tasks.value = [];
     }
-  } catch (error) {
-    console.error('获取任务列表失败:', error);
+  } catch {
+    ElMessage.error('获取任务列表失败');
     tasks.value = [];
   } finally {
     loading.value = false;
   }
 };
 
-// 获取可视化结果 - URL 规范化工具
-const normalizePdfUrl = (url: string) => {
+// [修改] 通用的 URL 规范化工具 (适用于 PDF 和 Image)
+const normalizeMediaUrl = (url: string) => {
   if (!url) return '';
 
   const isHttpUrl = /^https?:\/\//i.test(url);
   if (!isHttpUrl) return url;
 
   try {
-    const pdfUrl = new URL(url);
+    const targetUrl = new URL(url);
     const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
 
     if (!serviceBase) return url;
 
     const serviceUrl = new URL(serviceBase);
-    const isSameOrigin = pdfUrl.origin === serviceUrl.origin;
+    const isSameOrigin = targetUrl.origin === serviceUrl.origin;
 
     if (!isSameOrigin) return url;
 
     const proxyPrefix = '/proxy-media';
-    const pdfPathWithQuery = `${pdfUrl.pathname}${pdfUrl.search}`;
-    return `${proxyPrefix}${pdfPathWithQuery}`;
-  } catch (error) {
-    console.warn('normalizePdfUrl error => ', error);
+    const pathWithQuery = `${targetUrl.pathname}${targetUrl.search}`;
+    return `${proxyPrefix}${pathWithQuery}`;
+  } catch {
     return url;
+  }
+};
+
+// [新增] 统一清理 Blob 资源的辅助函数
+const clearBlobResources = (result: any) => {
+  if (!result) return;
+
+  // 清理 PDF
+  if (result.type === 'pdf' && result.data && result.data.startsWith('blob:')) {
+    window.URL.revokeObjectURL(result.data);
+  }
+
+  // 清理 Image 列表
+  if (result.type === 'image' && Array.isArray(result.data)) {
+    result.data.forEach((img: any) => {
+      // 检查 isBlob 标记，避免误删非 Blob 的 URL
+      if (img.url && img.url.startsWith('blob:') && img.isBlob) {
+        window.URL.revokeObjectURL(img.url);
+      }
+    });
   }
 };
 
@@ -130,44 +149,60 @@ const normalizePdfUrl = (url: string) => {
 const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
   if (!selectedTaskId.value || !fileType) return;
 
-  // 1. 清理之前的 Blob 资源，防止内存泄漏
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  // 1. 请求新数据前，清理旧资源的内存
+  clearBlobResources(visualizationResult.value);
 
   try {
     visualizationLoading.value = true;
     selectedFileType.value = fileType;
-    // 先置空，给用户加载中的反馈
     visualizationResult.value = null;
 
     const { data: resultData } = await fetchTaskResult(selectedTaskId.value.toString(), fileType);
+    const token = localStg.get('token');
 
     if (resultData && resultData.type === 'pdf') {
-      // 2. [修改点] PDF 使用 Axios 下载 Blob 并创建本地 URL
-      const pdfUrl = normalizePdfUrl(resultData.data);
-      const token = localStg.get('token');
-
+      // === PDF 处理 ===
+      const pdfUrl = normalizeMediaUrl(resultData.data);
       const response = await axios.get(pdfUrl, {
-        responseType: 'blob', // 关键
-        headers: {
-          Authorization: token ? `Bearer ${token}` : ''
-        }
+        responseType: 'blob',
+        headers: { Authorization: token ? `Bearer ${token}` : '' }
       });
 
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const blobUrl = window.URL.createObjectURL(blob);
 
-      visualizationResult.value = {
-        type: 'pdf',
-        data: blobUrl
-      };
+      visualizationResult.value = { type: 'pdf', data: blobUrl };
+    } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
+      // === [修复] 图片处理：并行下载图片流并转为 Blob URL ===
+      const newImages = await Promise.all(
+        resultData.data.map(async (imgItem: any) => {
+          if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
+
+          try {
+            const imgUrl = normalizeMediaUrl(imgItem.url);
+            const response = await axios.get(imgUrl, {
+              responseType: 'blob',
+              headers: { Authorization: token ? `Bearer ${token}` : '' }
+            });
+
+            const blobUrl = window.URL.createObjectURL(response.data);
+            // 标记 isBlob 为 true，方便后续 clearBlobResources 识别清理
+            return { ...imgItem, url: blobUrl, isBlob: true };
+          } catch {
+            // 加载失败时保留原 URL，由组件显示加载失败状态
+            return imgItem;
+          }
+        })
+      );
+
+      resultData.data = newImages;
+      visualizationResult.value = resultData;
     } else {
+      // 其他类型
       visualizationResult.value = resultData ?? null;
     }
 
-    // 根据文件类型显示不同的消息通知
-    const messages: Record<Api.Visualization.FileType, string> = {
+    const messages: Record<string, string> = {
       txt: 'TXT文本数据加载成功',
       pdf: 'PDF文档加载成功',
       vcf: 'VCF变异数据加载成功',
@@ -175,9 +210,8 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
       image: '图片数据加载成功',
       graph: '图谱可视化加载成功'
     };
-    ElMessage.success(messages[fileType]);
-  } catch (error) {
-    console.error('获取可视化数据失败:', error);
+    if (messages[fileType]) ElMessage.success(messages[fileType]);
+  } catch {
     visualizationResult.value = null;
     ElMessage.error('获取可视化数据失败');
   } finally {
@@ -187,20 +221,15 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
 
 // 当任务ID变化时，清空选择的文件类型和可视化结果
 watch(selectedTaskId, () => {
-  // 切换任务时也要清理旧的 Blob
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  clearBlobResources(visualizationResult.value);
   selectedFileType.value = '';
   visualizationResult.value = null;
-  selectedCsvTable.value = 'count_csv'; // 重置CSV表格选择
+  selectedCsvTable.value = 'count_csv';
 });
 
 // 组件销毁时清理
 onUnmounted(() => {
-  if (visualizationResult.value?.type === 'pdf' && visualizationResult.value.data.startsWith('blob:')) {
-    window.URL.revokeObjectURL(visualizationResult.value.data);
-  }
+  clearBlobResources(visualizationResult.value);
 });
 
 // 当可视化结果变化时，重置CSV表格选择
@@ -246,18 +275,14 @@ const handleDownload = async () => {
       responseType: 'blob'
     });
 
-    // 从响应头获取文件名
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
 
     if (contentDisposition) {
-      // 优先尝试匹配 RFC 5987 标准的 UTF-8 文件名 (filename*=utf-8''...)
       const filenameStarMatch = contentDisposition.match(/filename\*=utf-8''(.+?)(;|$)/);
-
       if (filenameStarMatch && filenameStarMatch[1]) {
         fileName = decodeURIComponent(filenameStarMatch[1]);
       } else {
-        // 如果没有，再尝试匹配普通文件名 (filename="...")
         const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/);
         if (filenameMatch && filenameMatch[1]) {
           fileName = decodeURIComponent(filenameMatch[1]);
@@ -265,11 +290,9 @@ const handleDownload = async () => {
       }
     }
 
-    // 如果没有在header中找到文件名，则使用默认名称
     if (!fileName) {
       const type = selectedFileType.value;
       fileName = `task_${selectedTaskId.value}_${type}_${Date.now()}`;
-      // 根据类型添加扩展名
       const extensions: Record<string, string> = {
         txt: '.txt',
         pdf: '.pdf',
@@ -281,7 +304,6 @@ const handleDownload = async () => {
       fileName += extensions[type] || '';
     }
 
-    // 创建下载链接
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -289,21 +311,17 @@ const handleDownload = async () => {
     link.download = fileName;
     document.body.appendChild(link);
     link.click();
-
-    // 清理
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-
     ElMessage.success('文件下载成功');
-  } catch (error) {
-    console.error('文件下载失败:', error);
+  } catch {
     ElMessage.error('文件下载失败');
   }
 };
 
 // 获取文件类型显示名称
 const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
-  const labels = {
+  const labels: Record<string, string> = {
     txt: 'TXT 文本',
     pdf: 'PDF 文档',
     vcf: 'VCF 变异',
@@ -317,13 +335,10 @@ const getFileTypeLabel = (fileType: Api.Visualization.FileType) => {
 // 动态生成表格列
 const getTableColumns = (data: any[]) => {
   if (!data || data.length === 0) return [];
-
-  // 收集所有行中出现的键，确保所有列都被包含
   const allKeys = new Set<string>();
   data.forEach(row => {
     Object.keys(row).forEach(key => allKeys.add(key));
   });
-
   return Array.from(allKeys);
 };
 
@@ -332,34 +347,17 @@ const transformGraphDataToECharts = (graphData: Api.Visualization.GraphData) => 
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
 
-  // 收集所有节点
   graphData.forEach(item => {
     if (!nodeMap.has(item.from)) {
-      nodeMap.set(item.from, {
-        id: item.from,
-        name: item.from,
-        symbolSize: 30
-      });
+      nodeMap.set(item.from, { id: item.from, name: item.from, symbolSize: 30 });
     }
     if (!nodeMap.has(item.to)) {
-      nodeMap.set(item.to, {
-        id: item.to,
-        name: item.to,
-        symbolSize: 30
-      });
+      nodeMap.set(item.to, { id: item.to, name: item.to, symbolSize: 30 });
     }
-
-    // 添加边
-    links.push({
-      source: item.from,
-      target: item.to
-    });
+    links.push({ source: item.from, target: item.to });
   });
 
-  return {
-    nodes: Array.from(nodeMap.values()),
-    links
-  };
+  return { nodes: Array.from(nodeMap.values()), links };
 };
 
 // Graph 图表配置
@@ -367,7 +365,6 @@ const graphChartOption = computed<any>(() => {
   if (!visualizationResult.value || visualizationResult.value.type !== 'graph') {
     return null;
   }
-
   const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
 
   return {
@@ -375,12 +372,8 @@ const graphChartOption = computed<any>(() => {
     tooltip: {
       trigger: 'item',
       formatter: (params: any) => {
-        if (params.dataType === 'node') {
-          return `节点: ${params.data.name}`;
-        }
-        if (params.dataType === 'edge') {
-          return `${params.data.source} → ${params.data.target}`;
-        }
+        if (params.dataType === 'node') return `节点: ${params.data.name}`;
+        if (params.dataType === 'edge') return `${params.data.source} → ${params.data.target}`;
         return '';
       }
     },
@@ -393,27 +386,13 @@ const graphChartOption = computed<any>(() => {
         data: nodes,
         links,
         roam: true,
-        // 设置箭头表示有向图
-        edgeSymbol: ['none', 'arrow'], // [起点符号, 终点符号]
-        edgeSymbolSize: [0, 12], // [起点符号大小, 终点符号大小]
-        label: {
-          show: true,
-          position: 'bottom',
-          fontSize: 12,
-          color: '#333'
-        },
+        edgeSymbol: ['none', 'arrow'],
+        edgeSymbolSize: [0, 12],
+        label: { show: true, position: 'bottom', fontSize: 12, color: '#333' },
         emphasis: {
           focus: 'adjacency',
-          label: {
-            show: true,
-            fontSize: 14,
-            fontWeight: 'bold',
-            color: '#000'
-          },
-          lineStyle: {
-            width: 4,
-            color: '#4a90e2'
-          }
+          label: { show: true, fontSize: 14, fontWeight: 'bold', color: '#000' },
+          lineStyle: { width: 4, color: '#4a90e2' }
         },
         force: {
           repulsion: 1000,
@@ -421,12 +400,7 @@ const graphChartOption = computed<any>(() => {
           gravity: 0.1,
           layoutAnimation: true
         },
-        lineStyle: {
-          color: 'source',
-          width: 2,
-          curveness: 0, // 使用直线让箭头更清晰
-          opacity: 0.7
-        },
+        lineStyle: { color: 'source', width: 2, curveness: 0, opacity: 0.7 },
         itemStyle: {
           borderColor: '#2c5aa0',
           borderWidth: 2,
@@ -435,7 +409,6 @@ const graphChartOption = computed<any>(() => {
         },
         symbol: 'circle',
         symbolSize: (value: any, params: any) => {
-          // 根据节点连接数动态调整大小
           const nodeId = params?.data?.id || value?.id || '';
           const relatedLinks = links.filter((link: any) => link.source === nodeId || link.target === nodeId);
           return Math.max(30, Math.min(60, 30 + relatedLinks.length * 5));
@@ -452,13 +425,9 @@ const openPdfInNewWindow = (url: string) => {
 
 // 页面初始化
 onMounted(async () => {
-  // 检查任务管理权限（可视化页面需要 task 权限）
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('task');
-  if (!hasPermission) {
-    return;
-  }
-
+  if (!hasPermission) return;
   fetchTasks();
 });
 </script>
@@ -588,9 +557,14 @@ onMounted(async () => {
                       :preview-src-list="imagePreviewUrls"
                       :initial-index="index"
                       :preview-teleported="true"
-                      fit="cover"
-                      :lazy="true"
-                    />
+                      fit="contain"
+                    >
+                      <template #placeholder>
+                        <div class="h-full w-full flex items-center justify-center bg-gray-100 text-gray-400">
+                          加载中...
+                        </div>
+                      </template>
+                    </ElImage>
                   </div>
                   <p v-if="image.name" class="mx-3 my-2 text-center text-sm text-gray-600 leading-snug">
                     {{ image.name }}
