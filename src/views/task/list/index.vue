@@ -13,6 +13,7 @@ import {
   Delete,
   Document,
   Download,
+  Loading,
   Odometer,
   Refresh,
   Search,
@@ -254,6 +255,46 @@ function clearBlobResources(result: any) {
   }
 }
 
+/** [新增] 并发控制辅助函数：分批下载图片，防止浏览器连接阻塞 */
+async function downloadImagesInBatches(images: any[], token: string | null) {
+  const BATCH_SIZE = 5; // 每次并发下载 5 张
+  const results = [];
+
+  for (let i = 0; i < images.length; i += BATCH_SIZE) {
+    const batch = images.slice(i, i + BATCH_SIZE);
+    // eslint-disable-next-line no-await-in-loop
+    const batchResults = await Promise.all(
+      batch.map(async (imgItem: any) => {
+        if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
+
+        try {
+          // 复用 normalizePdfUrl 的逻辑处理代理
+          const imgUrl = normalizePdfUrl(imgItem.url);
+          const response = await axios.get(imgUrl, {
+            responseType: 'blob',
+            timeout: 30000,
+            headers: { Authorization: token ? `Bearer ${token}` : '' }
+          });
+
+          const blobUrl = window.URL.createObjectURL(response.data);
+          // 增加 _uuid 强制视图更新
+          return {
+            ...imgItem,
+            url: blobUrl,
+            isBlob: true,
+            _uuid: Date.now() + Math.random()
+          };
+        } catch (error) {
+          console.error(`图片加载失败: ${imgItem.name}`, error);
+          return imgItem;
+        }
+      })
+    );
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 /** 加载可视化数据 */
 async function loadVisData(fileType: Api.Visualization.FileType) {
   if (!currentVisTaskId.value) return;
@@ -283,31 +324,8 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
 
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
     } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
-      // === 图片处理：并行下载图片流并转为 Blob URL ===
-      const newImages = await Promise.all(
-        resultData.data.map(async (imgItem: any) => {
-          // 如果没有 URL 或者已经是 base64，直接返回
-          if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
-
-          try {
-            // 复用 normalizePdfUrl 处理可能的代理前缀
-            const imgUrl = normalizePdfUrl(imgItem.url);
-
-            const response = await axios.get(imgUrl, {
-              responseType: 'blob',
-              headers: { Authorization: token ? `Bearer ${token}` : '' }
-            });
-
-            const blobUrl = window.URL.createObjectURL(response.data);
-            // 标记 _isBlob 方便后续清理
-            return { ...imgItem, url: blobUrl, isBlob: true };
-          } catch (error) {
-            console.error(`图片加载失败: ${imgItem.name}`, error);
-            // 加载失败时保留原 URL，由 ElImage 显示加载失败占位
-            return imgItem;
-          }
-        })
-      );
+      // === 图片处理：改为分批次下载 (关键修复：防止一直加载中) ===
+      const newImages = await downloadImagesInBatches(resultData.data, token);
 
       resultData.data = newImages;
       visualizationResult.value = resultData;
@@ -873,7 +891,7 @@ onMounted(async () => {
 
             <div v-else-if="visualizationResult?.type === 'image'" class="image-viewer">
               <div v-if="imageList.length" class="image-grid">
-                <div v-for="(img, idx) in imageList" :key="idx" class="image-card">
+                <div v-for="(img, idx) in imageList" :key="img.url || img._uuid || idx" class="image-card">
                   <ElImage
                     :src="img.url"
                     :preview-src-list="imagePreviewUrls"
@@ -881,10 +899,13 @@ onMounted(async () => {
                     fit="contain"
                     class="image-entity"
                     preview-teleported
+                    lazy
                   >
-                    <!-- 加载占位，防止未加载时的高度塌陷 -->
                     <template #placeholder>
-                      <div class="image-loading-placeholder">加载中...</div>
+                      <div class="image-loading-placeholder">
+                        <ElIcon class="is-loading mr-2"><Loading /></ElIcon>
+                        加载中...
+                      </div>
                     </template>
                   </ElImage>
                   <div class="image-name">{{ img.name }}</div>
@@ -963,6 +984,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* 新增样式 */
+.mr-2 {
+  margin-right: 8px;
+}
+
 /* [修改点] 页面容器：高度改为 100% (相对于Layout容器)，允许y轴滚动(应对可视化面板) */
 .page-container {
   padding: 24px;

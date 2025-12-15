@@ -1,11 +1,7 @@
 <script setup lang="ts">
-// ==========================================
-// 1. 依赖引入
-// ==========================================
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Collection, DocumentCopy, FolderOpened, InfoFilled, Refresh, Setting, Upload } from '@element-plus/icons-vue';
-// API 接口引入
 import {
   fetchFileSchemaList,
   fetchTaskDetail,
@@ -14,78 +10,68 @@ import {
   stopTask,
   uploadTaskGeneratedFiles
 } from '@/service/api/task';
-// 子组件：任务流程可视化图
 import TaskFlow from './TaskFlow.vue';
-
+import TaskInOutPreview from './TaskInOutPreview.vue';
+import TaskFlowGraph from './TaskFlowGraph.vue'; // 引入新组件
 /**
  * # ==========================================
  *
- * 2. Props & Emits 定义
+ * Props & Emits
  */
+
+// -- Props and Emits --
 const props = defineProps<{
-  modelValue: boolean; // 控制弹窗显示的 v-model
-  taskId: number | null; // 当前查看的任务 ID
+  modelValue: boolean;
+  taskId: number | null;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: boolean): void; // 更新 v-model
-  (e: 'taskRestarted'): void; // 任务重启成功后通知父组件刷新列表
+  (e: 'update:modelValue', value: boolean): void;
+  (e: 'taskRestarted'): void;
 }>();
 
 /**
  * # ==========================================
  *
- * 3. 状态管理 (State)
+ * Dialog & 表单状态
  */
-// --- 任务详情弹窗状态 ---
-const loading = ref(false); // 详情加载 Loading
-const taskDetails = ref<Api.Task.TaskDetail | null>(null); // 任务详情数据
+const loading = ref(false);
+const taskDetails = ref<Api.Task.TaskDetail | null>(null);
 
-// --- 手动上传弹窗状态 (Upload Dialog) ---
-const isUploadDialogVisible = ref(false); // 上传弹窗可见性
-const uploadLoading = ref(false); // 提交上传 Loading
-const metaFileLoading = ref(false); // Schema 列表加载 Loading
-const metaFileOptions = ref<Api.Task.FileSchemaItem[]>([]); // Schema 下拉选项列表
+// -- Upload Dialog State --
+const isUploadDialogVisible = ref(false);
+const uploadLoading = ref(false);
+const metaFileLoading = ref(false);
+const metaFileOptions = ref<Api.Task.FileSchemaItem[]>([]);
 
-// 当前选中的 Meta Schema 对象
+// 当前选中的 Schema
 const currentSchema = ref<Api.Task.FileSchemaItem | null>(null);
 
-// --- 动态表单数据模型 ---
-// 用于存储用户在动态表单中填写的值
+// 动态表单数据
 const dynamicForm = reactive({
-  meta_file_id: undefined as unknown as number, // 选中的 Schema ID
-  content: {} as Record<string, any>, // 普通参数 (key-value)
-  files: {} as Record<string, string> // 文件路径映射 (key-filepath)
+  meta_file_id: undefined as unknown as number,
+  content: {} as Record<string, any>,
+  files: {} as Record<string, string>
 });
 
-// --- 解析后的字段定义 (用于渲染表单) ---
-// 从 Schema JSON 中提取出的字段配置，分为“普通内容”和“文件映射”两类
+// 解析后的字段列表
 const parsedFields = reactive({
-  // 普通输入框/下拉框字段
   content: [] as { key: string; label: string; type: string; required: boolean; enum?: string[] }[],
-  // 文件选择下拉框字段
   files: [] as {
     key: string;
     label: string;
     required: boolean;
     description: string;
-    pattern?: string; // 文件名正则匹配规则
+    pattern?: string; // 新增 pattern 字段
   }[]
 });
 
-/**
- * # ==========================================
- *
- * 4. 计算属性 (Computed)
- */
-
-// 双向绑定弹窗显示状态
+// -- Computed Properties --
 const isDialogVisible = computed({
   get: () => props.modelValue,
   set: val => emit('update:modelValue', val)
 });
 
-// 格式化流程节点数据，传给 TaskFlow 组件
 const flowNodes = computed(() => {
   return (taskDetails.value?.execution_flow || []).map((node: any) => ({
     ...node,
@@ -94,11 +80,9 @@ const flowNodes = computed(() => {
   }));
 });
 
-// 提取当前任务所有产出的文件列表，供上传表单选择
 const availableTaskFiles = computed(() => {
   if (!taskDetails.value?.execution_flow) return [];
   const fileSet = new Set<string>();
-  // 遍历所有执行步骤，收集 output files
   taskDetails.value.execution_flow.forEach(step => {
     if (Array.isArray(step.files)) {
       step.files.forEach(file => {
@@ -106,18 +90,16 @@ const availableTaskFiles = computed(() => {
       });
     }
   });
-  // 转换为下拉框选项格式
   return Array.from(fileSet).map(fileName => ({ label: fileName, value: fileName }));
 });
 
-// 格式化执行单元列表 (表格数据源)
 const taskUnitsArray = computed(() => {
   if (!taskDetails.value?.result_json?.execution_units) return [];
   return Object.values(taskDetails.value.result_json.execution_units).map(unit => ({
     unit_name: unit.name,
     start_time: unit.start_time,
     end_time: unit.end_time,
-    duration: calculateDuration(unit.start_time, unit.end_time), // 计算耗时
+    duration: calculateDuration(unit.start_time, unit.end_time),
     status: unit.status ? unit.status.toUpperCase() : '',
     message: unit.message,
     description: unit.description,
@@ -125,7 +107,6 @@ const taskUnitsArray = computed(() => {
   }));
 });
 
-// 按钮禁用状态逻辑
 const canBeStopped = computed(() => {
   const status = taskDetails.value?.status?.toUpperCase();
   return status === 'RUNNING' || status === 'PENDING';
@@ -139,34 +120,29 @@ const canBeRestarted = computed(() => {
 const canBeReuploaded = computed(() => {
   if (!taskDetails.value) return false;
   const uploadStatus = taskDetails.value.upload_status?.toUpperCase();
-  // 只有在已有上传状态且未成功时，才允许重新上传
   return Boolean(uploadStatus) && uploadStatus !== 'SUCCESS';
 });
 
 /**
  * # ==========================================
  *
- * 5. 监听器 (Watchers)
+ * 数据监听：根据 taskId / dialog 状态加载详情
  */
-
-// 监听 taskId 变化，自动刷新详情
 watch(
   () => props.taskId,
   newId => {
     if (newId && isDialogVisible.value) getTaskDetails(newId);
   }
 );
-// 监听弹窗打开，自动刷新详情
 watch(isDialogVisible, isVisible => {
   if (isVisible && props.taskId) getTaskDetails(props.taskId);
-  else taskDetails.value = null; // 关闭时清空数据
+  else taskDetails.value = null;
 });
 
-/** 核心逻辑：Schema 解析器 当用户选择不同的 Meta File Schema 时，解析 JSON Schema 并生成表单配置 */
+// Schema 解析逻辑
 watch(
   () => dynamicForm.meta_file_id,
   newId => {
-    // 1. 重置表单数据
     dynamicForm.content = {};
     dynamicForm.files = {};
     parsedFields.content = [];
@@ -175,7 +151,6 @@ watch(
 
     if (!newId) return;
 
-    // 2. 查找选中的 Schema 定义
     const schemaItem = metaFileOptions.value.find(item => item.id === newId);
     if (!schemaItem || !schemaItem.schema_json || !schemaItem.schema_json.properties) return;
 
@@ -183,12 +158,10 @@ watch(
     const propsDef = schemaItem.schema_json.properties;
     const requiredList = (schemaItem.schema_json.required as string[]) || [];
 
-    // 3. 遍历属性，分类为“文件”或“内容”
     Object.keys(propsDef).forEach(key => {
       const propDef = propsDef[key];
       const isRequired = requiredList.includes(key);
 
-      // Case A: file_locations 对象 (通常包含多个文件路径)
       if (key === 'file_locations' && propDef.type === 'object' && propDef.properties) {
         const fileProps = propDef.properties;
         const fileRequiredList = (propDef.required as string[]) || [];
@@ -199,24 +172,20 @@ watch(
             label: fileKey,
             description: fileItem.description || '',
             required: fileRequiredList.includes(fileKey),
-            pattern: fileItem.pattern // 提取正则 Pattern
+            pattern: fileItem.pattern // 提取 pattern
           });
-          dynamicForm.files[fileKey] = ''; // 初始化值
+          dynamicForm.files[fileKey] = '';
         });
-      }
-      // Case B: 单个文件路径字段 (filePaths / filePath)
-      else if (key === 'filePaths' || key === 'filePath') {
+      } else if (key === 'filePaths' || key === 'filePath') {
         parsedFields.files.push({
           key,
           label: key,
           description: (propDef.description || '') + (key === 'filePaths' ? ' (提交时映射为 filepath)' : ''),
           required: isRequired,
-          pattern: propDef.pattern
+          pattern: propDef.pattern // 提取 pattern
         });
         dynamicForm.files[key] = '';
-      }
-      // Case C: 普通参数 (排除 position 等保留字)
-      else if (propDef.type !== 'object' || key === 'position') {
+      } else if (propDef.type !== 'object' || key === 'position') {
         parsedFields.content.push({
           key,
           label: key,
@@ -224,7 +193,6 @@ watch(
           required: isRequired,
           enum: propDef.enum
         });
-        // 如果有枚举值，默认选中第一个
         dynamicForm.content[key] = propDef.enum && propDef.enum.length > 0 ? propDef.enum[0] : undefined;
       }
     });
@@ -234,10 +202,9 @@ watch(
 /**
  * # ==========================================
  *
- * 6. 工具函数 (Helpers)
+ * 工具函数
  */
-
-// 格式化时间
+/** 将 ISO 字符串格式化成常见时间，避免模板重复写逻辑 */
 function formatDateTime(isoString: string | null | undefined): string {
   if (!isoString) return '-';
   const date = new Date(isoString);
@@ -255,13 +222,12 @@ function formatDateTime(isoString: string | null | undefined): string {
     .replace(/\//g, '-');
 }
 
-// 计算持续时间 (Start - End)
+/** 计算单个执行单元的耗时，缺失值时友好降级 */
 function calculateDuration(start: string | null, end: string | null): string {
   if (!start) return '-';
   const startTime = new Date(start).getTime();
   const endTime = end ? new Date(end).getTime() : Date.now();
   if (Number.isNaN(startTime) || Number.isNaN(endTime)) return '-';
-
   let diff = Math.abs(endTime - startTime) / 1000;
   const days = Math.floor(diff / 86400);
   diff -= days * 86400;
@@ -269,7 +235,6 @@ function calculateDuration(start: string | null, end: string | null): string {
   diff -= hours * 3600;
   const minutes = Math.floor(diff / 60) % 60;
   const seconds = Math.floor(diff % 60);
-
   let result = '';
   if (days > 0) result += `${days}d `;
   if (hours > 0) result += `${hours}h `;
@@ -278,7 +243,6 @@ function calculateDuration(start: string | null, end: string | null): string {
   return result.trim();
 }
 
-// 状态标签颜色映射
 const getStatusTagType = (status: string) => {
   if (!status) return 'info';
   switch (status.toUpperCase()) {
@@ -289,6 +253,7 @@ const getStatusTagType = (status: string) => {
     case 'FAILED':
       return 'danger';
     case 'CANCELLED':
+      return 'warning';
     case 'CANCELED':
       return 'warning';
     case 'PENDING':
@@ -298,7 +263,6 @@ const getStatusTagType = (status: string) => {
   }
 };
 
-// 上传状态文本映射
 const getUploadStatusInfo = (status: string | null) => {
   if (!status) return { type: 'info' as const, text: '未知' };
   switch (status.toUpperCase()) {
@@ -315,7 +279,8 @@ const getUploadStatusInfo = (status: string | null) => {
   }
 };
 
-// 根据正则 pattern 过滤文件列表 (用于文件选择下拉框)
+/** 根据 pattern 过滤可用文件列表 用于下拉框只显示符合后缀名的文件 */
+/** 根据 schema 中的正则进行提示过滤 */
 function getFilteredFiles(pattern?: string) {
   if (!pattern) return availableTaskFiles.value;
   try {
@@ -327,13 +292,8 @@ function getFilteredFiles(pattern?: string) {
   }
 }
 
-/**
- * # ==========================================
- *
- * 7. 交互逻辑 (Action Handlers)
- */
-
-// 获取任务详情
+// -- API Calls --
+/** 打开弹窗时获取任务详情、可选 schema 列表 */
 async function getTaskDetails(id: number) {
   loading.value = true;
   taskDetails.value = null;
@@ -348,7 +308,7 @@ async function getTaskDetails(id: number) {
   }
 }
 
-// 停止任务
+/** 停止仍在运行的任务 */
 async function handleStopTask() {
   if (!props.taskId) return;
   try {
@@ -364,7 +324,7 @@ async function handleStopTask() {
   }
 }
 
-// 重启任务
+/** 允许在失败后重新启动任务 */
 async function handleRestartTask() {
   if (!props.taskId) return;
   try {
@@ -381,7 +341,7 @@ async function handleRestartTask() {
   }
 }
 
-// 重新触发文件上传 (针对自动上传失败的情况)
+/** 重新上传任务自动生成的文件，弥补失败场景 */
 async function handleReupload() {
   if (!props.taskId) return;
   try {
@@ -397,19 +357,15 @@ async function handleReupload() {
   }
 }
 
-// --- 手动上传弹窗逻辑 ---
-
-// 打开上传弹窗
+// -- Manual Upload Logic --
+/** 打开手动补充上传的弹窗，提前加载 Schema */
 async function handleOpenUploadDialog() {
-  // 1. 重置所有表单状态
   dynamicForm.meta_file_id = undefined as unknown as number;
   dynamicForm.content = {};
   dynamicForm.files = {};
   parsedFields.content = [];
   parsedFields.files = [];
   currentSchema.value = null;
-
-  // 2. 显示弹窗并加载 Schema 列表
   isUploadDialogVisible.value = true;
   metaFileLoading.value = true;
   try {
@@ -422,7 +378,7 @@ async function handleOpenUploadDialog() {
   }
 }
 
-// 提交上传表单
+/** 将填好的动态表单提交给服务端 */
 async function submitUpload() {
   if (!props.taskId) return;
   if (!dynamicForm.meta_file_id) {
@@ -430,17 +386,17 @@ async function submitUpload() {
     return;
   }
 
-  // --- 表单校验 ---
-
-  // 1. 校验文件字段
+  // 校验文件选择
   for (const field of parsedFields.files) {
     const selectedFile = dynamicForm.files[field.key];
-    // 必填校验
+
+    // 1. 必填校验
     if (field.required && !selectedFile) {
       ElMessage.warning(`请选择文件: ${field.label}`);
       return;
     }
-    // 正则格式校验 (Pattern Check)
+
+    // 2. 正则格式校验 (防止非法输入)
     if (selectedFile && field.pattern) {
       try {
         const regex = new RegExp(field.pattern);
@@ -456,7 +412,7 @@ async function submitUpload() {
     }
   }
 
-  // 2. 校验普通字段
+  // 校验普通字段
   for (const field of parsedFields.content) {
     if (field.required && !dynamicForm.content[field.key]) {
       ElMessage.warning(`请输入参数: ${field.label}`);
@@ -464,11 +420,9 @@ async function submitUpload() {
     }
   }
 
-  // --- 构造 Payload ---
   const uploadsPayload: Api.Task.UploadMapItem[] = Object.keys(dynamicForm.files)
     .filter(key => Boolean(dynamicForm.files[key]))
     .map(key => {
-      // 特殊处理字段名映射
       const apiFiledName = key === 'filePaths' ? 'filepath' : key;
       return { filed_name: apiFiledName, file_dir: dynamicForm.files[key] };
     });
@@ -479,13 +433,12 @@ async function submitUpload() {
     content_json: dynamicForm.content
   };
 
-  // --- 发送请求 ---
   uploadLoading.value = true;
   try {
     await uploadTaskGeneratedFiles(props.taskId, payload);
     ElMessage.success('文件上传任务已提交');
     isUploadDialogVisible.value = false;
-    await getTaskDetails(props.taskId); // 刷新详情以更新状态
+    await getTaskDetails(props.taskId);
   } catch (error: any) {
     console.error('上传失败:', error);
     ElMessage.error('上传任务提交失败');
@@ -496,7 +449,7 @@ async function submitUpload() {
 </script>
 
 <template>
-  <!-- 上传作业生成文件 -->
+  <!-- 主详情弹窗：展示执行流 + 元信息 -->
   <ElDialog
     v-model="isDialogVisible"
     :title="`任务详情：${taskId}`"
@@ -550,10 +503,8 @@ async function submitUpload() {
               @click="props.taskId && getTaskDetails(props.taskId)"
             />
           </div>
-          <!-- 任务详情主体：左侧流程流，右侧参数/文件 -->
           <TaskFlow :steps="flowNodes" />
         </div>
-
         <div class="mt-6">
           <h3 class="mb-3 text-lg font-semibold">执行细节</h3>
           <ElTable :data="taskUnitsArray" stripe border max-height="40vh">
@@ -588,12 +539,24 @@ async function submitUpload() {
               <template #default="{ row }">{{ row.message || '-' }}</template>
             </ElTableColumn>
           </ElTable>
+          <div class="mt-6">
+            <h3 class="mb-3 text-lg font-semibold">输入/输出预览</h3>
+            <TaskInOutPreview :task-id="props.taskId" />
+          </div>
+        </div>
+        <div class="mt-6 overflow-hidden border rounded-lg p-0">
+          <div class="flex items-center justify-between border-b bg-gray-50 p-3">
+            <h3 class="text-sm text-gray-700 font-bold">流程逻辑视图</h3>
+            <ElTag size="small" type="warning">Conditional Flow</ElTag>
+          </div>
+          <TaskFlowGraph :task-id="props.taskId" />
         </div>
       </div>
       <ElEmpty v-else-if="!loading" description="未能加载任务详情" />
     </div>
   </ElDialog>
 
+  <!-- 上传任务文件弹窗：根据 schema 动态渲染 -->
   <ElDialog
     v-model="isUploadDialogVisible"
     title="上传任务生成文件"

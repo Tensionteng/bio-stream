@@ -11,7 +11,8 @@ import {
   uploadTaskGeneratedFiles
 } from '@/service/api/task';
 import TaskFlow from './TaskFlow.vue';
-
+import TaskInOutPreview from './TaskInOutPreview.vue';
+import TaskFlowGraph from './TaskFlowGraph.vue'; // 引入新组件
 /**
  * # ==========================================
  *
@@ -504,7 +505,6 @@ async function submitUpload() {
           </div>
           <TaskFlow :steps="flowNodes" />
         </div>
-
         <div class="mt-6">
           <h3 class="mb-3 text-lg font-semibold">执行细节</h3>
           <ElTable :data="taskUnitsArray" stripe border max-height="40vh">
@@ -539,6 +539,17 @@ async function submitUpload() {
               <template #default="{ row }">{{ row.message || '-' }}</template>
             </ElTableColumn>
           </ElTable>
+          <div class="mt-6">
+            <h3 class="mb-3 text-lg font-semibold">输入/输出预览</h3>
+            <TaskInOutPreview :task-id="props.taskId" />
+          </div>
+        </div>
+        <div class="mt-6 overflow-hidden border rounded-lg p-0">
+          <div class="flex items-center justify-between border-b bg-gray-50 p-3">
+            <h3 class="text-sm text-gray-700 font-bold">流程逻辑视图</h3>
+            <ElTag size="small" type="warning">Conditional Flow</ElTag>
+          </div>
+          <TaskFlowGraph :task-id="props.taskId" />
         </div>
       </div>
       <ElEmpty v-else-if="!loading" description="未能加载任务详情" />

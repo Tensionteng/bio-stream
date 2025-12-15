@@ -131,3 +131,17 @@ export function fetchTaskFileSize(taskId: number) {
     method: 'get'
   });
 }
+/** 获取任务输入输出文件的预览数据 */
+export function fetchTaskInOut(taskId: number) {
+  return request<Api.Task.InOutData>({
+    url: `/analysis/processes/tasks/${taskId}/inout`,
+    method: 'get'
+  });
+}
+/** 获取任务条件流图数据 */
+export function fetchTaskFlow(taskId: number) {
+  return request<Api.Task.TaskFlowData>({
+    url: `/analysis/processes/tasks/${taskId}/flow`,
+    method: 'get'
+  });
+}

@@ -696,5 +696,43 @@ declare namespace Api {
       page_size: number;
       results: TaskListItem[];
     }
+    /** 任务详情的输入输出文件 */
+    interface InOutData {
+      input: string; // 输入文件前几行内容
+      output: string; // 输出文件前几行内容
+    }
+    // 1. 基础节点接口：包含所有节点共有的字段 (id, type, name)
+    export interface FlowNodeBase {
+      id: number;
+      type: string; // 'function', 'data', 'if', 'start', 'end'
+      name: string; // ✅ 新增：根据接口截图，所有节点都有 name
+    }
+
+    // 2. 分支情况接口 (用于 IF 节点)
+    export interface BranchCase {
+      desc: string; // 条件描述 (例如 "QC > 20")
+      to: number; // 指向的节点 ID
+    }
+
+    // 3. 普通节点接口 (Function / Data)
+    // ✅ 只有普通节点才有 desc 和 to
+    export interface NormalFlowNode extends FlowNodeBase {
+      desc: string; // 描述信息
+      to?: number; // 指向下一个 ID (可选，结束节点可能没有)
+    }
+
+    // 4. IF 节点接口
+    // ✅ IF 节点没有 desc，而是使用 case 数组
+    export interface IfFlowNode extends FlowNodeBase {
+      case: BranchCase[]; // 分支逻辑
+    }
+
+    // 5. 联合类型，用于数组
+    export type TaskFlowNode = NormalFlowNode | IfFlowNode;
+
+    // 6. 响应结构 (对应 API 返回的 data 字段内容)
+    export interface TaskFlowData {
+      nodes: TaskFlowNode[];
+    }
   }
 }
