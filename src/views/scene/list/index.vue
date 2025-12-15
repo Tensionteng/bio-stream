@@ -15,6 +15,7 @@ import {
   Delete,
   Document,
   Download,
+  Loading, // 引入 Loading 图标
   Odometer,
   Refresh,
   Search,
@@ -235,17 +236,42 @@ const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
 const selectedFileType = ref<Api.Visualization.FileType | ''>('');
 const visualizationResult = ref<Api.Visualization.Result | null>(null);
 
-const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv');
-const csvTableOptions = [
-  { label: 'Count CSV', value: 'count_csv' },
-  { label: 'FPK CSV', value: 'fpk_csv' },
-  { label: 'TPM CSV', value: 'tpm_csv' }
-];
+// === [修改] CSV 动态处理逻辑 ===
 
+// 当前选中的子表 Key (用于多表情况)
+const selectedCsvTable = ref<string>('');
+
+// 判断当前是否为多表 CSV (数据是对象而不是数组)
+const isMultiTableCsv = computed(() => {
+  if (visualizationResult.value?.type !== 'csv') return false;
+  const data = visualizationResult.value.data;
+  return data && !Array.isArray(data) && typeof data === 'object';
+});
+
+// 动态生成 CSV 选项 (仅在多表时使用)
+const csvTableOptions = computed(() => {
+  if (!isMultiTableCsv.value) return [];
+  const data = visualizationResult.value ? visualizationResult.value.data || {} : {};
+  return Object.keys(data)
+    .filter(key => Array.isArray((data as Record<string, unknown>)[key]))
+    .map(key => ({ label: key, value: key }));
+});
+
+// 获取当前要展示的 CSV 数据 (兼容 单表/多表)
 const currentCsvData = computed(() => {
-  if (visualizationResult.value?.type === 'csv') {
-    return visualizationResult.value.data[selectedCsvTable.value] || [];
+  if (visualizationResult.value?.type !== 'csv') return [];
+  const data = visualizationResult.value.data;
+
+  // 情况 A: 单个 CSV (直接是数组) -> 直接返回
+  if (Array.isArray(data)) {
+    return data;
   }
+
+  // 情况 B: 多个 CSV (对象结构) -> 返回选中 Key 的数据
+  if (isMultiTableCsv.value && selectedCsvTable.value) {
+    return data[selectedCsvTable.value] || [];
+  }
+
   return [];
 });
 
@@ -269,7 +295,7 @@ const normalizeMediaUrl = (url: string) => {
     const serviceUrl = new URL(serviceBase);
     // 同源则走代理
     if (targetUrl.origin === serviceUrl.origin) {
-      const proxyPrefix = '/proxy-default';
+      const proxyPrefix = '/proxy-media';
       return `${proxyPrefix}${targetUrl.pathname}${targetUrl.search}`;
     }
     return url;
@@ -296,6 +322,36 @@ const clearBlobResources = (result: any) => {
   }
 };
 
+/** [新增] 分批下载图片 */
+async function downloadImagesInBatches(images: any[], token: string | null) {
+  const BATCH_SIZE = 5;
+  const results = [];
+  for (let i = 0; i < images.length; i += BATCH_SIZE) {
+    const batch = images.slice(i, i + BATCH_SIZE);
+    // eslint-disable-next-line no-await-in-loop
+    const batchResults = await Promise.all(
+      batch.map(async (imgItem: any) => {
+        if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
+        try {
+          const imgUrl = normalizeMediaUrl(imgItem.url);
+          const response = await axios.get(imgUrl, {
+            responseType: 'blob',
+            timeout: 30000,
+            headers: { Authorization: token ? `Bearer ${token}` : '' }
+          });
+          const blobUrl = window.URL.createObjectURL(response.data);
+          return { ...imgItem, url: blobUrl, isBlob: true, _uuid: Date.now() + Math.random() };
+        } catch (error) {
+          console.error(`图片加载失败: ${imgItem.name}`, error);
+          return imgItem;
+        }
+      })
+    );
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 /** 根据任务 ID 和文件类型获取可视化数据 */
 const fetchVisualizationData = async (taskId: number, fileType: Api.Visualization.FileType) => {
   // 1. 清理旧的 Blob URL
@@ -305,6 +361,7 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
     visualizationLoading.value = true;
     selectedFileType.value = fileType;
     visualizationResult.value = null;
+    selectedCsvTable.value = ''; // 重置 CSV 选择
 
     const { data: resultData } = await fetchTaskResult(taskId.toString(), fileType);
     const token = localStg.get('token');
@@ -320,31 +377,8 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
       const localPdfUrl = window.URL.createObjectURL(blob);
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
     } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
-      // === 图片处理：并行下载图片流并转为 Blob URL ===
-      const newImages = await Promise.all(
-        resultData.data.map(async (imgItem: any) => {
-          // 如果没有 URL 或者已经是 base64，直接返回
-          if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
-
-          try {
-            // 复用 URL 代理逻辑
-            const imgUrl = normalizeMediaUrl(imgItem.url);
-
-            const response = await axios.get(imgUrl, {
-              responseType: 'blob',
-              headers: { Authorization: token ? `Bearer ${token}` : '' }
-            });
-
-            const blobUrl = window.URL.createObjectURL(response.data);
-            // 标记 _isBlob 方便后续清理
-            return { ...imgItem, url: blobUrl, isBlob: true };
-          } catch (error) {
-            console.error(`图片加载失败: ${imgItem.name}`, error);
-            return imgItem;
-          }
-        })
-      );
-
+      // === 图片处理：改为分批次下载 ===
+      const newImages = await downloadImagesInBatches(resultData.data, token);
       resultData.data = newImages;
       visualizationResult.value = resultData;
     } else {
@@ -455,7 +489,7 @@ async function handleVisualize(taskId: number) {
   selectedFileType.value = '';
   visualizationResult.value = null;
   availableFileTypes.value = [];
-  selectedCsvTable.value = 'count_csv';
+  selectedCsvTable.value = ''; // 重置
 
   nextTick(() => scrollToVis());
 
@@ -575,15 +609,23 @@ const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
 };
 
-watch(selectedCsvTable, newVal => {
-  if (visualizationResult.value?.type === 'csv') {
-    const label = csvTableOptions.find(opt => opt.value === newVal)?.label;
-    ElMessage.success(`已切换数据视图：${label}`);
+// 监听: 当可视化结果变化时，如果是多表 CSV，自动选中第一个表
+watch(visualizationResult, () => {
+  if (isMultiTableCsv.value) {
+    const options = csvTableOptions.value;
+    if (options.length > 0) {
+      selectedCsvTable.value = options[0].value;
+    }
+  } else {
+    selectedCsvTable.value = '';
   }
 });
-watch(visualizationResult, () => {
-  if (visualizationResult.value?.type === 'csv') {
-    selectedCsvTable.value = 'count_csv';
+
+// 监听: 处理 CSV 表格切换提示
+watch(selectedCsvTable, newVal => {
+  if (isMultiTableCsv.value && newVal) {
+    // const label = csvTableOptions.value.find(opt => opt.value === newVal)?.label; // 简化
+    ElMessage.success(`已切换数据视图：${newVal}`);
   }
 });
 
@@ -758,16 +800,13 @@ onMounted(async () => {
                   {{ getFileTypeLabel(type) }}
                 </div>
               </div>
+            </div>
 
-              <div
-                v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'"
-                class="ml-4 flex items-center"
-              >
-                <span class="mr-2 text-sm text-gray-500">表类型:</span>
-                <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
-                  <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </ElSelect>
-              </div>
+            <div v-if="selectedFileType === 'csv' && isMultiTableCsv" class="ml-4 flex items-center">
+              <span class="mr-2 text-sm text-gray-500">表类型:</span>
+              <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
+                <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </ElSelect>
             </div>
 
             <div class="vis-actions">
@@ -788,6 +827,7 @@ onMounted(async () => {
               </div>
               <iframe :src="visualizationResult.data" class="pdf-iframe" />
             </div>
+
             <div
               v-else-if="visualizationResult?.type === 'vcf' || visualizationResult?.type === 'csv'"
               class="table-viewer"
@@ -810,10 +850,17 @@ onMounted(async () => {
                   show-overflow-tooltip
                 />
               </ElTable>
+              <div
+                v-if="visualizationResult.type === 'csv' && currentCsvData.length === 0"
+                class="mt-4 p-4 text-center text-sm text-gray-400"
+              >
+                <ElEmpty description="该表格暂无数据或数据格式异常" :image-size="60" />
+              </div>
             </div>
+
             <div v-else-if="visualizationResult?.type === 'image'" class="image-viewer">
               <div v-if="imageList.length" class="image-grid">
-                <div v-for="(img, idx) in imageList" :key="img.url" class="image-card">
+                <div v-for="(img, idx) in imageList" :key="img.url || idx" class="image-card">
                   <ElImage
                     :src="img.url"
                     :preview-src-list="imagePreviewUrls"
@@ -821,9 +868,13 @@ onMounted(async () => {
                     fit="contain"
                     class="image-entity"
                     preview-teleported
+                    lazy
                   >
                     <template #placeholder>
-                      <div class="image-loading-placeholder">加载中...</div>
+                      <div class="image-loading-placeholder">
+                        <ElIcon class="is-loading mr-2"><Loading /></ElIcon>
+                        加载中...
+                      </div>
                     </template>
                   </ElImage>
                   <div class="image-name">{{ img.name }}</div>

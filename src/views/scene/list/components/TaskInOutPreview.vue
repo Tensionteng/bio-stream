@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
-import { ElMessage } from 'element-plus'; // 移除了 useClipboard
+import { computed, ref, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import { DArrowRight, DocumentCopy } from '@element-plus/icons-vue';
-import { fetchTaskInOut } from '@/service/api/task'; // 引入上面定义的 API
+import { fetchTaskInOut } from '@/service/api/task';
 
 const props = defineProps<{
   taskId: number | null;
@@ -10,7 +10,8 @@ const props = defineProps<{
 
 const loading = ref(false);
 const inputContent = ref('');
-const outputContent = ref('');
+// 输出改为数组类型，适配 JSON 结构
+const outputContent = ref<any[]>([]);
 
 // 获取数据
 const getInOutData = async () => {
@@ -18,29 +19,52 @@ const getInOutData = async () => {
 
   loading.value = true;
   inputContent.value = '';
-  outputContent.value = '';
+  outputContent.value = [];
 
   try {
     const { data } = await fetchTaskInOut(props.taskId);
     if (data) {
       inputContent.value = data.input || '无输入内容';
-      outputContent.value = data.output || '无输出内容';
+      // 判断 output 是否为数组，如果是则直接赋值，否则尝试解析或置空
+      if (Array.isArray(data.output)) {
+        outputContent.value = data.output;
+      } else {
+        // 兼容旧数据或错误格式
+        outputContent.value = [];
+      }
     }
   } catch (error) {
     console.error(error);
     inputContent.value = '数据加载失败';
-    outputContent.value = '数据加载失败';
   } finally {
     loading.value = false;
   }
 };
 
-// 复制功能 - 使用浏览器原生 API
-const handleCopy = async (text: string) => {
-  if (!text) return;
+// 计算表格的列（动态获取 JSON 对象的 Key）
+const tableColumns = computed(() => {
+  if (outputContent.value.length > 0) {
+    return Object.keys(outputContent.value[0]);
+  }
+  return [];
+});
+
+// 复制功能
+const handleCopy = async (content: string | any[]) => {
+  if (!content) return;
+
+  let textToCopy = '';
+
+  // 如果是数组（表格数据），转换为格式化的 JSON 字符串供复制
+  if (Array.isArray(content)) {
+    if (content.length === 0) return;
+    textToCopy = JSON.stringify(content, null, 2);
+  } else {
+    textToCopy = content;
+  }
+
   try {
-    // 使用原生 clipboard API，无需额外依赖
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(textToCopy);
     ElMessage.success('复制成功');
   } catch (e) {
     console.error(e);
@@ -48,7 +72,6 @@ const handleCopy = async (text: string) => {
   }
 };
 
-// 监听 taskId 变化或组件挂载时加载
 watch(
   () => props.taskId,
   newId => {
@@ -68,7 +91,7 @@ watch(
         </div>
         <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(inputContent)">复制</ElButton>
       </div>
-      <div class="code-wrapper">
+      <div class="code-wrapper light-theme">
         <pre>{{ inputContent }}</pre>
       </div>
     </div>
@@ -83,10 +106,28 @@ watch(
           <span class="badge output-badge">OUTPUT</span>
           <span class="label">输出文件预览 (Head)</span>
         </div>
-        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(outputContent)">复制</ElButton>
+        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(outputContent)">复制 JSON</ElButton>
       </div>
-      <div class="code-wrapper">
-        <pre>{{ outputContent }}</pre>
+      <div class="table-wrapper">
+        <ElTable
+          v-if="outputContent.length > 0"
+          :data="outputContent"
+          border
+          stripe
+          height="100%"
+          style="width: 100%"
+          :header-cell-style="{ background: '#f5f7fa', color: '#606266' }"
+        >
+          <ElTableColumn
+            v-for="col in tableColumns"
+            :key="col"
+            :prop="col"
+            :label="col"
+            min-width="120"
+            show-overflow-tooltip
+          />
+        </ElTable>
+        <div v-else class="empty-text">暂无输出数据</div>
       </div>
     </div>
   </div>
@@ -95,11 +136,11 @@ watch(
 <style scoped>
 .inout-container {
   display: flex;
-  align-items: stretch; /* 让左右高度一致 */
+  align-items: stretch;
   gap: 16px;
   width: 100%;
   margin-top: 20px;
-  min-height: 200px;
+  height: 400px; /* 固定整体高度，确保表格滚动 */
 }
 
 .preview-panel {
@@ -112,6 +153,7 @@ watch(
   overflow: hidden;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
   transition: all 0.3s;
+  min-width: 0; /* 防止 flex 子项撑开 */
 }
 
 .preview-panel:hover {
@@ -127,6 +169,7 @@ watch(
   padding: 8px 12px;
   background: #f5f7fa;
   border-bottom: 1px solid #e4e7ed;
+  flex-shrink: 0; /* 防止头部被压缩 */
 }
 
 .header-title {
@@ -162,40 +205,59 @@ watch(
   border: 1px solid #e1f3d8;
 }
 
-/* 代码区域样式 */
+/* --- 输入区域样式 (修改为白底黑字) --- */
 .code-wrapper {
   flex: 1;
-  background: #1e1e1e; /* 暗色背景 */
   position: relative;
   overflow: hidden;
-  min-height: 240px;
 }
 
-.code-wrapper pre {
+/* 亮色主题 */
+.code-wrapper.light-theme {
+  background: #ffffff; /* 白底 */
+}
+
+.code-wrapper.light-theme pre {
   margin: 0;
   padding: 12px;
-  color: #d4d4d4;
+  color: #303133; /* 黑字 (深灰) */
   font-family: 'JetBrains Mono', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-wrap; /* 自动换行 */
+  white-space: pre-wrap;
   word-break: break-all;
   height: 100%;
   overflow-y: auto;
-  max-height: 350px; /* 限制最大高度，出现滚动条 */
 }
 
-/* 滚动条美化 */
-.code-wrapper pre::-webkit-scrollbar {
+/* 亮色滚动条 */
+.code-wrapper.light-theme pre::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-.code-wrapper pre::-webkit-scrollbar-thumb {
-  background: #4a4a4a;
+.code-wrapper.light-theme pre::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
   border-radius: 3px;
 }
-.code-wrapper pre::-webkit-scrollbar-track {
-  background: #1e1e1e;
+.code-wrapper.light-theme pre::-webkit-scrollbar-track {
+  background: #f5f7fa;
+}
+
+/* --- 输出区域样式 (表格容器) --- */
+.table-wrapper {
+  flex: 1;
+  padding: 0;
+  overflow: hidden; /* 让 el-table 处理滚动 */
+  position: relative;
+}
+
+.empty-text {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  color: #909399;
+  font-size: 13px;
 }
 
 /* 中间箭头 */

@@ -23,17 +23,17 @@ import {
 // === ECharts 相关引入 (按需引入以优化体积) ===
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
-import { GraphChart } from 'echarts/charts'; // 仅引入关系图
+import { GraphChart } from 'echarts/charts';
 import { TooltipComponent } from 'echarts/components';
-import VChart from 'vue-echarts'; // Vue-ECharts 组件封装
+import VChart from 'vue-echarts';
 // === API 接口引入 ===
 import { cleanTaskFiles, fetchTaskFileSize, fetchTaskList, fetchTotalFileSize } from '@/service/api/task';
 import { fetchTaskInfo, fetchTaskResult } from '@/service/api/visulizaiton';
 // === 工具与Hooks ===
-import { usePermissionGuard } from '@/hooks/business/permission-guard'; // 权限守卫
-import { getServiceBaseURL } from '@/utils/service'; // 获取动态 BaseURL
-import { localStg } from '@/utils/storage'; // 本地存储工具(获取Token)
-import TaskDetailDialog from './components/TaskDetailDialog.vue'; // 详情弹窗组件
+import { usePermissionGuard } from '@/hooks/business/permission-guard';
+import { getServiceBaseURL } from '@/utils/service';
+import { localStg } from '@/utils/storage';
+import TaskDetailDialog from './components/TaskDetailDialog.vue';
 
 /**
  * # ===========================================================================
@@ -52,10 +52,10 @@ use([CanvasRenderer, GraphChart, TooltipComponent]);
  * # ===========================================================================
  */
 
-const loading = ref(false); // 列表加载状态
-const tasks = ref<Api.Task.TaskListItem[]>([]); // 任务数据列表
-const totalSize = ref(0); // 顶部统计：所有任务占用的总空间
-const route = useRoute(); // 路由实例
+const loading = ref(false);
+const tasks = ref<Api.Task.TaskListItem[]>([]);
+const totalSize = ref(0);
+const route = useRoute();
 
 // --- 筛选表单数据模型 ---
 const filterParams = reactive({
@@ -204,13 +204,44 @@ const visualizationResult = ref<any>(null);
 const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
 const selectedFileType = ref<Api.Visualization.FileType | ''>('');
 
-// [新增] CSV 子表选项配置
-const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv');
-const csvTableOptions = [
-  { label: 'Count CSV', value: 'count_csv' },
-  { label: 'FPK CSV', value: 'fpk_csv' },
-  { label: 'TPM CSV', value: 'tpm_csv' }
-];
+// === [修改] CSV 动态处理逻辑 ===
+
+// 当前选中的子表 Key (用于多表情况)
+const selectedCsvTable = ref<string>('');
+
+// 判断当前是否为多表 CSV (数据是对象而不是数组)
+const isMultiTableCsv = computed(() => {
+  if (visualizationResult.value?.type !== 'csv') return false;
+  const data = visualizationResult.value.data;
+  return data && !Array.isArray(data) && typeof data === 'object';
+});
+
+// 动态生成 CSV 选项 (仅在多表时使用)
+const csvTableOptions = computed(() => {
+  if (!isMultiTableCsv.value) return [];
+  const data = visualizationResult.value.data || {};
+  return Object.keys(data)
+    .filter(key => Array.isArray((data as Record<string, unknown>)[key]))
+    .map(key => ({ label: key, value: key }));
+});
+
+// 获取当前要展示的 CSV 数据 (兼容 单表/多表)
+const currentCsvData = computed(() => {
+  if (visualizationResult.value?.type !== 'csv') return [];
+  const data = visualizationResult.value.data;
+
+  // 情况 A: 单个 CSV (直接是数组) -> 直接返回
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  // 情况 B: 多个 CSV (对象结构) -> 返回选中 Key 的数据
+  if (isMultiTableCsv.value && selectedCsvTable.value) {
+    return data[selectedCsvTable.value] || [];
+  }
+
+  return [];
+});
 
 /** PDF URL 标准化与代理处理工具 */
 const normalizePdfUrl = (url: string) => {
@@ -222,10 +253,7 @@ const normalizePdfUrl = (url: string) => {
     const serviceBase = import.meta.env.VITE_SERVICE_BASE_URL;
     if (!serviceBase) return url;
     const serviceUrl = new URL(serviceBase);
-
-    // 只有同源才走代理
     if (pdfUrl.origin === serviceUrl.origin) {
-      // [注意] 这里使用了新逻辑中的 /proxy-media 前缀，如果后端未配置请改回 /proxy-default
       const proxyPrefix = '/proxy-media';
       return `${proxyPrefix}${pdfUrl.pathname}${pdfUrl.search}`;
     }
@@ -235,19 +263,14 @@ const normalizePdfUrl = (url: string) => {
   }
 };
 
-/** [新增] 统一清理 Blob 资源的辅助函数 */
+/** 统一清理 Blob 资源的辅助函数 */
 function clearBlobResources(result: any) {
   if (!result) return;
-
-  // 清理 PDF
   if (result.type === 'pdf' && result.data && result.data.startsWith('blob:')) {
     window.URL.revokeObjectURL(result.data);
   }
-
-  // 清理 Image 列表
   if (result.type === 'image' && Array.isArray(result.data)) {
     result.data.forEach((img: any) => {
-      // 检查 _isBlob 标记，避免误删非 Blob 的 URL
       if (img.url && img.url.startsWith('blob:') && img.isBlob) {
         window.URL.revokeObjectURL(img.url);
       }
@@ -255,35 +278,25 @@ function clearBlobResources(result: any) {
   }
 }
 
-/** [新增] 并发控制辅助函数：分批下载图片，防止浏览器连接阻塞 */
+/** 分批下载图片 */
 async function downloadImagesInBatches(images: any[], token: string | null) {
-  const BATCH_SIZE = 5; // 每次并发下载 5 张
+  const BATCH_SIZE = 5;
   const results = [];
-
   for (let i = 0; i < images.length; i += BATCH_SIZE) {
     const batch = images.slice(i, i + BATCH_SIZE);
     // eslint-disable-next-line no-await-in-loop
     const batchResults = await Promise.all(
       batch.map(async (imgItem: any) => {
         if (!imgItem.url || imgItem.url.startsWith('data:')) return imgItem;
-
         try {
-          // 复用 normalizePdfUrl 的逻辑处理代理
           const imgUrl = normalizePdfUrl(imgItem.url);
           const response = await axios.get(imgUrl, {
             responseType: 'blob',
             timeout: 30000,
             headers: { Authorization: token ? `Bearer ${token}` : '' }
           });
-
           const blobUrl = window.URL.createObjectURL(response.data);
-          // 增加 _uuid 强制视图更新
-          return {
-            ...imgItem,
-            url: blobUrl,
-            isBlob: true,
-            _uuid: Date.now() + Math.random()
-          };
+          return { ...imgItem, url: blobUrl, isBlob: true, _uuid: Date.now() + Math.random() };
         } catch (error) {
           console.error(`图片加载失败: ${imgItem.name}`, error);
           return imgItem;
@@ -299,38 +312,31 @@ async function downloadImagesInBatches(images: any[], token: string | null) {
 async function loadVisData(fileType: Api.Visualization.FileType) {
   if (!currentVisTaskId.value) return;
 
-  // 1. 清理旧的 Blob URL
   clearBlobResources(visualizationResult.value);
-
   visualizationLoading.value = true;
   selectedFileType.value = fileType;
   visualizationResult.value = null;
+  // 重置 CSV 选择
+  selectedCsvTable.value = '';
 
   try {
     const { data: resultData } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
     const token = localStg.get('token');
 
     if (resultData && resultData.type === 'pdf') {
-      // === PDF 特殊处理流 (Axios Blob) ===
       const pdfUrl = normalizePdfUrl(resultData.data);
-
       const response = await axios.get(pdfUrl, {
         responseType: 'blob',
         headers: { Authorization: token ? `Bearer ${token}` : '' }
       });
-
       const blob = new Blob([response.data], { type: 'application/pdf' });
       const localPdfUrl = window.URL.createObjectURL(blob);
-
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
     } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
-      // === 图片处理：改为分批次下载 (关键修复：防止一直加载中) ===
       const newImages = await downloadImagesInBatches(resultData.data, token);
-
       resultData.data = newImages;
       visualizationResult.value = resultData;
     } else {
-      // 其他类型
       visualizationResult.value = resultData ?? null;
     }
 
@@ -359,15 +365,13 @@ async function handleVisualize(row: Api.Task.TaskListItem) {
     return;
   }
 
-  // 重置状态与清理资源
   clearBlobResources(visualizationResult.value);
-
   currentVisTaskId.value = row.id;
   currentVisProcessName.value = row.name;
   visualizationResult.value = null;
   selectedFileType.value = '';
   availableFileTypes.value = [];
-  selectedCsvTable.value = 'count_csv'; // 重置表格选择
+  selectedCsvTable.value = '';
 
   visualizationLoading.value = true;
   nextTick(() => {
@@ -391,18 +395,22 @@ async function handleVisualize(row: Api.Task.TaskListItem) {
   }
 }
 
-// 监听: 当可视化结果变化时，重置CSV表格选择
+// 监听: 当可视化结果变化时，如果是多表 CSV，自动选中第一个表
 watch(visualizationResult, () => {
-  if (visualizationResult.value?.type === 'csv') {
-    selectedCsvTable.value = 'count_csv';
+  if (isMultiTableCsv.value) {
+    const options = csvTableOptions.value;
+    if (options.length > 0) {
+      selectedCsvTable.value = options[0].value;
+    }
+  } else {
+    selectedCsvTable.value = '';
   }
 });
 
 // 监听: 处理CSV表格类型变化
 watch(selectedCsvTable, newValue => {
-  if (visualizationResult.value?.type === 'csv') {
-    const label = csvTableOptions.find(opt => opt.value === newValue)?.label;
-    ElMessage.success(`已切换到: ${label}`);
+  if (isMultiTableCsv.value && newValue) {
+    ElMessage.success(`已切换到表: ${newValue}`);
   }
 });
 
@@ -418,44 +426,33 @@ onUnmounted(() => {
   clearBlobResources(visualizationResult.value);
 });
 
-/** 下载功能 - [已更新文件名解析逻辑] */
+/** 下载功能 */
 const handleDownload = async () => {
   if (!currentVisTaskId.value || !selectedFileType.value) {
     ElMessage.warning('请先选择任务和文件类型');
     return;
   }
-
   try {
     const token = localStg.get('token');
     const isHttpProxy = import.meta.env.DEV && import.meta.env.VITE_HTTP_PROXY === 'Y';
     const { baseURL } = getServiceBaseURL(import.meta.env, isHttpProxy);
-
     const response = await axios({
       url: `${baseURL}/visualization/tasks/download/${currentVisTaskId.value}`,
       method: 'GET',
       params: { type: selectedFileType.value },
-      headers: {
-        Authorization: token ? `Bearer ${token}` : '',
-        Accept: '*/*'
-      },
+      headers: { Authorization: token ? `Bearer ${token}` : '', Accept: '*/*' },
       responseType: 'blob'
     });
-
-    // --- 增强的文件名解析 (RFC 5987) ---
     const contentDisposition = response.headers['content-disposition'];
     let fileName = '';
     if (contentDisposition) {
       const filenameStarMatch = contentDisposition.match(/filename\*=utf-8''(.+?)(;|$)/);
-      if (filenameStarMatch && filenameStarMatch[1]) {
-        fileName = decodeURIComponent(filenameStarMatch[1]);
-      } else {
+      if (filenameStarMatch && filenameStarMatch[1]) fileName = decodeURIComponent(filenameStarMatch[1]);
+      else {
         const filenameMatch = contentDisposition.match(/filename="?(.+?)"?(;|$)/);
-        if (filenameMatch && filenameMatch[1]) {
-          fileName = decodeURIComponent(filenameMatch[1]);
-        }
+        if (filenameMatch && filenameMatch[1]) fileName = decodeURIComponent(filenameMatch[1]);
       }
     }
-
     if (!fileName) {
       const type = selectedFileType.value;
       fileName = `task_${currentVisTaskId.value}_${type}_${Date.now()}`;
@@ -469,7 +466,6 @@ const handleDownload = async () => {
       };
       fileName += extensions[type] || '';
     }
-
     const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -486,8 +482,6 @@ const handleDownload = async () => {
   }
 };
 
-// --- 可视化辅助函数 ---
-
 const getFileTypeLabel = (type: string) => {
   const map: Record<string, string> = {
     txt: 'TXT 文本',
@@ -499,14 +493,6 @@ const getFileTypeLabel = (type: string) => {
   };
   return map[type] || type.toUpperCase();
 };
-
-// [已更新] Computed: 当前展示的 CSV 数据 (支持子表切换)
-const currentCsvData = computed(() => {
-  if (visualizationResult.value?.type === 'csv') {
-    return visualizationResult.value.data[selectedCsvTable.value] || [];
-  }
-  return [];
-});
 
 const imageList = computed(() => {
   if (visualizationResult.value?.type === 'image') {
@@ -527,24 +513,17 @@ const openPdfInNewWindow = (url: string) => {
   window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
 };
 
-// ==========================================
-// Part 2.1: Graph 图谱数据转换逻辑 - [已升级]
-// ==========================================
-
 const transformGraphDataToECharts = (graphData: any[]) => {
   const nodeMap = new Map<string, any>();
   const links: any[] = [];
-
   graphData.forEach(item => {
     if (!nodeMap.has(item.from)) nodeMap.set(item.from, { id: item.from, name: item.from, symbolSize: 30 });
     if (!nodeMap.has(item.to)) nodeMap.set(item.to, { id: item.to, name: item.to, symbolSize: 30 });
     links.push({ source: item.from, target: item.to });
   });
-
   return { nodes: Array.from(nodeMap.values()), links };
 };
 
-/** 计算属性：生成 ECharts 配置项 Option (包含箭头和优化的力引导布局) */
 const graphChartOption = computed<any>(() => {
   if (!visualizationResult.value || visualizationResult.value.type !== 'graph') return null;
   const { nodes, links } = transformGraphDataToECharts(visualizationResult.value.data);
@@ -567,7 +546,6 @@ const graphChartOption = computed<any>(() => {
         data: nodes,
         links,
         roam: true,
-        // [新增] 箭头配置
         edgeSymbol: ['none', 'arrow'],
         edgeSymbolSize: [0, 12],
         label: { show: true, position: 'bottom', fontSize: 12, color: '#333' },
@@ -576,12 +554,7 @@ const graphChartOption = computed<any>(() => {
           label: { show: true, fontSize: 14, fontWeight: 'bold', color: '#000' },
           lineStyle: { width: 4, color: '#4a90e2' }
         },
-        force: {
-          repulsion: 1000,
-          edgeLength: 150,
-          gravity: 0.1,
-          layoutAnimation: true
-        },
+        force: { repulsion: 1000, edgeLength: 150, gravity: 0.1, layoutAnimation: true },
         lineStyle: { color: 'source', width: 2, curveness: 0, opacity: 0.7 },
         itemStyle: { borderColor: '#2c5aa0', borderWidth: 2, shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.1)' },
         symbol: 'circle',
@@ -652,23 +625,14 @@ const getPreviewSizeText = (level: number) => {
   return s !== undefined ? `(预计释放 ${formatBytes(s)})` : '';
 };
 
-/**
- * # ===========================================================================
- *
- * # Lifecycle
- *
- * # ===========================================================================
- */
 onMounted(async () => {
   const { checkPermissionAndNotify } = usePermissionGuard();
   const hasPermission = await checkPermissionAndNotify('scene');
   if (!hasPermission) return;
-
   if (route.query.task_id) {
     filterParams.id = Number(route.query.task_id);
     ElMessage.info(`已为您定位到任务 ${route.query.task_id}`);
   }
-
   getTasks();
   getTaskSize();
 });
@@ -760,7 +724,6 @@ onMounted(async () => {
             <ElTag :type="statusTagType(row.status)" effect="plain" round size="small">{{ row.status }}</ElTag>
           </template>
         </ElTableColumn>
-
         <ElTableColumn label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
@@ -835,10 +798,7 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div
-              v-if="selectedFileType === 'csv' && visualizationResult?.type === 'csv'"
-              class="ml-4 flex items-center"
-            >
+            <div v-if="selectedFileType === 'csv' && isMultiTableCsv" class="ml-4 flex items-center">
               <span class="mr-2 text-sm text-gray-600">表格类型:</span>
               <ElSelect v-model="selectedCsvTable" size="small" class="csv-select-width">
                 <ElOption v-for="opt in csvTableOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
@@ -887,6 +847,12 @@ onMounted(async () => {
                   show-overflow-tooltip
                 />
               </ElTable>
+              <div
+                v-if="visualizationResult.type === 'csv' && currentCsvData.length === 0"
+                class="mt-4 p-4 text-center text-sm text-gray-400"
+              >
+                <ElEmpty description="该表格暂无数据或数据格式异常" :image-size="60" />
+              </div>
             </div>
 
             <div v-else-if="visualizationResult?.type === 'image'" class="image-viewer">
@@ -984,12 +950,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* 新增样式 */
 .mr-2 {
   margin-right: 8px;
 }
-
-/* [修改点] 页面容器：高度改为 100% (相对于Layout容器)，允许y轴滚动(应对可视化面板) */
 .page-container {
   padding: 24px;
   background: #f5f7fa;
@@ -999,21 +962,17 @@ onMounted(async () => {
   flex-direction: column;
   gap: 24px;
 }
-
-/* [修改点] 列表卡片：限制高度为视口高度减去边距，强制触发表格内部滚动 */
 .main-card.list-card {
   border-radius: 12px;
   border: none;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
   transition: all 0.3s;
   height: calc(100vh - 48px);
-  flex-shrink: 0; /* 防止被挤压 */
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-
-/* [修改点] 深度选择器控制 Card Body 为 Flex 布局 */
 .main-card.list-card :deep(.el-card__body) {
   flex: 1;
   display: flex;
@@ -1022,7 +981,6 @@ onMounted(async () => {
   overflow: hidden;
   padding-bottom: 12px;
 }
-
 .card-header {
   display: flex;
   align-items: center;
@@ -1048,8 +1006,6 @@ onMounted(async () => {
   border-radius: 4px;
   background: linear-gradient(180deg, #409eff, #66b1ff);
 }
-
-/* 空间统计 */
 .size-stat-badge {
   display: inline-flex;
   align-items: center;
@@ -1069,8 +1025,6 @@ onMounted(async () => {
   font-weight: 700;
   font-family: 'Consolas', monospace;
 }
-
-/* 筛选栏 */
 .filter-bar {
   margin-bottom: 16px;
   margin-top: 6px;
@@ -1100,8 +1054,6 @@ onMounted(async () => {
   border-radius: 999px;
   margin-left: 10px;
 }
-
-/* 表格样式 */
 .text-mono {
   font-family: monospace;
   color: #909399;
@@ -1138,16 +1090,12 @@ onMounted(async () => {
 .action-btn.is-vis:hover {
   color: #4e56de;
 }
-
-/* [修改点] 确保分页沉底 */
 .pagination-container {
   display: flex;
   justify-content: flex-end;
   margin-top: auto;
   padding-top: 12px;
 }
-
-/* === 可视化面板样式 === */
 .vis-section-wrapper {
   animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
@@ -1162,7 +1110,6 @@ onMounted(async () => {
     transform: translateY(0);
   }
 }
-
 .vis-header {
   border-bottom: none;
   padding-bottom: 0;
@@ -1179,8 +1126,6 @@ onMounted(async () => {
 .vis-body {
   padding: 8px 0;
 }
-
-/* Tab 切换布局 */
 .vis-tabs {
   display: flex;
   align-items: center;
@@ -1221,12 +1166,9 @@ onMounted(async () => {
   color: #409eff;
   font-weight: 600;
 }
-
 .csv-select-width {
   width: 160px;
 }
-
-/* 内容展示区 */
 .vis-content-area {
   min-height: 400px;
 }
@@ -1281,7 +1223,7 @@ onMounted(async () => {
   border-radius: 4px;
   margin-bottom: 8px;
   display: block;
-  min-height: 200px; /* 增加最小高度防止塌陷 */
+  min-height: 200px;
 }
 .image-loading-placeholder {
   display: flex;
@@ -1305,8 +1247,6 @@ onMounted(async () => {
   overflow: hidden;
   padding: 10px;
 }
-
-/* 清理弹窗 */
 .cleanup-dialog :deep(.el-dialog__body) {
   padding-top: 10px;
   padding-bottom: 20px;
@@ -1438,13 +1378,8 @@ onMounted(async () => {
 .confirm-btn {
   padding: 8px 24px;
 }
-
-/* 工具类 */
 .text-muted {
   color: #c0c4cc;
-}
-.mr-1 {
-  margin-right: 4px;
 }
 .ml-2 {
   margin-left: 8px;

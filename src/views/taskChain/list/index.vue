@@ -265,14 +265,14 @@ onMounted(async () => {
 
       <!-- 顶部筛选区域：任务类型 / 任务 ID / 任务名称 -->
       <ElForm :model="filterParams" inline class="filter-bar" @submit.prevent="handleSearch">
-        <ElFormItem label="任务类型">
-          <ElInput v-model="filterParams.task_type" placeholder="按任务类型搜索" clearable @clear="handleSearch" />
+        <ElFormItem label="类型">
+          <ElInput v-model="filterParams.task_type" placeholder="按类型搜索" clearable @clear="handleSearch" />
         </ElFormItem>
-        <ElFormItem label="任务ID">
-          <ElInput v-model="filterParams.task_id" placeholder="按任务ID搜索" clearable @clear="handleSearch" />
+        <ElFormItem label="ID">
+          <ElInput v-model="filterParams.task_id" placeholder="按ID搜索" clearable @clear="handleSearch" />
         </ElFormItem>
-        <ElFormItem label="任务名称">
-          <ElInput v-model="filterParams.task_name" placeholder="按任务名称搜索" clearable @clear="handleSearch" />
+        <ElFormItem label="名称">
+          <ElInput v-model="filterParams.task_name" placeholder="按名称搜索" clearable @clear="handleSearch" />
         </ElFormItem>
         <ElFormItem class="filter-actions">
           <ElButton type="primary" native-type="submit" :loading="isLoadingList" class="btn-search">
