@@ -259,11 +259,9 @@ declare namespace Api {
       [key: string]: number | string; // 所有列都是动态的
     }
 
-    /** CSV文件数据结构 - 新的返回格式 */
+    /** CSV文件数据结构 - 返回的键名由后端动态给出 */
     interface CsvResult {
-      count_csv: CsvData[];
-      fpk_csv: CsvData[];
-      tpm_csv: CsvData[];
+      [key: string]: CsvData[];
     }
 
     interface ImageData {

@@ -36,7 +36,7 @@ const selectedFileType = ref<Api.Visualization.FileType | ''>('');
 const visualizationResult = ref<Api.Visualization.Result | null>(null);
 
 // 新增CSV表格选择相关状态
-const selectedCsvTable = ref<'count_csv' | 'fpk_csv' | 'tpm_csv'>('count_csv');
+const selectedCsvTable = ref<string>('');
 
 // 计算属性
 const taskOptions = computed(() =>
@@ -52,12 +52,14 @@ const availableFileTypes = computed(() => currentTask.value?.file_type || []);
 
 const hasData = computed(() => tasks.value && tasks.value.length > 0);
 
-// CSV表格选项
-const csvTableOptions = [
-  { label: 'Count CSV', value: 'count_csv' },
-  { label: 'FPK CSV', value: 'fpk_csv' },
-  { label: 'TPM CSV', value: 'tpm_csv' }
-];
+// CSV表格选项（根据后端返回动态生成）
+const csvTableOptions = computed(() => {
+  if (visualizationResult.value?.type !== 'csv') return [];
+  const data = visualizationResult.value.data || {};
+  return Object.keys(data)
+    .filter(key => Array.isArray((data as Record<string, unknown>)[key]))
+    .map(key => ({ label: key, value: key }));
+});
 
 // 获取当前选中的CSV数据
 const currentCsvData = computed(() => {
@@ -224,7 +226,7 @@ watch(selectedTaskId, () => {
   clearBlobResources(visualizationResult.value);
   selectedFileType.value = '';
   visualizationResult.value = null;
-  selectedCsvTable.value = 'count_csv';
+  selectedCsvTable.value = '';
 });
 
 // 组件销毁时清理
@@ -235,15 +237,18 @@ onUnmounted(() => {
 // 当可视化结果变化时，重置CSV表格选择
 watch(visualizationResult, () => {
   if (visualizationResult.value?.type === 'csv') {
-    selectedCsvTable.value = 'count_csv';
+    const firstTable = Object.keys(visualizationResult.value.data || {})[0] || '';
+    selectedCsvTable.value = firstTable;
+  } else {
+    selectedCsvTable.value = '';
   }
 });
 
 // 处理CSV表格类型变化
 watch(selectedCsvTable, newValue => {
   if (visualizationResult.value?.type === 'csv') {
-    const label = csvTableOptions.find(opt => opt.value === newValue)?.label;
-    ElMessage.success(`已切换到: ${label}`);
+    const label = csvTableOptions.value.find(opt => opt.value === newValue)?.label;
+    if (label) ElMessage.success(`已切换到: ${label}`);
   }
 });
 
