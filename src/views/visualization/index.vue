@@ -69,9 +69,10 @@ const currentCsvData = computed(() => {
   return [];
 });
 
-const imageList = computed(() => {
+// [FIXED] 显式指定类型为 any[]，解决 TS 报错 '_uuid' 不存在的问题
+const imageList = computed<any[]>(() => {
   if (visualizationResult.value?.type === 'image') {
-    return visualizationResult.value.data.filter(image => Boolean(image.url));
+    return (visualizationResult.value.data as any[]).filter(image => Boolean(image.url));
   }
   return [];
 });
@@ -149,7 +150,9 @@ const clearBlobResources = (result: any) => {
 
 // [核心修改] 获取可视化数据
 const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
-  if (!selectedTaskId.value || !fileType) return;
+  // 记录当前操作的 TaskID，用于后续防止竞态条件
+  const activeTaskId = selectedTaskId.value;
+  if (!activeTaskId || !fileType) return;
 
   // 1. 请求新数据前，清理旧资源的内存
   clearBlobResources(visualizationResult.value);
@@ -159,8 +162,11 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
     selectedFileType.value = fileType;
     visualizationResult.value = null;
 
-    const { data: resultData } = await fetchTaskResult(selectedTaskId.value.toString(), fileType);
+    const { data: resultData } = await fetchTaskResult(activeTaskId.toString(), fileType);
     const token = localStg.get('token');
+
+    // [Safety Check] 如果等待期间用户切换了任务，直接返回，不处理旧数据
+    if (selectedTaskId.value !== activeTaskId) return;
 
     if (resultData && resultData.type === 'pdf') {
       // === PDF 处理 ===
@@ -188,14 +194,23 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
             });
 
             const blobUrl = window.URL.createObjectURL(response.data);
-            // 标记 isBlob 为 true，方便后续 clearBlobResources 识别清理
-            return { ...imgItem, url: blobUrl, isBlob: true };
+            // [FIXED] 添加 _uuid 确保 :key 唯一性，强制组件重渲染
+            return { ...imgItem, url: blobUrl, isBlob: true, _uuid: Date.now() + Math.random() };
           } catch {
             // 加载失败时保留原 URL，由组件显示加载失败状态
             return imgItem;
           }
         })
       );
+
+      // [Safety Check] 图片下载可能耗时，再次检查
+      if (selectedTaskId.value !== activeTaskId) {
+        // 清理刚刚下载的资源
+        newImages.forEach((img: any) => {
+          if (img.isBlob && img.url) window.URL.revokeObjectURL(img.url);
+        });
+        return;
+      }
 
       resultData.data = newImages;
       visualizationResult.value = resultData;
@@ -217,7 +232,9 @@ const fetchVisualizationData = async (fileType: Api.Visualization.FileType) => {
     visualizationResult.value = null;
     ElMessage.error('获取可视化数据失败');
   } finally {
-    visualizationLoading.value = false;
+    if (selectedTaskId.value === activeTaskId) {
+      visualizationLoading.value = false;
+    }
   }
 };
 
@@ -552,7 +569,7 @@ onMounted(async () => {
               <div v-if="imageList.length" class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
                 <div
                   v-for="(image, index) in imageList"
-                  :key="image.url || index"
+                  :key="image._uuid || index"
                   class="overflow-hidden border border-gray-200 rounded-lg bg-white shadow-sm transition-shadow duration-200 hover:shadow-md"
                 >
                   <div class="relative w-full bg-gray-50 pt-full">
