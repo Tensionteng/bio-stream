@@ -9,58 +9,64 @@ const props = defineProps<{
 }>();
 
 const loading = ref(false);
-const inputContent = ref('');
-// 输出改为数组类型，适配 JSON 结构
-const outputContent = ref<any[]>([]);
+
+// 初始化数据状态
+const inputData = ref<Api.Task.TaskInOutItem>({ type: 'txt', datas: '' });
+const outputData = ref<Api.Task.TaskInOutItem>({ type: 'txt', datas: '' });
 
 // 获取数据
 const getInOutData = async () => {
   if (!props.taskId) return;
 
   loading.value = true;
-  inputContent.value = '';
-  outputContent.value = [];
+  inputData.value = { type: 'txt', datas: '' };
+  outputData.value = { type: 'txt', datas: '' };
 
   try {
     const { data } = await fetchTaskInOut(props.taskId);
     if (data) {
-      inputContent.value = data.input || '无输入内容';
-      // 判断 output 是否为数组，如果是则直接赋值，否则尝试解析或置空
-      if (Array.isArray(data.output)) {
-        outputContent.value = data.output;
-      } else {
-        // 兼容旧数据或错误格式
-        outputContent.value = [];
+      if (data.input) {
+        inputData.value = {
+          type: data.input.type || 'txt',
+          datas: data.input.datas || ''
+        };
+      }
+      if (data.output) {
+        outputData.value = {
+          type: data.output.type || 'txt',
+          datas: data.output.datas || ''
+        };
       }
     }
   } catch (error) {
     console.error(error);
-    inputContent.value = '数据加载失败';
+    inputData.value.datas = '数据加载失败';
   } finally {
     loading.value = false;
   }
 };
 
-// 计算表格的列（动态获取 JSON 对象的 Key）
-const tableColumns = computed(() => {
-  if (outputContent.value.length > 0) {
-    return Object.keys(outputContent.value[0]);
+// 动态获取表格列
+const getTableColumns = (dataList: any) => {
+  if (Array.isArray(dataList) && dataList.length > 0) {
+    return Object.keys(dataList[0]);
   }
   return [];
-});
+};
+
+const inputColumns = computed(() => getTableColumns(inputData.value.datas));
+const outputColumns = computed(() => getTableColumns(outputData.value.datas));
 
 // 复制功能
-const handleCopy = async (content: string | any[]) => {
+const handleCopy = async (packet: Api.Task.TaskInOutItem) => {
+  const content = packet.datas;
   if (!content) return;
 
   let textToCopy = '';
-
-  // 如果是数组（表格数据），转换为格式化的 JSON 字符串供复制
-  if (Array.isArray(content)) {
-    if (content.length === 0) return;
+  if (Array.isArray(content) || typeof content === 'object') {
     textToCopy = JSON.stringify(content, null, 2);
   } else {
-    textToCopy = content;
+    textToCopy = String(content);
   }
 
   try {
@@ -87,31 +93,19 @@ watch(
       <div class="panel-header">
         <div class="header-title">
           <span class="badge input-badge">INPUT</span>
-          <span class="label">输入文件预览 (Head)</span>
+          <span class="label">输入预览 ({{ inputData.type?.toUpperCase() }})</span>
         </div>
-        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(inputContent)">复制</ElButton>
+        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(inputData)">复制</ElButton>
       </div>
-      <div class="code-wrapper light-theme">
-        <pre>{{ inputContent }}</pre>
-      </div>
-    </div>
 
-    <div class="flow-arrow">
-      <ElIcon><DArrowRight /></ElIcon>
-    </div>
-
-    <div class="preview-panel output-panel">
-      <div class="panel-header">
-        <div class="header-title">
-          <span class="badge output-badge">OUTPUT</span>
-          <span class="label">输出文件预览 (Head)</span>
-        </div>
-        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(outputContent)">复制 JSON</ElButton>
+      <div v-if="inputData.type === 'txt'" class="code-wrapper light-theme">
+        <pre>{{ inputData.datas }}</pre>
       </div>
-      <div class="table-wrapper">
+
+      <div v-else-if="inputData.type === 'csv'" class="table-wrapper">
         <ElTable
-          v-if="outputContent.length > 0"
-          :data="outputContent"
+          v-if="Array.isArray(inputData.datas) && inputData.datas.length > 0"
+          :data="inputData.datas"
           border
           stripe
           height="100%"
@@ -119,7 +113,7 @@ watch(
           :header-cell-style="{ background: '#f5f7fa', color: '#606266' }"
         >
           <ElTableColumn
-            v-for="col in tableColumns"
+            v-for="col in inputColumns"
             :key="col"
             :prop="col"
             :label="col"
@@ -133,20 +127,67 @@ watch(
             </template>
           </ElTableColumn>
         </ElTable>
-        <div v-else class="empty-text">暂无输出数据</div>
+        <div v-else class="empty-text">暂无表格数据</div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">
+      <ElIcon><DArrowRight /></ElIcon>
+    </div>
+
+    <div class="preview-panel output-panel">
+      <div class="panel-header">
+        <div class="header-title">
+          <span class="badge output-badge">OUTPUT</span>
+          <span class="label">输出预览 ({{ outputData.type?.toUpperCase() }})</span>
+        </div>
+        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(outputData)">复制</ElButton>
+      </div>
+
+      <div v-if="outputData.type === 'txt'" class="code-wrapper light-theme">
+        <pre>{{ outputData.datas }}</pre>
+      </div>
+
+      <div v-else-if="outputData.type === 'csv'" class="table-wrapper">
+        <ElTable
+          v-if="Array.isArray(outputData.datas) && outputData.datas.length > 0"
+          :data="outputData.datas"
+          border
+          stripe
+          height="100%"
+          style="width: 100%"
+          :header-cell-style="{ background: '#f5f7fa', color: '#606266' }"
+        >
+          <ElTableColumn
+            v-for="col in outputColumns"
+            :key="col"
+            :prop="col"
+            :label="col"
+            min-width="120"
+            show-overflow-tooltip
+            align="left"
+            header-align="left"
+          >
+            <template #default="scope">
+              {{ scope.row[col] }}
+            </template>
+          </ElTableColumn>
+        </ElTable>
+        <div v-else class="empty-text">暂无表格数据</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 样式保持不变，与上一版一致 */
 .inout-container {
   display: flex;
   align-items: stretch;
   gap: 16px;
   width: 100%;
   margin-top: 20px;
-  height: 400px; /* 固定整体高度，确保表格滚动 */
+  height: 400px;
 }
 
 .preview-panel {
@@ -159,7 +200,7 @@ watch(
   overflow: hidden;
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.05);
   transition: all 0.3s;
-  min-width: 0; /* 防止 flex 子项撑开 */
+  min-width: 0;
 }
 
 .preview-panel:hover {
@@ -167,7 +208,6 @@ watch(
   border-color: #dcdfe6;
 }
 
-/* 头部样式 */
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -175,7 +215,7 @@ watch(
   padding: 8px 12px;
   background: #f5f7fa;
   border-bottom: 1px solid #e4e7ed;
-  flex-shrink: 0; /* 防止头部被压缩 */
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -190,7 +230,6 @@ watch(
   color: #606266;
 }
 
-/* 徽章样式 */
 .badge {
   padding: 2px 6px;
   border-radius: 4px;
@@ -211,22 +250,20 @@ watch(
   border: 1px solid #e1f3d8;
 }
 
-/* --- 输入区域样式 (修改为白底黑字) --- */
 .code-wrapper {
   flex: 1;
   position: relative;
   overflow: hidden;
 }
 
-/* 亮色主题 */
 .code-wrapper.light-theme {
-  background: #ffffff; /* 白底 */
+  background: #ffffff;
 }
 
 .code-wrapper.light-theme pre {
   margin: 0;
   padding: 12px;
-  color: #303133; /* 黑字 (深灰) */
+  color: #303133;
   font-family: 'JetBrains Mono', 'Consolas', monospace;
   font-size: 12px;
   line-height: 1.5;
@@ -236,25 +273,28 @@ watch(
   overflow-y: auto;
 }
 
-/* 亮色滚动条 */
-.code-wrapper.light-theme pre::-webkit-scrollbar {
+.code-wrapper.light-theme pre::-webkit-scrollbar,
+:deep(.el-table__body-wrapper::-webkit-scrollbar) {
   width: 6px;
   height: 6px;
 }
-.code-wrapper.light-theme pre::-webkit-scrollbar-thumb {
+.code-wrapper.light-theme pre::-webkit-scrollbar-thumb,
+:deep(.el-table__body-wrapper::-webkit-scrollbar-thumb) {
   background: #c0c4cc;
   border-radius: 3px;
 }
-.code-wrapper.light-theme pre::-webkit-scrollbar-track {
+.code-wrapper.light-theme pre::-webkit-scrollbar-track,
+:deep(.el-table__body-wrapper::-webkit-scrollbar-track) {
   background: #f5f7fa;
 }
 
-/* --- 输出区域样式 (表格容器) --- */
 .table-wrapper {
   flex: 1;
   padding: 0;
-  overflow: hidden; /* 让 el-table 处理滚动 */
+  overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .empty-text {
@@ -266,13 +306,16 @@ watch(
   font-size: 13px;
 }
 
-/* 中间箭头 */
 .flow-arrow {
   display: flex;
   align-items: center;
   justify-content: center;
   color: #c0c4cc;
   font-size: 20px;
+}
+
+:deep(.el-table th.el-table__cell) {
+  background-color: #f5f7fa !important;
 }
 /* 针对表头的第一列 */
 :deep(.el-table thead th:first-child .cell) {

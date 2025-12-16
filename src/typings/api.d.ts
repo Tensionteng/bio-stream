@@ -694,10 +694,16 @@ declare namespace Api {
       page_size: number;
       results: TaskListItem[];
     }
-    /** 任务详情的输入输出文件 */
-    interface InOutData {
-      input: string; // 输入文件前几行内容
-      output: string; // 输出文件前几行内容
+    /** 单个输入/输出文件的数据结构 */
+    export interface TaskInOutItem {
+      type: 'txt' | 'csv' | string; // 文件类型，如 'txt' 或 'csv'
+      datas: string | any[]; // 数据内容：txt为字符串，csv为对象数组
+    }
+
+    /** 任务详情的输入输出文件 (API 响应) */
+    export interface InOutData {
+      input: TaskInOutItem;
+      output: TaskInOutItem;
     }
     // 1. 基础节点接口：包含所有节点共有的字段 (id, type, name)
     export interface FlowNodeBase {
