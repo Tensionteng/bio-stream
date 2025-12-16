@@ -125,7 +125,11 @@ watch(
             :label="col"
             min-width="120"
             show-overflow-tooltip
-          />
+          >
+            <template #default="scope">
+              {{ scope.row[col] }}
+            </template>
+          </ElTableColumn>
         </ElTable>
         <div v-else class="empty-text">暂无输出数据</div>
       </div>
