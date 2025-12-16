@@ -125,6 +125,8 @@ watch(
             :label="col"
             min-width="120"
             show-overflow-tooltip
+            align="left"
+            header-align="left"
           >
             <template #default="scope">
               {{ scope.row[col] }}
@@ -271,5 +273,14 @@ watch(
   justify-content: center;
   color: #c0c4cc;
   font-size: 20px;
+}
+/* 针对表头的第一列 */
+:deep(.el-table thead th:first-child .cell) {
+  padding-left: 24px; /* 默认通常是 12px，加倍即可 */
+}
+
+/* 针对表格内容的第一列 */
+:deep(.el-table tbody td:first-child .cell) {
+  padding-left: 24px;
 }
 </style>

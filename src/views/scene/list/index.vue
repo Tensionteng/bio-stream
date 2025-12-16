@@ -236,7 +236,7 @@ const availableFileTypes = ref<Api.Visualization.FileType[]>([]);
 const selectedFileType = ref<Api.Visualization.FileType | ''>('');
 const visualizationResult = ref<Api.Visualization.Result | null>(null);
 
-// === [修改] CSV 动态处理逻辑 ===
+// === CSV 动态处理逻辑 ===
 
 // 当前选中的子表 Key (用于多表情况)
 const selectedCsvTable = ref<string>('');
@@ -275,9 +275,9 @@ const currentCsvData = computed(() => {
   return [];
 });
 
-const imageList = computed(() => {
+const imageList = computed<any[]>(() => {
   if (visualizationResult.value?.type === 'image') {
-    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
+    return (visualizationResult.value.data as any[]).filter((img: any) => Boolean(img.url));
   }
   return [];
 });
@@ -304,7 +304,7 @@ const normalizeMediaUrl = (url: string) => {
   }
 };
 
-/** [新增] 统一清理 Blob 资源的辅助函数 */
+/** 统一清理 Blob 资源的辅助函数 */
 const clearBlobResources = (result: any) => {
   if (!result) return;
   // 清理 PDF
@@ -322,7 +322,7 @@ const clearBlobResources = (result: any) => {
   }
 };
 
-/** [新增] 分批下载图片 */
+/** 分批下载图片 */
 async function downloadImagesInBatches(images: any[], token: string | null) {
   const BATCH_SIZE = 5;
   const results = [];
@@ -340,6 +340,7 @@ async function downloadImagesInBatches(images: any[], token: string | null) {
             headers: { Authorization: token ? `Bearer ${token}` : '' }
           });
           const blobUrl = window.URL.createObjectURL(response.data);
+          // 生成唯一 _uuid 确保 :key 唯一性
           return { ...imgItem, url: blobUrl, isBlob: true, _uuid: Date.now() + Math.random() };
         } catch (error) {
           console.error(`图片加载失败: ${imgItem.name}`, error);
@@ -377,8 +378,18 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
       const localPdfUrl = window.URL.createObjectURL(blob);
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
     } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
-      // === 图片处理：改为分批次下载 ===
+      // === 图片处理：分批次下载 ===
       const newImages = await downloadImagesInBatches(resultData.data, token);
+
+      // [安全检查] 检查下载过程中用户是否切换了任务
+      if (currentVisTaskId.value !== taskId) {
+        // 如果已切换，清理刚才下载的资源，避免内存泄漏
+        newImages.forEach((img: any) => {
+          if (img.isBlob && img.url) window.URL.revokeObjectURL(img.url);
+        });
+        return;
+      }
+
       resultData.data = newImages;
       visualizationResult.value = resultData;
     } else {
@@ -390,7 +401,10 @@ const fetchVisualizationData = async (taskId: number, fileType: Api.Visualizatio
     visualizationResult.value = null;
     ElMessage.error('数据加载失败');
   } finally {
-    visualizationLoading.value = false;
+    // 只有当任务ID匹配时才关闭 loading，防止覆盖新任务的 loading 状态
+    if (currentVisTaskId.value === taskId) {
+      visualizationLoading.value = false;
+    }
   }
 };
 
@@ -624,7 +638,6 @@ watch(visualizationResult, () => {
 // 监听: 处理 CSV 表格切换提示
 watch(selectedCsvTable, newVal => {
   if (isMultiTableCsv.value && newVal) {
-    // const label = csvTableOptions.value.find(opt => opt.value === newVal)?.label; // 简化
     ElMessage.success(`已切换数据视图：${newVal}`);
   }
 });
@@ -862,13 +875,13 @@ onMounted(async () => {
               <div v-if="imageList.length" class="image-grid">
                 <div v-for="(img, idx) in imageList" :key="img.url || idx" class="image-card">
                   <ElImage
+                    :key="img._uuid || idx"
                     :src="img.url"
                     :preview-src-list="imagePreviewUrls"
                     :initial-index="idx"
                     fit="contain"
                     class="image-entity"
                     preview-teleported
-                    lazy
                   >
                     <template #placeholder>
                       <div class="image-loading-placeholder">

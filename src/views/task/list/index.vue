@@ -296,6 +296,7 @@ async function downloadImagesInBatches(images: any[], token: string | null) {
             headers: { Authorization: token ? `Bearer ${token}` : '' }
           });
           const blobUrl = window.URL.createObjectURL(response.data);
+          // 添加 _uuid 用于 Vue key
           return { ...imgItem, url: blobUrl, isBlob: true, _uuid: Date.now() + Math.random() };
         } catch (error) {
           console.error(`图片加载失败: ${imgItem.name}`, error);
@@ -310,7 +311,9 @@ async function downloadImagesInBatches(images: any[], token: string | null) {
 
 /** 加载可视化数据 */
 async function loadVisData(fileType: Api.Visualization.FileType) {
-  if (!currentVisTaskId.value) return;
+  // 记录开始时的 TaskID，防止竞态条件
+  const activeTaskId = currentVisTaskId.value;
+  if (!activeTaskId) return;
 
   clearBlobResources(visualizationResult.value);
   visualizationLoading.value = true;
@@ -320,8 +323,11 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
   selectedCsvTable.value = '';
 
   try {
-    const { data: resultData } = await fetchTaskResult(currentVisTaskId.value.toString(), fileType);
+    const { data: resultData } = await fetchTaskResult(activeTaskId.toString(), fileType);
     const token = localStg.get('token');
+
+    // 如果在 await 期间任务ID变了，停止处理
+    if (currentVisTaskId.value !== activeTaskId) return;
 
     if (resultData && resultData.type === 'pdf') {
       const pdfUrl = normalizePdfUrl(resultData.data);
@@ -334,6 +340,15 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
       visualizationResult.value = { type: 'pdf', data: localPdfUrl };
     } else if (resultData && resultData.type === 'image' && Array.isArray(resultData.data)) {
       const newImages = await downloadImagesInBatches(resultData.data, token);
+
+      // 再次检查ID，防止图片下载期间切换了任务
+      if (currentVisTaskId.value !== activeTaskId) {
+        newImages.forEach((img: any) => {
+          if (img.isBlob && img.url) window.URL.revokeObjectURL(img.url);
+        });
+        return;
+      }
+
       resultData.data = newImages;
       visualizationResult.value = resultData;
     } else {
@@ -354,7 +369,9 @@ async function loadVisData(fileType: Api.Visualization.FileType) {
     console.error('加载可视化数据失败:', error);
     ElMessage.error('加载数据失败，请检查网络或权限');
   } finally {
-    visualizationLoading.value = false;
+    if (currentVisTaskId.value === activeTaskId) {
+      visualizationLoading.value = false;
+    }
   }
 }
 
@@ -494,9 +511,10 @@ const getFileTypeLabel = (type: string) => {
   return map[type] || type.toUpperCase();
 };
 
-const imageList = computed(() => {
+// [FIXED] 显式指定类型为 any[]，解决 TS 报错 '_uuid' 不存在的问题
+const imageList = computed<any[]>(() => {
   if (visualizationResult.value?.type === 'image') {
-    return visualizationResult.value.data.filter((img: any) => Boolean(img.url));
+    return (visualizationResult.value.data as any[]).filter((img: any) => Boolean(img.url));
   }
   return [];
 });
@@ -857,7 +875,7 @@ onMounted(async () => {
 
             <div v-else-if="visualizationResult?.type === 'image'" class="image-viewer">
               <div v-if="imageList.length" class="image-grid">
-                <div v-for="(img, idx) in imageList" :key="img.url || img._uuid || idx" class="image-card">
+                <div v-for="(img, idx) in imageList" :key="img._uuid || idx" class="image-card">
                   <ElImage
                     :src="img.url"
                     :preview-src-list="imagePreviewUrls"
@@ -865,7 +883,6 @@ onMounted(async () => {
                     fit="contain"
                     class="image-entity"
                     preview-teleported
-                    lazy
                   >
                     <template #placeholder>
                       <div class="image-loading-placeholder">
