@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
-import { DArrowRight, DocumentCopy } from '@element-plus/icons-vue';
+import { DArrowRight } from '@element-plus/icons-vue';
 import { fetchTaskInOut } from '@/service/api/task';
 
 const props = defineProps<{
@@ -57,27 +56,6 @@ const getTableColumns = (dataList: any) => {
 const inputColumns = computed(() => getTableColumns(inputData.value.datas));
 const outputColumns = computed(() => getTableColumns(outputData.value.datas));
 
-// 复制功能
-const handleCopy = async (packet: Api.Task.TaskInOutItem) => {
-  const content = packet.datas;
-  if (!content) return;
-
-  let textToCopy = '';
-  if (Array.isArray(content) || typeof content === 'object') {
-    textToCopy = JSON.stringify(content, null, 2);
-  } else {
-    textToCopy = String(content);
-  }
-
-  try {
-    await navigator.clipboard.writeText(textToCopy);
-    ElMessage.success('复制成功');
-  } catch (e) {
-    console.error(e);
-    ElMessage.error('复制失败，请手动复制');
-  }
-};
-
 watch(
   () => props.taskId,
   newId => {
@@ -95,7 +73,6 @@ watch(
           <span class="badge input-badge">INPUT</span>
           <span class="label">输入预览 ({{ inputData.type?.toUpperCase() }})</span>
         </div>
-        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(inputData)">复制</ElButton>
       </div>
 
       <div v-if="inputData.type === 'txt'" class="code-wrapper light-theme">
@@ -141,7 +118,6 @@ watch(
           <span class="badge output-badge">OUTPUT</span>
           <span class="label">输出预览 ({{ outputData.type?.toUpperCase() }})</span>
         </div>
-        <ElButton link size="small" :icon="DocumentCopy" @click="handleCopy(outputData)">复制</ElButton>
       </div>
 
       <div v-if="outputData.type === 'txt'" class="code-wrapper light-theme">
@@ -180,7 +156,7 @@ watch(
 </template>
 
 <style scoped>
-/* 样式保持不变，与上一版一致 */
+/* 样式保持不变 */
 .inout-container {
   display: flex;
   align-items: stretch;
@@ -317,12 +293,11 @@ watch(
 :deep(.el-table th.el-table__cell) {
   background-color: #f5f7fa !important;
 }
-/* 针对表头的第一列 */
+
 :deep(.el-table thead th:first-child .cell) {
-  padding-left: 24px; /* 默认通常是 12px，加倍即可 */
+  padding-left: 24px;
 }
 
-/* 针对表格内容的第一列 */
 :deep(.el-table tbody td:first-child .cell) {
   padding-left: 24px;
 }
