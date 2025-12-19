@@ -29,13 +29,6 @@ const ageData = ref<Api.Home.AgeStat[]>([]);
 const loading = ref(false);
 const analysisTab = ref<'source' | 'sex' | 'genomics'>('source');
 
-/**
- * 修复逻辑说明：
- *
- * 1. 使用可选链 ?. 确保数据安全访问。
- * 2. 访问 data.data，因为接口定义的结构是 { data: { data: [] } }。
- * 3. 为 map 的参数添加类型定义，解决 "implicit any" 错误。
- */
 async function initData() {
   loading.value = true;
   try {
@@ -47,40 +40,49 @@ async function initData() {
       fetchSampleGenomics(),
       fetchSampleAge()
     ]);
-    console.log(s);
-    // 样本库来源 - 访问 .data.data
+
+    // 修改 map 逻辑，增加 desc: i.desc
+    // 注意：这里假设 i (Api.Home.SampleStat) 中包含了 desc 字段，
+    // 如果 TS 报错，可能需要更新 Api.Home.SampleStat 的类型定义，或者使用 (i: any) 临时规避
+
+    // 样本库来源
     sourceData.value =
-      s.data?.map((i: Api.Home.SampleStat) => ({
+      s.data?.map((i: any) => ({
         name: i.name,
-        value: i.count
+        value: i.count,
+        desc: i.desc // <--- 新增映射
       })) || [];
 
     // 组织来源
     tissueData.value =
-      t.data?.map((i: Api.Home.SampleStat) => ({
+      t.data?.map((i: any) => ({
         name: i.name,
-        value: i.count
+        value: i.count,
+        desc: i.desc // <--- 新增映射
       })) || [];
 
     // 性别占比
     sexData.value =
-      sex.data?.map((i: Api.Home.SampleStat) => ({
+      sex.data?.map((i: any) => ({
         name: i.name,
-        value: i.count
+        value: i.count,
+        desc: i.desc // <--- 新增映射
       })) || [];
 
     // 疾病占比
     diseaseData.value =
-      d.data?.map((i: Api.Home.SampleStat) => ({
+      d.data?.map((i: any) => ({
         name: i.name,
-        value: i.count
+        value: i.count,
+        desc: i.desc // <--- 新增映射
       })) || [];
 
-    // 组学占比 - 这里的数量只是比例，界面会通过 AnalysisPie 隐藏数值
+    // 组学占比
     genomicsData.value =
-      g.data?.map((i: Api.Home.SampleStat) => ({
+      g.data?.map((i: any) => ({
         name: i.name,
-        value: i.count
+        value: i.count,
+        desc: i.desc // <--- 新增映射
       })) || [];
 
     // 年龄分布
@@ -91,7 +93,6 @@ async function initData() {
     loading.value = false;
   }
 }
-
 onMounted(initData);
 </script>
 
@@ -101,10 +102,10 @@ onMounted(initData);
 
     <div class="flex flex-col gap-4 px-4">
       <ElRow :gutter="16" class="items-stretch">
-        <ElCol :lg="16" :md="24">
+        <ElCol :lg="12" :md="24">
           <PieChart class="h-full" />
         </ElCol>
-        <ElCol :lg="8" :md="24">
+        <ElCol :lg="12" :md="24">
           <ElCard
             class="h-full border-0 rounded-xl shadow-sm"
             shadow="hover"
@@ -113,14 +114,14 @@ onMounted(initData);
             <img
               :src="pipelineImage"
               alt="产品架构图"
-              class="max-h-64 object-contain transition-transform hover:scale-105"
+              class="w-full object-contain transition-transform hover:scale-105"
             />
           </ElCard>
         </ElCol>
       </ElRow>
 
       <ElRow :gutter="16" class="items-stretch">
-        <ElCol :lg="16" :md="24">
+        <ElCol :lg="12" :md="24">
           <ElCard class="analysis-section-card h-full" shadow="hover">
             <template #header>
               <div class="analysis-header">
@@ -164,7 +165,7 @@ onMounted(initData);
           </ElCard>
         </ElCol>
 
-        <ElCol :lg="8" :md="24">
+        <ElCol :lg="12" :md="24">
           <div class="h-full flex flex-col gap-4">
             <ProjectNews class="min-h-300px flex-1 shadow-sm" />
             <CurrentPermissions class="shadow-sm" />

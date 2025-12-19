@@ -2,25 +2,18 @@
 import { watch } from 'vue';
 import { useEcharts } from '@/hooks/common/echarts';
 
+// 1. 修改类型定义，增加 desc 字段
 const props = defineProps<{
   title: string;
-  data: { name: string; value: number }[];
+  data: { name: string; value: number; desc?: string }[];
   showValue?: boolean;
 }>();
 
-/** 优化后的专业色盘 采用邻近色系：深蓝、海蓝、青色、翠绿 这种配色比之前的 15 色更加沉稳，符合第二个案例的审美 */
-const palette = [
-  '#5c7bd9', // 蓝色
-  '#e86868', // 红色
-  '#54b280', // 绿色
-  '#79c4e3', // 浅蓝
-  '#f7c95c', // 黄色
-  '#e587d1' // 粉色
-];
+const palette = ['#5c7bd9', '#e86868', '#54b280', '#79c4e3', '#f7c95c', '#e587d1'];
+
 const { domRef, updateOptions } = useEcharts(
   () => ({
     color: palette,
-    // 彻底移除 title 配置中的中心文字
     tooltip: {
       trigger: 'item',
       backgroundColor: 'rgba(255, 255, 255, 0.98)',
@@ -33,10 +26,20 @@ const { domRef, updateOptions } = useEcharts(
           props.showValue !== false
             ? `<br/><span style="font-weight:600;color:#3b82f6">数量: ${params.value}</span>`
             : '';
+
+        // 2. 获取 desc 数据并格式化
+        // params.data 对应传入的 data 数组中的每一项对象
+        const descContent = params.data.desc
+          ? `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;font-size:12px;color:#94a3b8;line-height:1.4;max-width:200px;white-space:normal;">
+              ${params.data.desc}
+             </div>`
+          : '';
+
         return `<div style="margin-bottom:4px;font-size:12px;color:#64748b">${params.seriesName}</div>
                 <div style="display:flex;align-items:center;gap:8px">
                   ${params.marker} <b style="margin-left:4px">${params.name}</b> ${valStr} (${params.percent}%)
-                </div>`;
+                </div>
+                ${descContent}`; // 3. 将描述添加到 tooltip 底部
       }
     },
     legend: {
@@ -51,14 +54,11 @@ const { domRef, updateOptions } = useEcharts(
       {
         name: props.title,
         type: 'pie',
-        // 优化半径比例：45%-70% 看起来比之前的更厚实、专业
         radius: ['45%', '70%'],
         center: ['50%', '45%'],
         avoidLabelOverlap: true,
-        // 减小间隙（padAngle），增加整体感
         padAngle: 1.5,
         itemStyle: {
-          // 减小圆角，从 12px 改为 4px，更符合第二个图表的硬朗风格
           borderRadius: 4,
           borderColor: '#fff',
           borderWidth: 2
@@ -72,7 +72,6 @@ const { domRef, updateOptions } = useEcharts(
           }
         },
         label: {
-          // 默认不显示外部标签，保持页面简洁；如需显示，可设为 props.showValue
           show: false,
           position: 'outside',
           formatter: '{b}: {c}',
@@ -98,7 +97,6 @@ const { domRef, updateOptions } = useEcharts(
   }
 );
 
-// 监听数据变化同步更新
 watch(
   () => props.data,
   val =>

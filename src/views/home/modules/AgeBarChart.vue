@@ -2,18 +2,20 @@
 import { watch } from 'vue';
 import { useEcharts } from '@/hooks/common/echarts';
 
+// 1. 类型定义保持不变
 type AgeStat = { age: number; count: number; desc?: string };
 
 const props = defineProps<{ data: AgeStat[] }>();
 
-/** 颜色常量定义，确保图表、图例、提示框颜色完全统一 */
 const COLOR_PRE = '#2dd4bf'; // 出生前 - 青绿色
 const COLOR_POST = '#3b82f6'; // 出生后 - 蓝色
 
-/** 移动平均（支持 null，null 代表该点不属于该系列） */
+// 2. 新增：用于存储当前 X 轴(年龄)对应的描述信息映射
+// Key: 年龄字符串, Value: 描述文本数组
+let currentDescMap: Record<string, string[]> = {};
+
 function movingAverageWithNull(arr: Array<number | null>, window = 2) {
   const res = Array.from<number | null>({ length: arr.length }).fill(null);
-
   for (let i = 0; i < arr.length; i += 1) {
     const current = arr[i];
     if (typeof current !== 'number') {
@@ -34,59 +36,72 @@ function movingAverageWithNull(arr: Array<number | null>, window = 2) {
   return res;
 }
 
-/**
- * 处理数据：
- *
- * 1. 将小数 age 按整数桶聚合（Math.round）
- * 2. 补齐 x 轴缺失桶（缺失 count=0）
- * 3. 拆分出生前/出生后两条曲线（在 0 处“相接”）
- * 4. 可选平滑（移动平均），视觉上更像“密度趋势”
- */
+/** 处理数据：聚合 Count 并收集 Desc */
 function getDensityChartData(data: AgeStat[] | undefined, smoothWindow = 2) {
-  if (!data || data.length === 0) return { xAxisData: [], preData: [], postData: [] };
-
-  // 1) 按整数桶聚合：同一个桶（如 -21）把 count 累加
-  const bucket = new Map<number, number>();
-  for (const item of data) {
-    const k = Math.round(item.age);
-    bucket.set(k, (bucket.get(k) || 0) + (item.count || 0));
+  // 初始化空结果
+  if (!data || data.length === 0) {
+    return { xAxisData: [], preData: [], postData: [], descMap: {} };
   }
 
-  // 2) 生成连续 x 轴并补齐缺失桶
+  const bucket = new Map<number, number>();
+  const descBucket = new Map<number, string[]>(); // 3. 新增描述桶
+
+  for (const item of data) {
+    const k = Math.round(item.age);
+
+    // 累加数量
+    bucket.set(k, (bucket.get(k) || 0) + (item.count || 0));
+
+    // 4. 收集描述：如果存在 desc，放入数组
+    if (item.desc) {
+      const list = descBucket.get(k) || [];
+      list.push(item.desc);
+      descBucket.set(k, list);
+    }
+  }
+
   const keys = [...bucket.keys()];
   const minK = Math.min(...keys);
   const maxK = Math.max(...keys);
 
   const xAxisData: string[] = [];
   const allCounts: number[] = [];
+  const descMap: Record<string, string[]> = {}; // 最终的描述映射
 
   for (let k = minK; k <= maxK; k += 1) {
-    xAxisData.push(String(k));
+    const kStr = String(k);
+    xAxisData.push(kStr);
     allCounts.push(bucket.get(k) || 0);
+
+    // 存入 map
+    if (descBucket.has(k)) {
+      descMap[kStr] = descBucket.get(k)!;
+    }
   }
 
-  // 3) 拆分出生前/出生后
   const preRaw: Array<number | null> = [];
   const postRaw: Array<number | null> = [];
 
   for (let i = 0; i < allCounts.length; i += 1) {
     const age = Number(xAxisData[i]);
     const c = allCounts[i];
-
     preRaw.push(age <= 0 ? c : null);
     postRaw.push(age >= 0 ? c : null);
   }
 
-  // 4) 平滑
   const preData = movingAverageWithNull(preRaw, smoothWindow);
   const postData = movingAverageWithNull(postRaw, smoothWindow);
 
-  return { xAxisData, preData, postData };
+  // 返回处理好的数据和描述映射
+  return { xAxisData, preData, postData, descMap };
 }
 
 const { domRef, updateOptions } = useEcharts(
   () => {
-    const { xAxisData, preData, postData } = getDensityChartData(props.data, 2);
+    // 初始化计算
+    const { xAxisData, preData, postData, descMap } = getDensityChartData(props.data, 2);
+    // 更新外部变量，供 tooltip 使用
+    currentDescMap = descMap;
 
     return {
       title: {
@@ -118,17 +133,41 @@ const { domRef, updateOptions } = useEcharts(
         borderColor: '#e2e8f0',
         borderWidth: 1,
         textStyle: { color: '#1e293b' },
+        // 5. 修改 formatter
         formatter: (params: any) => {
-          // params 会包含两条 series，选有值的那条
-          const axisValue = Number(params?.[0]?.axisValue ?? 0);
+          const axisValueStr = params?.[0]?.axisValue; // 获取 X 轴字符串
+          const axisValue = Number(axisValueStr ?? 0);
           const age = Math.round(axisValue);
 
           const p0 = params?.[0];
           const p1 = params?.[1];
+          // 取非空的 value (显示平滑后的趋势值)
           const val = (p0?.value ?? p1?.value ?? 0) as number;
 
           const label = age < 0 ? `胎龄: ${Math.abs(age)} 周` : `年龄: ${age} 岁`;
           const color = age < 0 ? COLOR_PRE : COLOR_POST;
+
+          // 6. 从 currentDescMap 中获取描述列表
+          const descList = currentDescMap[axisValueStr] || [];
+          let descHtml = '';
+
+          if (descList.length > 0) {
+            // 如果描述太多，只显示前 5 条，避免遮挡屏幕
+            const displayList = descList.slice(0, 5);
+            const moreCount = descList.length - 5;
+
+            const listHtml = displayList.map(d => `<div style="margin-bottom:2px;">• ${d}</div>`).join('');
+            const moreHtml =
+              moreCount > 0 ? `<div style="color:#94a3b8;font-size:11px">...还有 ${moreCount} 项</div>` : '';
+
+            descHtml = `
+              <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #cbd5e1;font-size:12px;color:#64748b;line-height:1.4;max-width:220px;white-space:normal;">
+                 <div style="margin-bottom:4px;font-weight:600;color:#94a3b8">相关描述:</div>
+                 ${listHtml}
+                 ${moreHtml}
+              </div>
+            `;
+          }
 
           return `
             <div style="padding: 4px">
@@ -136,8 +175,9 @@ const { domRef, updateOptions } = useEcharts(
               <div style="display: flex; align-items: center; gap: 8px">
                 <span style="width: 8px; height: 8px; border-radius: 50%; background: ${color}"></span>
                 <b style="font-size: 14px">${label}</b>
-                <span style="color: #64748b; margin-left: 8px">数量: ${Math.round(val)}</span>
+                <span style="color: #64748b; margin-left: 8px">数量: ${val.toFixed(1)}</span>
               </div>
+              ${descHtml}
             </div>`;
         }
       },
@@ -223,10 +263,11 @@ watch(
   val => {
     if (!val) return;
 
-    const { xAxisData, preData, postData } = getDensityChartData(val, 2);
+    // 7. Watch 中重新计算并更新 currentDescMap
+    const { xAxisData, preData, postData, descMap } = getDensityChartData(val, 2);
+    currentDescMap = descMap; // 关键：更新闭包引用的变量
 
     updateOptions(opts => {
-      // xAxis 可能是对象，也可能是数组，这里做个兼容处理
       const xAxis = Array.isArray(opts.xAxis) ? opts.xAxis[0] : opts.xAxis;
       xAxis.data = xAxisData;
 
@@ -247,6 +288,7 @@ watch(
 </template>
 
 <style scoped>
+/* 样式保持不变 */
 .density-card {
   width: 100%;
   background: #ffffff;
