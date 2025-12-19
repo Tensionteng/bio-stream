@@ -114,7 +114,7 @@ onMounted(initData);
             <img
               :src="pipelineImage"
               alt="产品架构图"
-              class="w-full object-contain transition-transform hover:scale-105"
+              class="pipeline-image object-contain transition-transform hover:scale-105"
             />
           </ElCard>
         </ElCol>
@@ -273,5 +273,11 @@ onMounted(initData);
 
 .analysis-col {
   display: flex;
+}
+
+.pipeline-image {
+  width: 100%;
+  height: auto;
+  max-height: min(60vh, 520px);
 }
 </style>
