@@ -12,7 +12,7 @@ const COLOR_POST = '#3b82f6'; // 出生后 - 蓝色
 
 /** 移动平均（支持 null，null 代表该点不属于该系列） */
 function movingAverageWithNull(arr: Array<number | null>, window = 2) {
-  const res: Array<number | null> = Array.from({ length: arr.length }).fill(null);
+  const res = Array.from<number | null>({ length: arr.length }).fill(null);
 
   for (let i = 0; i < arr.length; i += 1) {
     const current = arr[i];
