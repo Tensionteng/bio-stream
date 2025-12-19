@@ -224,6 +224,21 @@ declare namespace Api {
     interface EventsResponse {
       events: Event[];
     }
+    interface SampleStat {
+      name: string;
+      count: number;
+      desc: string;
+    }
+
+    interface AgeStat {
+      age: number; // 负数代表周，正数代表年
+      count: number;
+      desc: string;
+    }
+
+    type SampleStatResponse = SampleStat[];
+
+    type AgeStatResponse = AgeStat[];
   }
 
   namespace Visualization {

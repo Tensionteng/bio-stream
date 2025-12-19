@@ -131,6 +131,7 @@ function getResponsiveChartParams(width: number) {
 }
 
 // 监听容器宽度变化，更新字号和图表尺寸
+// 监听容器宽度变化，更新字号、图表尺寸以及保持数据同步
 watch(containerWidth, newWidth => {
   if (newWidth > 0) {
     const newFontSize = getResponsiveFontSize(newWidth);
@@ -138,8 +139,9 @@ watch(containerWidth, newWidth => {
     const { radius } = getResponsiveChartParams(newWidth);
 
     updateOptions(opts => {
+      // 1. 更新标题和字号
       if (Array.isArray(opts.title)) {
-        // 更新总数量字号
+        opts.title[2].text = formatCount(totalCount.value); // 确保数值被填入
         opts.title[2].textStyle = { ...opts.title[2].textStyle, fontSize: newFontSize };
         opts.title[2].subtextStyle = {
           ...opts.title[2].subtextStyle,
@@ -147,7 +149,7 @@ watch(containerWidth, newWidth => {
           color: opts.title[2].subtextStyle?.color ?? '#999'
         };
 
-        // 更新总体积字号
+        opts.title[3].text = formatFileSize(totalSize.value); // 确保体积被填入
         opts.title[3].textStyle = { ...opts.title[3].textStyle, fontSize: newFontSize };
         opts.title[3].subtextStyle = {
           ...opts.title[3].subtextStyle,
@@ -156,15 +158,24 @@ watch(containerWidth, newWidth => {
         };
       }
 
-      // 更新两个饼图的半径
+      // 2. 更新两个饼图的半径
       opts.series[0].radius = radius.map(r => `${r}px`);
       opts.series[1].radius = radius.map(r => `${r}px`);
+
+      // 3. 核心修复：重新同步数据，防止因为 resize 导致数据丢失
+      opts.series[0].data = fileTypeData.value.map(item => ({
+        name: item.file_type_name,
+        value: item.count
+      }));
+      opts.series[1].data = fileTypeData.value.map(item => ({
+        name: item.file_type_name,
+        value: item.size
+      }));
 
       return opts;
     });
   }
 });
-// ------------------------------
 
 async function fetchData() {
   try {
