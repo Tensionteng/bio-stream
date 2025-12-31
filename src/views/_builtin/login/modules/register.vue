@@ -25,13 +25,26 @@ const model = ref<FormModel>({
   password: '',
   confirmPassword: ''
 });
-
 const rules = computed<Record<keyof FormModel, App.Global.FormRule[]>>(() => {
   const { formRules, createConfirmPwdRule } = useFormRules();
 
   return {
     username: formRules.userName,
-    password: formRules.pwd,
+    password: [
+      // 1. 必填校验
+      { required: true, message: $t('page.login.common.passwordPlaceholder'), trigger: 'blur' },
+      // 2. 正则校验：必须包含大小写、数字、下划线
+      {
+        // 解释：
+        // (?=.*[A-Z]) 至少一个大写
+        // (?=.*[a-z]) 至少一个小写
+        // (?=.*\d)    至少一个数字
+        // (?=.*_)     至少一个下划线
+        pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*_)[A-Za-z\d_]{5,20}$/,
+        message: '密码需包含大写、小写字母、数字和下划线，长度5-20位',
+        trigger: 'change'
+      }
+    ],
     confirmPassword: createConfirmPwdRule(model.value.password)
   };
 });
