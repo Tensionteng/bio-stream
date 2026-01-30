@@ -40,6 +40,35 @@ export const generatedRoutes: GeneratedRoute[] = [
     }
   },
   {
+    name: 'causal',
+    path: '/causal',
+    component: 'layout.base',
+    meta: {
+      title: 'causal',
+      i18nKey: 'route.causal'
+    },
+    children: [
+      {
+        name: 'causal_discover',
+        path: '/causal/discover',
+        component: 'view.causal_discover',
+        meta: {
+          title: 'causal_discover',
+          i18nKey: 'route.causal_discover'
+        }
+      },
+      {
+        name: 'causal_effect',
+        path: '/causal/effect',
+        component: 'view.causal_effect',
+        meta: {
+          title: 'causal_effect',
+          i18nKey: 'route.causal_effect'
+        }
+      }
+    ]
+  },
+  {
     name: 'file',
     path: '/file',
     component: 'layout.base$view.file',

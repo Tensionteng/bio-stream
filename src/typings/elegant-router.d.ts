@@ -34,6 +34,9 @@ declare module "@elegant-router/types" {
     "403": "/403";
     "404": "/404";
     "500": "/500";
+    "causal": "/causal";
+    "causal_discover": "/causal/discover";
+    "causal_effect": "/causal/effect";
     "file": "/file";
     "home": "/home";
     "login": "/login/:module(pwd-login|register)?";
@@ -104,6 +107,7 @@ declare module "@elegant-router/types" {
     | "403"
     | "404"
     | "500"
+    | "causal"
     | "file"
     | "home"
     | "login"
@@ -135,6 +139,8 @@ declare module "@elegant-router/types" {
     | "404"
     | "500"
     | "login"
+    | "causal_discover"
+    | "causal_effect"
     | "file"
     | "home"
     | "permission_apply"

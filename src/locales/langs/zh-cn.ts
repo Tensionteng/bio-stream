@@ -1,6 +1,6 @@
 const local: App.I18n.Schema = {
   system: {
-    title: '生物信息学分析平台',
+    title: '认知障碍计算因果应用',
     updateTitle: '系统版本更新通知',
     updateContent: '检测到系统有新版本发布，是否立即刷新页面？',
     updateConfirm: '立即刷新',
@@ -199,7 +199,10 @@ const local: App.I18n.Schema = {
     permission: '权限管理',
     permission_apply: '申请权限',
     permission_my: '权限申请记录',
-    permission_manage: '权限审批（管理员）'
+    permission_manage: '权限审批（管理员）',
+    causal: '因果推理',
+    causal_effect: '因果效应评估',
+    causal_discover: '因果发现'
   },
   page: {
     login: {

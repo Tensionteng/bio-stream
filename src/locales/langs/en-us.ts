@@ -199,7 +199,10 @@ const local: App.I18n.Schema = {
     permission: 'Permission',
     permission_apply: 'Permission Application',
     permission_my: 'My Permissions',
-    permission_manage: 'Permission Management'
+    permission_manage: 'Permission Management',
+    causal: 'causal',
+    causal_effect: 'causal_effect',
+    causal_discover: 'causal_discover'
   },
   page: {
     login: {
