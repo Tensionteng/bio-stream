@@ -367,6 +367,7 @@ function createTusUploadAxiosInstance() {
  * @param file 要上传的文件
  * @param uploadClient axios 实例
  * @param cancelToken 取消令牌
+ * @param authorization 授权信息（用于添加到 Authorization header）
  * @param onProgress 进度回调函数
  * @param clientid 客户端唯一标识符（用于服务器追踪和恢复上传会话）
  * @param initialOffset 初始上传偏移量（用于断点续传，默认为0）
@@ -377,6 +378,7 @@ async function uploadFileWithTUS(
   file: File,
   uploadClient: any,
   cancelToken: any,
+  authorization?: string,
   onProgress?: (loaded: number, total: number) => void,
   clientid?: string,
   initialOffset: number = 0
@@ -418,6 +420,11 @@ async function uploadFileWithTUS(
       // 如果提供了 clientid，添加到 PATCH headers 中
       if (clientid) {
         patchHeaders['clientid'] = clientid;
+      }
+      
+      // 如果提供了授权信息，添加到 PATCH headers 中
+      if (authorization) {
+        patchHeaders['Authorization'] = authorization;
       }
       
       const patchResponse = await uploadClient.patch(uploadUrl, chunk, {
@@ -464,6 +471,7 @@ async function uploadFileWithTUS(
  * @param contentType 文件 MIME 类型
  * @param uploadClient axios 实例
  * @param cancelToken 取消令牌
+ * @param authorization 授权信息（用于添加到 Authorization header）
  * @param onProgress 进度回调函数
  * @returns 上传结果 { success: boolean, error?: string }
  */
@@ -473,6 +481,7 @@ async function uploadFileWithS3(
   contentType: string,
   uploadClient: any,
   cancelToken: any,
+  authorization?: string,
   onProgress?: (loaded: number, total: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -480,10 +489,17 @@ async function uploadFileWithS3(
     
     // S3 标准上传：使用 PUT 方法直接上传到后端返回的预签名 URL
     // 上传URL已从后端 FileBatchUploadInit 接口获取，无需再发起其他请求
+    const headers: any = {
+      'Content-Type': contentType,
+    };
+    
+    // 如果提供了授权信息，添加到 headers 中
+    if (authorization) {
+      headers['Authorization'] = authorization;
+    }
+    
     const response = await uploadClient.put(uploadUrl, file, {
-      headers: {
-        'Content-Type': contentType,
-      },
+      headers,
       onUploadProgress: (progressEvent: any) => {
         if (onProgress && progressEvent.total) {
           onProgress(progressEvent.loaded, progressEvent.total);
@@ -581,6 +597,12 @@ export async function processBatchFileUploads(
     // 提取上传模式（S3 或 TUS），默认为 S3 以保持向后兼容性
     const uploadMode = responseData?.mode || UPLOAD_MODE_S3;
     console.log(`检测到上传模式: ${uploadMode}`);
+
+    // 提取授权信息
+    const authorization = responseData?.authorization;
+    if (authorization) {
+      console.log(`获取到授权信息: ${authorization.substring(0, 20)}...`);
+    }
 
     const uploadFilesArray = responseData?.upload_files || [];
     console.log('批量上传文件数组:', uploadFilesArray);
@@ -749,6 +771,7 @@ export async function processBatchFileUploads(
                     uploadContentType,
                     uploadClient,
                     cancelTokenSource.token,
+                    authorization,
                     (loaded, total) => {
                       trackUploadProgress(
                         { loaded, total },
@@ -765,6 +788,7 @@ export async function processBatchFileUploads(
                     fileEntry.file,
                     uploadClient,
                     cancelTokenSource.token,
+                    authorization,
                     (loaded, total) => {
                       trackUploadProgress(
                         { loaded, total },
