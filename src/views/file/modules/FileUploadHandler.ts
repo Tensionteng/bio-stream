@@ -7,8 +7,8 @@ import { FileUploadComplete } from '@/service/api/file';
 const UPLOAD_MODE_S3 = 'S3';
 /** TUS上传模式标识 */
 const UPLOAD_MODE_TUS = 'TUS';
-/** TUS分块大小：5MB */
-const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
+/** TUS分块大小：20MB */
+const TUS_CHUNK_SIZE = 20 * 1024 * 1024;
 
 // ==================== 上传任务管理 ====================
 /**
@@ -405,7 +405,7 @@ async function uploadFileWithTUS(
     
     // 如果提供了 clientid，添加到 headers 中供服务器追踪上传会话
     if (clientid) {
-      initHeaders['X-Client-Id'] = clientid;
+      initHeaders['clientid'] = clientid;
     }
     
     const initResponse = await uploadClient.post(uploadUrl, null, {
@@ -425,6 +425,7 @@ async function uploadFileWithTUS(
     // TUS 协议：上传文件内容
     // 将文件分块上传到服务器，从 initialOffset 开始（支持断点续传）
     const chunkSize = TUS_CHUNK_SIZE;
+    let serverReceivedBytes = initialOffset; // 追踪服务器已接收的字节数
     
     for (let offset = initialOffset; offset < fileSize; offset += chunkSize) {
       // 计算当前分块大小
@@ -432,16 +433,17 @@ async function uploadFileWithTUS(
       const chunk = file.slice(offset, offset + currentChunkSize);
       
       // PATCH 请求上传分块，包含 clientid 用于服务器追踪
+      // Upload-Offset 由前端计算：表示这个分块上传前服务器已接收的字节数
       const patchHeaders: any = {
         'Tus-Resumable': '1.0.0',
         'Content-Type': 'application/offset+octet-stream',
-        'Upload-Offset': offset,
+        'Upload-Offset': serverReceivedBytes,
         'Content-Length': currentChunkSize
       };
       
       // 如果提供了 clientid，添加到 PATCH headers 中
       if (clientid) {
-        patchHeaders['X-Client-Id'] = clientid;
+        patchHeaders['clientid'] = clientid;
       }
       
       const patchResponse = await uploadClient.patch(tusUploadUrl, chunk, {
@@ -459,6 +461,9 @@ async function uploadFileWithTUS(
       if (patchResponse.status < 200 || patchResponse.status >= 300) {
         throw new Error(`TUS 分块上传失败: HTTP ${patchResponse.status}`);
       }
+      
+      // 更新服务器已接收的字节数（前端计算，假设本次分块上传成功）
+      serverReceivedBytes += currentChunkSize;
     }
 
     // 确保进度显示为100%
