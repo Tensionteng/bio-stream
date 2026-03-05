@@ -599,10 +599,9 @@ export async function processBatchFileUploads(
     console.log(`检测到上传模式: ${uploadMode}`);
 
     // 提取授权信息
-    const authorization = responseData?.authorization;
-    if (authorization) {
-      console.log(`获取到授权信息: ${authorization.substring(0, 20)}...`);
-    }
+    const Authorization = responseData?.Authorization;
+    console.log(`授权信息: ${Authorization.substring(0, 20)}...`);
+    
 
     const uploadFilesArray = responseData?.upload_files || [];
     console.log('批量上传文件数组:', uploadFilesArray);
@@ -771,7 +770,7 @@ export async function processBatchFileUploads(
                     uploadContentType,
                     uploadClient,
                     cancelTokenSource.token,
-                    authorization,
+                    Authorization,
                     (loaded, total) => {
                       trackUploadProgress(
                         { loaded, total },
@@ -788,7 +787,7 @@ export async function processBatchFileUploads(
                     fileEntry.file,
                     uploadClient,
                     cancelTokenSource.token,
-                    authorization,
+                    Authorization,
                     (loaded, total) => {
                       trackUploadProgress(
                         { loaded, total },
