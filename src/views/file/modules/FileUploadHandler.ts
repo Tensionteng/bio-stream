@@ -382,7 +382,7 @@ async function uploadFileWithTUS(
   initialOffset: number = 0
 ): Promise<{ success: boolean; error?: string; offset?: number }> {
   try {
-    console.log(`[TUS上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, clientid: ${clientid}, 初始偏移: ${initialOffset}`);
+    console.log(`[TUS上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, clientid: ${clientid}, 初始偏移: ${initialOffset}, 上传URL: ${uploadUrl}`);
     
     const fileSize = file.size;
     let uploadedBytes = initialOffset; // 从初始偏移量开始
@@ -394,36 +394,10 @@ async function uploadFileWithTUS(
         onProgress(uploadedBytes, fileSize);
       }
     }
-    
-    // TUS 协议：首先创建上传会话
-    // POST 请求创建一个上传会话，服务器返回 Location header 包含续传 URL
-    const initHeaders: any = {
-      'Tus-Resumable': '1.0.0',
-      'Upload-Length': fileSize,
-      'Content-Type': file.type || 'application/octet-stream',
-    };
-    
-    // 如果提供了 clientid，添加到 headers 中供服务器追踪上传会话
-    if (clientid) {
-      initHeaders['clientid'] = clientid;
-    }
-    
-    const initResponse = await uploadClient.post(uploadUrl, null, {
-      headers: initHeaders,
-      cancelToken
-    });
-
-    console.log(`[TUS上传] 初始化响应状态: ${initResponse.status}`);
-    if (initResponse.status < 200 || initResponse.status >= 300) {
-      throw new Error(`TUS 初始化失败: HTTP ${initResponse.status}`);
-    }
-
-    // 获取续传 URL（通常在 Location header 中）
-    const tusUploadUrl = initResponse.headers['location'] || uploadUrl;
-    console.log(`[TUS上传] 续传URL: ${tusUploadUrl}`);
 
     // TUS 协议：上传文件内容
     // 将文件分块上传到服务器，从 initialOffset 开始（支持断点续传）
+    // 上传URL已从后端 FileBatchUploadInit 接口获取，无需再发起初始化请求
     const chunkSize = TUS_CHUNK_SIZE;
     let serverReceivedBytes = initialOffset; // 追踪服务器已接收的字节数
     
@@ -437,7 +411,7 @@ async function uploadFileWithTUS(
       const patchHeaders: any = {
         'Tus-Resumable': '1.0.0',
         'Content-Type': 'application/offset+octet-stream',
-        'Upload-Offset': serverReceivedBytes,
+        'Upload-Offset': serverReceivedBytes || 0,
         'Content-Length': currentChunkSize
       };
       
@@ -446,10 +420,11 @@ async function uploadFileWithTUS(
         patchHeaders['clientid'] = clientid;
       }
       
-      const patchResponse = await uploadClient.patch(tusUploadUrl, chunk, {
+      const patchResponse = await uploadClient.patch(uploadUrl, chunk, {
         headers: patchHeaders,
         onUploadProgress: (progressEvent: any) => {
-          uploadedBytes = offset + progressEvent.loaded;
+          // 计算总进度：已接收字节数 + 当前分块的上传进度
+          uploadedBytes = serverReceivedBytes + progressEvent.loaded;
           if (onProgress) {
             onProgress(uploadedBytes, fileSize);
           }
@@ -482,9 +457,9 @@ async function uploadFileWithTUS(
 
 /**
  * 使用 S3 协议上传文件（PUT 方式）
- * 原始上传模式，直接 PUT 文件到 S3
+ * 直接 PUT 文件到后端返回的预签名 URL
  * 
- * @param uploadUrl S3 预签名 URL
+ * @param uploadUrl S3 预签名 URL（已从 FileBatchUploadInit 响应中获取）
  * @param file 要上传的文件
  * @param contentType 文件 MIME 类型
  * @param uploadClient axios 实例
@@ -501,9 +476,10 @@ async function uploadFileWithS3(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log(`[S3上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, 类型: ${contentType}`);
+    console.log(`[S3上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, 类型: ${contentType}, 上传URL: ${uploadUrl}`);
     
-    // S3 标准上传：使用 PUT 方法
+    // S3 标准上传：使用 PUT 方法直接上传到后端返回的预签名 URL
+    // 上传URL已从后端 FileBatchUploadInit 接口获取，无需再发起其他请求
     const response = await uploadClient.put(uploadUrl, file, {
       headers: {
         'Content-Type': contentType,
