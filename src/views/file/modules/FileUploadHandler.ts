@@ -2,9 +2,27 @@ import axios from 'axios';
 import { createSHA256 } from 'hash-wasm';
 import { FileUploadComplete } from '@/service/api/file';
 
+// ==================== 常量定义 ====================
+/** S3上传模式标识 */
+const UPLOAD_MODE_S3 = 'S3';
+/** TUS上传模式标识 */
+const UPLOAD_MODE_TUS = 'TUS';
+/** TUS分块大小：5MB */
+const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
+
 // ==================== 上传任务管理 ====================
+/**
+ * 上传任务的数据结构
+ * 记录了取消令牌、axios客户端和上传模式信息
+ */
+interface UploadTask {
+  cancelToken: any;
+  uploadClient: any;
+  mode: string; // 'S3' 或 'TUS'
+}
+
 // 全局上传任务映射表，用于管理和取消上传任务
-const uploadTaskMap = new Map<string, { cancelToken: any; uploadClient: any }>();
+const uploadTaskMap = new Map<string, UploadTask>();
 
 /**
  * 获取上传任务的取消令牌
@@ -17,16 +35,19 @@ export function getUploadTaskCancelToken(taskId: string) {
 
 /**
  * 注册一个新的上传任务到全局映射表
+ * 支持记录上传模式信息
  * @param taskId 任务ID
  * @param cancelToken axios 取消令牌
  * @param uploadClient axios 上传客户端实例
+ * @param mode 上传模式 ('S3' 或 'TUS')
  */
-export function registerUploadTask(taskId: string, cancelToken: any, uploadClient: any) {
-  uploadTaskMap.set(taskId, { cancelToken, uploadClient });
+export function registerUploadTask(taskId: string, cancelToken: any, uploadClient: any, mode: string = 'S3') {
+  uploadTaskMap.set(taskId, { cancelToken, uploadClient, mode });
 }
 
 /**
  * 取消上传任务
+ * 根据不同的上传模式执行相应的取消逻辑
  * @param taskId 任务ID
  */
 export function cancelUploadTask(taskId: string) {
@@ -298,8 +319,14 @@ export function extractNonFileFormData(dynamicForm: any): Record<string, any> {
   return formData;
 }
 
-// 创建专用的上传 axios 实例，用于更精准的进度跟踪
-function createUploadAxiosInstance() {
+// ==================== 上传模式选择与初始化 ====================
+
+/**
+ * 创建专用的 S3 上传 axios 实例
+ * 用于更精准的进度跟踪和超大文件上传
+ * @returns axios 实例
+ */
+function createS3UploadAxiosInstance() {
   return axios.create({
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
@@ -311,7 +338,211 @@ function createUploadAxiosInstance() {
   });
 }
 
-// 实时跟踪上传进度，确保进度更新的准确性和连续性
+/**
+ * 创建专用的 TUS 上传 axios 实例
+ * TUS 协议需要特殊的 headers 支持（Tus-Resumable、Upload-Length等）
+ * @returns axios 实例
+ */
+function createTusUploadAxiosInstance() {
+  return axios.create({
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    timeout: 0, // 禁用超时，大文件上传需要充足时间
+    validateStatus: function(status) {
+      // 认可所有状态码，让我们手动处理
+      return true;
+    },
+    headers: {
+      // TUS 协议标准 headers
+      'Tus-Resumable': '1.0.0'
+    }
+  });
+}
+
+/**
+ * 使用 TUS 协议上传文件
+ * TUS 支持分块上传和断点续传
+ * 
+ * @param uploadUrl TUS 服务器提供的上传 URL
+ * @param file 要上传的文件
+ * @param uploadClient axios 实例
+ * @param cancelToken 取消令牌
+ * @param onProgress 进度回调函数
+ * @param clientid 客户端唯一标识符（用于服务器追踪和恢复上传会话）
+ * @param initialOffset 初始上传偏移量（用于断点续传，默认为0）
+ * @returns 上传结果 { success: boolean; error?: string; offset?: number }
+ */
+async function uploadFileWithTUS(
+  uploadUrl: string,
+  file: File,
+  uploadClient: any,
+  cancelToken: any,
+  onProgress?: (loaded: number, total: number) => void,
+  clientid?: string,
+  initialOffset: number = 0
+): Promise<{ success: boolean; error?: string; offset?: number }> {
+  try {
+    console.log(`[TUS上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, clientid: ${clientid}, 初始偏移: ${initialOffset}`);
+    
+    const fileSize = file.size;
+    let uploadedBytes = initialOffset; // 从初始偏移量开始
+    
+    // 如果有初始偏移量，说明这是断点续传，跳过已上传的部分
+    if (initialOffset > 0) {
+      console.log(`[TUS上传] 检测到断点续传，从偏移量 ${initialOffset} 继续`);
+      if (onProgress) {
+        onProgress(uploadedBytes, fileSize);
+      }
+    }
+    
+    // TUS 协议：首先创建上传会话
+    // POST 请求创建一个上传会话，服务器返回 Location header 包含续传 URL
+    const initHeaders: any = {
+      'Tus-Resumable': '1.0.0',
+      'Upload-Length': fileSize,
+      'Content-Type': file.type || 'application/octet-stream',
+    };
+    
+    // 如果提供了 clientid，添加到 headers 中供服务器追踪上传会话
+    if (clientid) {
+      initHeaders['X-Client-Id'] = clientid;
+    }
+    
+    const initResponse = await uploadClient.post(uploadUrl, null, {
+      headers: initHeaders,
+      cancelToken
+    });
+
+    console.log(`[TUS上传] 初始化响应状态: ${initResponse.status}`);
+    if (initResponse.status < 200 || initResponse.status >= 300) {
+      throw new Error(`TUS 初始化失败: HTTP ${initResponse.status}`);
+    }
+
+    // 获取续传 URL（通常在 Location header 中）
+    const tusUploadUrl = initResponse.headers['location'] || uploadUrl;
+    console.log(`[TUS上传] 续传URL: ${tusUploadUrl}`);
+
+    // TUS 协议：上传文件内容
+    // 将文件分块上传到服务器，从 initialOffset 开始（支持断点续传）
+    const chunkSize = TUS_CHUNK_SIZE;
+    
+    for (let offset = initialOffset; offset < fileSize; offset += chunkSize) {
+      // 计算当前分块大小
+      const currentChunkSize = Math.min(chunkSize, fileSize - offset);
+      const chunk = file.slice(offset, offset + currentChunkSize);
+      
+      // PATCH 请求上传分块，包含 clientid 用于服务器追踪
+      const patchHeaders: any = {
+        'Tus-Resumable': '1.0.0',
+        'Content-Type': 'application/offset+octet-stream',
+        'Upload-Offset': offset,
+        'Content-Length': currentChunkSize
+      };
+      
+      // 如果提供了 clientid，添加到 PATCH headers 中
+      if (clientid) {
+        patchHeaders['X-Client-Id'] = clientid;
+      }
+      
+      const patchResponse = await uploadClient.patch(tusUploadUrl, chunk, {
+        headers: patchHeaders,
+        onUploadProgress: (progressEvent: any) => {
+          uploadedBytes = offset + progressEvent.loaded;
+          if (onProgress) {
+            onProgress(uploadedBytes, fileSize);
+          }
+        },
+        cancelToken
+      });
+
+      console.log(`[TUS上传] 分块 ${Math.ceil((offset + currentChunkSize) / chunkSize)} 响应状态: ${patchResponse.status}`);
+      if (patchResponse.status < 200 || patchResponse.status >= 300) {
+        throw new Error(`TUS 分块上传失败: HTTP ${patchResponse.status}`);
+      }
+    }
+
+    // 确保进度显示为100%
+    if (onProgress) {
+      onProgress(fileSize, fileSize);
+    }
+
+    console.log(`[TUS上传] 文件上传完成: ${file.name}`);
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || '文件上传失败';
+    console.error(`[TUS上传] 错误: ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * 使用 S3 协议上传文件（PUT 方式）
+ * 原始上传模式，直接 PUT 文件到 S3
+ * 
+ * @param uploadUrl S3 预签名 URL
+ * @param file 要上传的文件
+ * @param contentType 文件 MIME 类型
+ * @param uploadClient axios 实例
+ * @param cancelToken 取消令牌
+ * @param onProgress 进度回调函数
+ * @returns 上传结果 { success: boolean, error?: string }
+ */
+async function uploadFileWithS3(
+  uploadUrl: string,
+  file: File,
+  contentType: string,
+  uploadClient: any,
+  cancelToken: any,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log(`[S3上传] 开始上传文件: ${file.name}, 大小: ${file.size} 字节, 类型: ${contentType}`);
+    
+    // S3 标准上传：使用 PUT 方法
+    const response = await uploadClient.put(uploadUrl, file, {
+      headers: {
+        'Content-Type': contentType,
+      },
+      onUploadProgress: (progressEvent: any) => {
+        if (onProgress && progressEvent.total) {
+          onProgress(progressEvent.loaded, progressEvent.total);
+        }
+      },
+      cancelToken
+    });
+
+    console.log(`[S3上传] 响应状态码: ${response.status}, 状态文本: ${response.statusText}`);
+
+    // 检查响应状态码，200-299 为成功
+    if (!response.status || response.status < 200 || response.status >= 300) {
+      const errorMsg = `S3 上传失败: HTTP ${response.status} ${response.statusText || ''}`;
+      console.error(errorMsg);
+      if (response.data) {
+        console.error('服务器响应:', response.data);
+      }
+      return { success: false, error: errorMsg };
+    }
+
+    console.log(`[S3上传] 文件上传完成: ${file.name}`);
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error?.message || '文件上传失败';
+    console.error(`[S3上传] 错误: ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
+}
+
+// ==================== 进度跟踪 ====================
+
+/**
+ * 实时跟踪上传进度，确保进度更新的准确性和连续性
+ * 通过进度事件更新任务进度百分比
+ * 
+ * @param progressEvent axios 上传进度事件
+ * @param taskId 任务ID
+ * @param onTaskProgress 进度更新回调
+ * @param lastProgress 上次进度记录对象（用于避免进度回退）
+ */
 function trackUploadProgress(
   progressEvent: any,
   taskId: string,
@@ -362,9 +593,13 @@ export async function processBatchFileUploads(
 ): Promise<any> {
   try {
     // 从响应中提取上传URLs
-    // 响应格式: { status: "success", upload_files: [ { sample_id, upload_urls: [ { field_name, upload_url, s3_key }, ... ] }, ... ] }
+    // 响应格式: { status: "success", mode: "S3"|"TUS", upload_files: [ { sample_id, upload_urls: [ { field_name, upload_url, s3_key, clientid }, ... ] }, ... ] }
     const responseData = batchInitResponse?.data || batchInitResponse;
     console.log('批量上传初始化响应数据:', responseData);
+
+    // 提取上传模式（S3 或 TUS），默认为 S3 以保持向后兼容性
+    const uploadMode = responseData?.mode || UPLOAD_MODE_S3;
+    console.log(`检测到上传模式: ${uploadMode}`);
 
     const uploadFilesArray = responseData?.upload_files || [];
     console.log('批量上传文件数组:', uploadFilesArray);
@@ -508,47 +743,71 @@ export async function processBatchFileUploads(
             // 创建上传Promise
             const uploadPromise = (async () => {
               try {
-                const uploadClient = createUploadAxiosInstance();
+                // 根据上传模式选择对应的 axios 实例
+                const uploadClient = uploadMode === UPLOAD_MODE_S3 
+                  ? createS3UploadAxiosInstance() 
+                  : createTusUploadAxiosInstance();
                 const cancelTokenSource = axios.CancelToken.source();
                 const lastProgress = { current: 0 };
 
-                // 注册任务用于全局管理
-                registerUploadTask(taskId, cancelTokenSource, uploadClient);
+                // 注册任务用于全局管理，记录上传模式
+                registerUploadTask(taskId, cancelTokenSource, uploadClient, uploadMode);
 
-                console.log(`开始上传 [样本${sample_id}] ${field_name}: ${uploadUrlInfo.upload_url}`);
+                console.log(`开始上传 [样本${sample_id}] ${field_name}: ${uploadUrlInfo.upload_url} (模式: ${uploadMode})`);
                 console.log(`文件信息: 名称=${fileEntry.file.name}, 大小=${fileEntry.file.size}, 类型=${fileEntry.file.type}`);
-                // 执行上传 - 使用指定的 content_type（如果有的话），否则使用浏览器识别的类型
-                const uploadContentType = content_type || fileEntry.file.type || 'application/octet-stream';
-                const response = await uploadClient.put(uploadUrlInfo.upload_url, fileEntry.file, {
-                  headers: {
-                    'Content-Type': uploadContentType,
-                  },
-                  onUploadProgress: (progressEvent: any) => {
-                    trackUploadProgress(progressEvent, taskId, onTaskProgress, lastProgress);
-                  },
-                  cancelToken: cancelTokenSource.token
-                });
 
-                console.log(`PUT 请求响应状态码: ${response.status}, 状态文本: ${response.statusText}`);
-
-                // 检查响应状态码，200-299 为成功
-                if (!response.status || response.status < 200 || response.status >= 300) {
-                  const errorMsg = `PUT 上传失败: HTTP ${response.status} ${response.statusText || ''}`;
-                  console.error(errorMsg);
-                  if (response.data) {
-                    console.error('服务器响应:', response.data);
-                  }
-                  throw new Error(errorMsg);
+                // 根据上传模式选择不同的上传函数
+                let uploadResult: { success: boolean; error?: string };
+                
+                if (uploadMode === UPLOAD_MODE_S3) {
+                  // S3 模式：使用 PUT 直接上传到 S3 预签名 URL
+                  const uploadContentType = content_type || fileEntry.file.type || 'application/octet-stream';
+                  uploadResult = await uploadFileWithS3(
+                    uploadUrlInfo.upload_url,
+                    fileEntry.file,
+                    uploadContentType,
+                    uploadClient,
+                    cancelTokenSource.token,
+                    (loaded, total) => {
+                      trackUploadProgress(
+                        { loaded, total },
+                        taskId,
+                        onTaskProgress,
+                        lastProgress
+                      );
+                    }
+                  );
+                } else {
+                  // TUS 模式：使用 TUS 协议的 POST/PATCH 分块上传
+                  uploadResult = await uploadFileWithTUS(
+                    uploadUrlInfo.upload_url,
+                    fileEntry.file,
+                    uploadClient,
+                    cancelTokenSource.token,
+                    (loaded, total) => {
+                      trackUploadProgress(
+                        { loaded, total },
+                        taskId,
+                        onTaskProgress,
+                        lastProgress
+                      );
+                    },
+                    uploadUrlInfo.clientid, // 传入 clientid 用于服务器追踪
+                    uploadUrlInfo.initial_offset || 0 // 传入初始偏移量，支持断点续传
+                  );
                 }
 
-                console.log('PUT 响应数据:', response.data);
+                // 检查上传结果
+                if (!uploadResult.success) {
+                  throw new Error(uploadResult.error || '上传失败');
+                }
+
+                console.log(`上传完成 [样本${sample_id}] ${field_name} -> ${uploadUrlInfo.s3_key}`);
 
                 // 确保进度显示为100%
                 if (onTaskProgress) {
                   onTaskProgress(taskId, 100);
                 }
-
-                console.log(`上传完成 [样本${sample_id}] ${field_name} -> ${uploadUrlInfo.s3_key}`);
 
                 // 记录此 batch 的已上传文件信息
                 try {
