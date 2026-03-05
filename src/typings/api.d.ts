@@ -107,6 +107,7 @@ declare namespace Api {
       field_name: string;
       filename: string;
       content_type: string;
+      file_size: number;
     }
 
     interface FileBatchUploadItem {

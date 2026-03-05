@@ -250,7 +250,8 @@ export function useFileUpload() {
             fields.push({
               field_name: group.field.originalName || group.field.name,
               filename: fileInfo.path.split('/').pop() || fileInfo.path.split('\\').pop() || fileInfo.path,
-              content_type: fileInfo.file_type
+              content_type: fileInfo.file_type,
+              file_size: fileInfo.file.size // 添加文件大小
             });
           }
         }
