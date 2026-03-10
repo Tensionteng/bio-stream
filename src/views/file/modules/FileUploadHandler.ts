@@ -413,8 +413,7 @@ async function uploadFileWithTUS(
       const patchHeaders: any = {
         'Tus-Resumable': '1.0.0',
         'Content-Type': 'application/offset+octet-stream',
-        'Upload-Offset': serverReceivedBytes || 0,
-        'Content-Length': currentChunkSize
+        'Upload-Offset': serverReceivedBytes || 0
       };
       
       // 如果提供了 clientid，添加到 PATCH headers 中
